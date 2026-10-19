@@ -81,7 +81,7 @@ def write_gpl(path: Path, name: str, colours: list[str], comment: str = "") -> N
         r, g, b = hex_to_rgb(h)
         lines.append(f"{r:3d} {g:3d} {b:3d}\t{name}-{i}")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")  # LF on every OS
 
 
 def rebuild() -> int:
@@ -100,7 +100,7 @@ def rebuild() -> int:
     for name, h in union:
         r, g, b = hex_to_rgb(h)
         lines.append(f"{r:3d} {g:3d} {b:3d}\t{name}")
-    UNION.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    UNION.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     print(f"wrote {len(spec['ramps'])} ramps to {WORLD.relative_to(ROOT)}/ and {len(union)} colours to {UNION.relative_to(ROOT)}")
     return 0
 

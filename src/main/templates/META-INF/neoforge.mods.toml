@@ -1,0 +1,30 @@
+# Expanded by the generateModMetadata task in build.gradle (values from gradle.properties).
+# A private build, never published (D-010).
+license="${mod_license}"
+
+[[mods]]
+modId="${mod_id}"
+version="${mod_version}"
+displayName="${mod_name}"
+authors="Champ"
+description='''
+A lore-accurate, skill-first Demon Slayer action RPG for Slayers and demons.
+'''
+
+# AFTER puts this mod's data pack above NeoForge's: mod packs stack in mod order, later ones win. NeoForge ships its
+# own copies of 446 vanilla recipes; stacked above ours (as they were while kimetsu sorted first), they shadowed 36 of
+# the vanilla-scope pack's neoforge:never overrides (every sword, the bow, netherite). The GameTests check that every
+# override is the top of its resource stack.
+[[dependencies.${mod_id}]]
+    modId="neoforge"
+    type="required"
+    versionRange="[${neo_version},)"
+    ordering="AFTER"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="minecraft"
+    type="required"
+    versionRange="${minecraft_version_range}"
+    ordering="NONE"
+    side="BOTH"

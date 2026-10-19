@@ -1,7 +1,7 @@
 # ADR 0001: Platform and library stack
 
-- **Status:** PROPOSED (R6-01, R6-02), waiting for Champ
-- **Date:** 2026-10-18 (versions checked that day against Maven, Modrinth and the NeoForge primers; Photon2, Epic Fight and Bendable Cuboids rechecked in Round 7 the same day)
+- **Status:** Accepted by Champ on 2026-10-19 (R6-01, R6-02; D-004, D-005)
+- **Date:** 2026-10-18 (versions checked that day against Maven, Modrinth and the NeoForge primers; Photon2, Epic Fight and Bendable Cuboids rechecked in Round 7 the same day). Maven coordinates verified 2026-10-19 (below).
 - **Supersedes:** the handoff pack's "Checked tech stack" (Minecraft 1.21.1, GeckoLib 4, playerAnimator, Veil)
 
 ## Decision
@@ -42,7 +42,19 @@ Not on 26.3, so not used: Veil and Lodestone (1.21.1 only), Photon2 (its newest 
 
 Tools: Blockbench 5.2.2 with the GeckoLib plugin 4.2.5, the headless Blockbench MCP 1.9.3 (`.mcp.json`), Aseprite 1.3.18, Krita, Blender with the Emotecraft PAL rig (Blender 5.2+), Python 3.10+ with Pillow, ffmpeg. The design, test and debug tools (IntelliJ's MCP server, MCTest, RenderDoc, JetBrains Runtime, aseprite-mcp, the Blender Lab MCP and the dev-instance mods) are in ADR 0002.
 
-**Maven coordinates:** don't trust memory. Take each one from the library's README or wiki at the pinned version (`/verify-api` can look them up). Modrinth's Maven works for most projects as a fallback: repository `https://api.modrinth.com/maven`, artifact `maven.modrinth:<project-slug>:<version>`.
+**Maven coordinates:** don't trust memory. Take each one from the library's README or wiki at the pinned version (`/verify-api` can look them up), then fetch the POM: a wiki can be stale. Modrinth's Maven works for most projects as a fallback: repository `https://api.modrinth.com/maven`, artifact `maven.modrinth:<project-slug>:<version ID>`. Use the version ID, not the version number: numbers repeat across loaders and Minecraft versions, and by number three of these five resolve to the wrong jar.
+
+**Verified coordinates (2026-10-19).** Each POM and jar returned HTTP 200 from the official repository, and each jar is byte-identical to the Modrinth 26.3 NeoForge file (PAL: its NeoForge half). A library becomes a dependency with the first M1 code that uses it.
+
+| Library | Repository | Coordinate | Modrinth fallback | Notes |
+|---|---|---|---|---|
+| PAL | `https://repo.redlance.org/public` | `com.zigythebird.playeranim:PlayerAnimationLibNeo:${pal_version}` | `maven.modrinth:player-animation-library:xJ30QmpE` | Beta. Modrinth's `PlayerAnimationLibMerged` jar isn't on Maven; the Neo artifact pulls `PlayerAnimationLibCore` and libraries from Redlance and Maven Central, so add both repositories |
+| Bendable Cuboids | `https://repo.redlance.org/public` | `com.zigythebird.bendable_cuboids:BendableCuboidsMerged:${bendable_cuboids_version}` | `maven.modrinth:bendable-cuboids:DbUl93Sa` | Beta. Its POM declares no dependencies (add PAL yourself); it refuses PAL older than 1.2.8+mc.26.3 and needs NeoForge ≥ 26.3.0.33 |
+| AzureLib | `https://maven.azuredoom.com/mods` | `mod.azure.azurelib:azurelib-neo-26.3:${azurelib_version}` | `maven.modrinth:azurelib:4kva3IhA` | Self-contained jar |
+| GeckoLib (fallback) | `https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/` | `com.geckolib:geckolib-neoforge-26.3:${geckolib_version}` | `maven.modrinth:geckolib:2s1O42FX` | `exclusiveContent` with `includeGroupAndSubgroups('com.geckolib')` |
+| SmartBrainLib | `https://dl.cloudsmith.io/public/tslat/sbl/maven/` | `net.tslat:smartbrainlib-neoforge-26.3:${smartbrainlib_version}` | `maven.modrinth:smartbrainlib:7Lf18LcC` | Its wiki's `net.tslat.smartbrainlib:SmartBrainLib-neoforge-…` is stale (404 for 26.3); filter `includeGroup('net.tslat')` |
+
+NeoForge itself has moved on to 26.3.0.94 since the pin; the pin stays at 26.3.0.92 until a reason to move appears.
 
 `gradle.properties` keys the hooks read:
 ```properties

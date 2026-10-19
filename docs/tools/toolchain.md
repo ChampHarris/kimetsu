@@ -66,7 +66,7 @@ It binds to `127.0.0.1` only and never goes into the jar.
 - the dedicated-server tools (`mc_server_*` on port 25598) for desync tests.
 
 ## 4. Dev-instance mods
-spark (profiling), JEI (it shows whether removed items are hidden) and WorldEdit (test arenas) load only in the dev runs, through the same `localRuntime` configuration. Chunky is in the block too; it's for step 10. They come from Modrinth's Maven, pinned by version ID, because version numbers repeat across loaders.
+spark (profiling), JEI (it shows whether removed items are hidden) and WorldEdit (test arenas) load only in the dev runs, through the same `localRuntime` configuration. Chunky joins the block at M5 for step 10: its deprecated `logoFile` property makes NeoForge stop every launch on a loading-warning screen, so it stays out until it's needed. They come from Modrinth's Maven, pinned by version ID, because version numbers repeat across loaders. The project's `build.gradle` already has this block (2026-10-19).
 
 ### The build.gradle block
 ```groovy
@@ -90,7 +90,7 @@ dependencies {
     localRuntime("maven.modrinth:spark:HwHxykP9")        // spark 1.10.187 (NeoForge 26.x)
     localRuntime("maven.modrinth:jei:wSzwAzVB")          // JEI 31.16.0.84, beta
     localRuntime("maven.modrinth:worldedit:ByRNkO83")    // WorldEdit 7.4.6
-    localRuntime("maven.modrinth:chunky:EyCqftOK")       // Chunky 1.5.4 (step 10)
+    // At M5 (step 10): localRuntime("maven.modrinth:chunky:EyCqftOK")   // Chunky 1.5.4
 }
 ```
 Check: `./gradlew dependencies --configuration runtimeClasspath` lists them, and `./gradlew build` produces a jar without them.

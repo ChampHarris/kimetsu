@@ -6,6 +6,8 @@ gradlew text eol=lf
 *.json text eol=lf
 *.mcmeta text eol=lf
 *.bat text eol=crlf
+# tools/make_ramp.py writes the ramps with LF
+*.gpl text eol=lf
 
 # Binary game assets (small, kept in git)
 *.png binary

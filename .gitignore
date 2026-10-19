@@ -1,13 +1,23 @@
 # Gradle and IDEs
 .gradle/
 build/
+!gradle/wrapper/gradle-wrapper.jar
 out/
 run/
+run-client2/
+run-gametest/
 runs/
+repo/
 *.iml
+*.ipr
+*.iws
 .idea/
+.run/
 .vscode/
 bin/
+!**/src/**/bin/
+!**/src/**/run/
+src/generated/**/.cache/
 
 # Reference material: local only, never commit or redistribute
 ref-src/

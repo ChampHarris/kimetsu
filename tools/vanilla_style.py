@@ -278,7 +278,7 @@ def main(argv=None) -> int:
 
     if a.build_stats:
         stats = build_stats(Path(a.build_stats))
-        STATS.write_text(json.dumps(stats, indent=1) + "\n", encoding="utf-8")
+        STATS.write_text(json.dumps(stats, indent=1) + "\n", encoding="utf-8", newline="\n")  # LF on every OS
         print(f"wrote {STATS.relative_to(ROOT)}: {sum(f['n'] for f in stats['families'].values())} vanilla textures "
               f"in {len(stats['families'])} families")
         return 0

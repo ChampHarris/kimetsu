@@ -411,6 +411,21 @@ def main(argv=None) -> int:
         shutil.rmtree(dest)
     n = extract(chosen, dest, SOURCE_PREFIXES, (".java",))
     print(f"refsrc: {n} source files from {chosen.name} -> {dest.relative_to(ROOT)}")
+    # ModDevGradle 2 splits the sources: the jar above holds the patched Minecraft classes, and NeoForge's own API
+    # (events, loot modifiers, conditions, registries, GameTest hooks) ships in neoforge-<version>-sources.jar.
+    # A ref-src/ without NeoForge's API is worse than none: "not in ref-src/" means "doesn't exist" (rules/java.md), so
+    # a missing jar is a failure (exit 1, and VERSION says MISSING), not a warning.
+    neo_jar, neo_missing = None, False
+    if not has_entries(chosen, "net/neoforged/neoforge/", ".java"):
+        neo_jar = next((j for j in src_candidates if neo != "?" and j.name.lower() == f"neoforge-{neo}-sources.jar".lower()), None)
+        if neo_jar:
+            m = extract(neo_jar, dest, ("net/neoforged/",), (".java",))
+            print(f"refsrc: {m} NeoForge source files from {neo_jar.name} -> {dest.relative_to(ROOT)}")
+        else:
+            neo_missing = True
+            what = f"neoforge-{neo}-sources.jar" if neo != "?" else "a NeoForge sources jar (gradle.properties has no neo_version)"
+            print(f"refsrc: no {what} found, so NeoForge's own API isn't in ref-src/; run ./gradlew build or the IDE "
+                  "sync, which downloads it, then rerun", file=sys.stderr)
 
     if a.assets:
         client = next((j for j in jars(("client", "minecraft", "neoforge")) if has_entries(j, "assets/minecraft/textures/", ".png")), None)
@@ -441,7 +456,11 @@ def main(argv=None) -> int:
 
     REF.mkdir(exist_ok=True)
     (REF / "VERSION").write_text(
-        f"minecraft={mc}\nneoforge={neo}\nsources_jar={chosen}\nextracted={dt.date.today().isoformat()}\n", encoding="utf-8")
+        f"minecraft={mc}\nneoforge={neo}\nsources_jar={chosen}\n"
+        + (f"neoforge_sources_jar={neo_jar}\n" if neo_jar else "neoforge_sources_jar=MISSING\n" if neo_missing else "")
+        + f"extracted={dt.date.today().isoformat()}\n", encoding="utf-8")
+    if neo_missing:
+        return 1
     print("refsrc: done. Search with: rg -n \"class PostChain\" ref-src/minecraft")
     return 0
 

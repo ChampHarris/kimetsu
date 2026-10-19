@@ -2593,6 +2593,39 @@ def source_file_issues(name: str, src: dict) -> list[str]:
 
 
 # --------------------------------------------------------------------------------------------- datapack
+def advancement_recipe_refs(adv: dict) -> set[str]:
+    """The recipes an advancement names, as bare ids. The `recipes` of a recipe_unlocked, recipe_crafted or
+    crafter_recipe_crafted criterion is a holder set in 26.3, so naming a disabled recipe there leaves it unbound and
+    fails the world load. Reward `recipes` are plain keys that never bind; counting them only errs on the safe side
+    (no vanilla advancement rewards a recipe its criteria don't name). The old singular `recipe` is read too."""
+    out = {bare(x) for x in (adv.get("rewards") or {}).get("recipes", []) if isinstance(x, str)}
+    for crit in (adv.get("criteria") or {}).values():
+        cond = (crit.get("conditions") or {}) if isinstance(crit, dict) else {}
+        for key in ("recipe", "recipes"):
+            val = cond.get(key)
+            for x in val if isinstance(val, list) else [val]:
+                if isinstance(x, str) and not x.startswith("#"):
+                    out.add(bare(x))
+    return out
+
+
+def advancement_descendants(advs: dict, roots: set[str]) -> set[str]:
+    """Every advancement below one in `roots`: a child whose parent is disabled would be left an orphan."""
+    children: dict[str, list[str]] = {}
+    for aid, j in advs.items():
+        parent = j.get("parent")
+        if isinstance(parent, str):
+            children.setdefault(bare(parent), []).append(aid)
+    out: set[str] = set()
+    stack = list(roots)
+    while stack:
+        for kid in children.get(stack.pop(), []):
+            if kid not in out and kid not in roots:
+                out.add(kid)
+                stack.append(kid)
+    return out
+
+
 def write_datapack(sc: Scope, base: World, w: World, out: Path, removed_recipes: list[str], rep: Report) -> int:
     v, r = sc.v, sc.r
     files: dict[str, object] = {}
@@ -2600,15 +2633,24 @@ def write_datapack(sc: Scope, base: World, w: World, out: Path, removed_recipes:
     for rid in removed_recipes:
         files[f"data/minecraft/recipe/{rid}.json"] = NEVER
     # 2. Advancements: recipe-book unlocks for disabled recipes always go; from the milestone the Corps Record and the
-    #    Blood Record arrive (R7-04) every other vanilla advancement goes too.
+    #    Blood Record arrive (R7-04) every other vanilla advancement goes too. Before that, an advancement whose criteria
+    #    or rewards name a disabled recipe goes with the recipe, and so do its children: 26.3 loads advancements through
+    #    the registry loader, which resolves those names to recipe holders, so one still naming a disabled recipe leaves
+    #    it unbound and the world won't load (the armour trim advancements did this at Build 0).
     removed_set = set(removed_recipes)
+    gone: set[str] = set()
     for aid, j in v.advancements.items():
         if aid.startswith("recipes/"):
             rewards = (j.get("rewards") or {}).get("recipes", [])
             if rewards and all(bare(x) in removed_set for x in rewards):
-                files[f"data/minecraft/advancement/{aid}.json"] = NEVER
+                gone.add(aid)
         elif r.advancements_replaced:
-            files[f"data/minecraft/advancement/{aid}.json"] = NEVER
+            gone.add(aid)
+        if advancement_recipe_refs(j) & removed_set:
+            gone.add(aid)
+    gone |= advancement_descendants(v.advancements, gone)
+    for aid in sorted(gone):
+        files[f"data/minecraft/advancement/{aid}.json"] = NEVER
     # 3. Tags the Java side reads: removed items (creative tab removeIf, recipe viewers, loot stripping), removed
     #    potions (one item, many contents), removed entities, the removed mobs (spawn safety net, custom spawners) and the
     #    vanilla hostiles whose night slot the Director takes over.

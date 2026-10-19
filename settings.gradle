@@ -1,0 +1,16 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+    }
+}
+
+plugins {
+    // Finds or downloads the JDK 25 toolchain (and the daemon JVM in gradle/gradle-daemon-jvm.properties).
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
+rootProject.name = 'kimetsu'
+
+// core/: the version-proof combat rules as plain Java 25 (CLAUDE.md, Architecture). It compiles on its own with
+// no Minecraft on its classpath, so an engine import there fails the build; the mod compiles the same sources too.
+include 'core'

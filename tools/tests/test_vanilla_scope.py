@@ -931,6 +931,30 @@ class VanillaScopeTest(unittest.TestCase):
         line = next(x for x in buf.getvalue().splitlines() if x.startswith("Obtainable vanilla items"))
         self.assertIn("(plus the mod's kimetsu:nichirin_blade)", line, "the stand-in isn't counted as vanilla")
 
+    def test_advancements_naming_a_disabled_recipe_go_with_it(self):
+        # 26.3 resolves an advancement's recipe names to registry holders: at Build 0 the trim advancements named the
+        # disabled trim recipes, which left them unbound and the GameTest server refused to load the world.
+        d = "data/minecraft/advancement/"
+        made = lambda rid: {"made": {"trigger": "minecraft:recipe_crafted", "conditions": {"recipes": f"minecraft:{rid}"}}}
+        write(self.data, d + "adventure/craft_a_sword.json", {"parent": "minecraft:story/root", "criteria": made("iron_sword")})
+        write(self.data, d + "adventure/sword_collector.json", {"parent": "minecraft:adventure/craft_a_sword",
+                                                               "criteria": {"x": {"trigger": "minecraft:impossible"}}})
+        write(self.data, d + "adventure/craft_a_torch.json", {"parent": "minecraft:story/root", "criteria": made("torch")})
+        self.assertEqual(vs.advancement_recipe_refs({"criteria": made("iron_sword"),
+                                                     "rewards": {"recipes": ["minecraft:torch"]}}), {"iron_sword", "torch"})
+        self.assertEqual(vs.advancement_recipe_refs({"criteria": {"u": {"trigger": "minecraft:recipe_unlocked",
+                                                                        "conditions": {"recipes": "minecraft:stick"}}}}), {"stick"},
+                         "26.3's recipe_unlocked names its recipes in `recipes`, like the recipe-book advancements do")
+        self.assertEqual(vs.advancement_recipe_refs({"criteria": {"c": {"trigger": "minecraft:crafter_recipe_crafted",
+                                                                        "conditions": {"recipes": ["minecraft:torch"]}}}}), {"torch"})
+        sc, base, w = self.scope(rules_obj=staged(advancements={"mode": "replace_all", "from": "M2"}))
+        out = self.root / "pack"
+        vs.write_datapack(sc, base, w, out, vs.removed_recipe_ids(sc), vs.summarize(sc, base, w))
+        self.assertTrue((out / d / "adventure/craft_a_sword.json").exists(), "it names the disabled sword recipe")
+        self.assertTrue((out / d / "adventure/sword_collector.json").exists(), "its child would be an orphan")
+        self.assertFalse((out / d / "adventure/craft_a_torch.json").exists(), "a kept recipe's advancement stays")
+        self.assertFalse((out / d / "story/root.json").exists(), "the rest of vanilla's advancements stay until M2")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

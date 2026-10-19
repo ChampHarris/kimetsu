@@ -1,0 +1,133 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.148'
+    id 'idea'
+}
+
+tasks.named('wrapper', Wrapper).configure {
+    distributionType = Wrapper.DistributionType.BIN
+}
+
+version = mod_version
+group = mod_group_id
+
+base {
+    archivesName = mod_id
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(java_version as int)
+
+// core/ compiles twice: on its own in :core (no Minecraft on its classpath, so the compiler enforces core purity) and
+// here, so its classes ship inside the mod jar and load as part of the kimetsu mod. Every mod compile (runClient and
+// runGameTestServer included) runs the pure compile first, so an engine import in core/ fails whichever task you run.
+sourceSets.main.java.srcDir('core/src/main/java')
+tasks.named('compileJava') {
+    dependsOn ':core:compileJava'
+}
+
+sourceSets.main.resources {
+    srcDir('src/generated/resources')   // datagen output: runData purges this folder, so never hand-place files in it
+    srcDir('src/generated/scope')       // the vanilla-scope pack, written only by tools/vanilla_scope.py (R7-01)
+    exclude('**/*.bbmodel')
+    exclude('.cache/**')                // datagen cache
+}
+
+repositories {
+    exclusiveContent {                                          // MCTest (dev runs only); nothing else may resolve there
+        forRepository { maven { url = 'https://maven.coolerpromc.com/releases/' } }
+        filter { includeGroup 'com.coolerpromc.mctest' }
+    }
+    exclusiveContent {                                          // Modrinth Maven, only for maven.modrinth:*
+        forRepository { maven { url = 'https://api.modrinth.com/maven' } }
+        filter { includeGroup 'maven.modrinth' }
+    }
+}
+
+neoForge {
+    version = project.neo_version
+
+    runs {
+        client {
+            client()
+        }
+
+        server {
+            server()
+            programArgument '--nogui'
+        }
+
+        // Runs the mod's GameTests, then exits; the exit code is the number of failed required tests. The selection
+        // matters: without it vanilla's optional always_pass runs too, and a suite that stopped registering would still
+        // pass. A selection that matches nothing exits -1. (NeoForge 26.3 reads no neoforge.enabledGameTestNamespaces.)
+        gameTestServer {
+            type = 'gameTestServer'
+            gameDirectory = project.file('run-gametest')
+            programArguments.addAll('--tests', "${project.mod_id}:*")
+        }
+
+        data {
+            clientData()
+            programArguments.addAll '--mod', project.mod_id, '--all',
+                    '--output', file('src/generated/resources/').getAbsolutePath(),
+                    '--existing', file('src/main/resources/').getAbsolutePath()
+        }
+
+        configureEach {
+            systemProperty 'forge.logging.markers', 'REGISTRIES'
+            logLevel = org.slf4j.event.Level.DEBUG
+            // JetBrains Runtime hot reload (docs/tools/toolchain.md step 2); other JVMs ignore it because of the first flag.
+            jvmArguments.addAll('-XX:+IgnoreUnrecognizedVMOptions', '-XX:+AllowEnhancedClassRedefinition')
+        }
+    }
+
+    mods {
+        "${mod_id}" {
+            sourceSet(sourceSets.main)
+        }
+    }
+}
+
+// localRuntime: dev runs only, never in the jar.
+configurations {
+    runtimeClasspath.extendsFrom localRuntime
+}
+
+dependencies {
+    // Dev tools, pinned 2026-10-18 (ADR 0002; Modrinth version IDs because version numbers repeat across loaders).
+    localRuntime("com.coolerpromc.mctest:mctest-neoforge-26.3:26.3.0.3") { transitive = false }
+    localRuntime("maven.modrinth:spark:HwHxykP9")        // spark 1.10.187 (NeoForge 26.x)
+    localRuntime("maven.modrinth:jei:wSzwAzVB")          // JEI 31.16.0.84, beta
+    localRuntime("maven.modrinth:worldedit:ByRNkO83")    // WorldEdit 7.4.6
+    // Chunky (maven.modrinth:chunky:EyCqftOK, 1.5.4) joins at M5 for the worldgen review: until then its deprecated
+    // logoFile property puts NeoForge's loading-warning screen in front of every dev launch.
+}
+
+// Expands the properties above into META-INF/neoforge.mods.toml.
+var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
+    var replaceProperties = [
+            minecraft_version      : minecraft_version,
+            minecraft_version_range: minecraft_version_range,
+            neo_version            : neo_version,
+            mod_id                 : mod_id,
+            mod_name               : mod_name,
+            mod_license            : mod_license,
+            mod_version            : mod_version,
+    ]
+    inputs.properties replaceProperties
+    expand replaceProperties
+    from 'src/main/templates'
+    into 'build/generated/sources/modMetadata'
+}
+sourceSets.main.resources.srcDir generateModMetadata
+neoForge.ideSyncTask generateModMetadata
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+idea {
+    module {
+        downloadSources = true
+        downloadJavadoc = true
+    }
+}

@@ -6,7 +6,7 @@
 
 ## Decision
 One tool per job, each pinned, each something Claude can drive or whose output Claude can read. The "Needed" column of the table below is the schedule:
-- **Before M1 (M0, `docs/tools/toolchain.md` steps 1–6):** **IntelliJ IDEA's built-in MCP server** with the Claude Code JetBrains plugin, **JetBrains Runtime 25** (hot reload), **MCTest** (Claude plays the dev client and a dedicated server), the dev-only mods (spark, JEI and WorldEdit, used from M1; Chunky is in the same Gradle block but is used at M5), **Aseprite with aseprite-mcp** (pixel art Claude can see), and misode's generators with Spyglass.
+- **Before M1 (M0, `docs/tools/toolchain.md` steps 1–6):** **IntelliJ IDEA's built-in MCP server** with the Claude Code JetBrains plugin, **JetBrains Runtime 25** (hot reload), **MCTest** (Claude plays the dev client and a dedicated server), the dev-only mods (spark, JEI and WorldEdit, used from M1; Chunky joins the same Gradle block at M5, since its deprecated `logoFile` stops every launch on NeoForge's warning screen), **Aseprite with aseprite-mcp** (pixel art Claude can see), and misode's generators with Spyglass.
 - **During M1 (steps 7–9):** **RenderDoc 1.46** for kfx frame captures, **clumsy** for the two-client latency test (R6-05), and the **official Blender Lab MCP** when the KHR-1 rig work starts (R6-02). Blockbench MCP is already in `.mcp.json`.
 - **At M5:** Chunky to pregenerate and BlueMap to review the Taishō worldgen from above (R6-13).
 

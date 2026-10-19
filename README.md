@@ -42,7 +42,7 @@ docs/
   claude-ai-project-instructions.md   the same doctrine for claude.ai chats
 art/                          palettes and material ramps (.gpl), texture rules, vanilla style stats (numbers only),
                               vanilla scope rules and lock, art log (prompt recipes)
-src/generated/scope/          the vanilla-scope datapack for the current milestone (generated; 771 files at Build 0)
+src/generated/scope/          the vanilla-scope datapack for the current milestone (generated; 773 files at Build 0)
 src/main/resources/           starters: townsfolk names and trades, Corps Record advancements, a 16 px sample block
 tools/                        check_spec, vanilla_scope, vanilla_coverage, palette_fit, vanilla_style, make_ramp,
                               texture_lint, townsfolk_names, audio_lint, contact_sheet, clip_to_frames, refsrc,
