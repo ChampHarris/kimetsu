@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "bbmodel": {
+      "command": "npx",
+      "args": ["-y", "github:jasonjgardner/blockbench-mcp-plugin#v1.9.3", "--root", "art/source/models"]
+    },
+    "mctest": {
+      "command": "npx",
+      "args": ["-y", "mctest-mcp@0.3.0"]
+    }
+  }
+}

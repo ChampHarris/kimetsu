@@ -1,0 +1,7 @@
+{
+  "type": "neoforge:remove_spawns",
+  "structures": [
+    "minecraft:fortress"
+  ],
+  "entity_types": "#kimetsu:removed_mobs"
+}

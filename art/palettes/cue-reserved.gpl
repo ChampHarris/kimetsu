@@ -1,0 +1,10 @@
+GIMP Palette
+Name: Kimetsu cue-reserved
+Columns: 8
+# Telegraph cues only (textures/cue/). No other emissive or VFX texture may come near these
+#
+244 250 255	cue white
+255  43  43	cue red
+176  76 255	cue purple
+255 210  60	cue gold
+ 10  10  12	cue outline

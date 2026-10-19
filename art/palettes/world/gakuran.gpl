@@ -1,0 +1,9 @@
+GIMP Palette
+Name: gakuran
+Columns: 8
+# Corps uniform black, slightly navy
+ 21  24  31	gakuran-0
+ 29  33  41	gakuran-1
+ 38  42  51	gakuran-2
+ 47  52  61	gakuran-3
+ 56  62  72	gakuran-4

@@ -1,0 +1,2345 @@
+{
+ "_comment": "R7-05 townsfolk name and occupation data. Taishō-born given names: Meiji Yasuda's yearly top-10 rankings (1912-1926), weight = rank points summed over the years (10 for 1st ... 1 for 10th); they suit children and young adults. Older townsfolk use Meiji and Edo naming patterns (PROPOSED, period-typical, verify before final). Surname weights are approximate modern population counts in millions (top 20) and a flat tail; regional multipliers are PROPOSED. Occupation shares follow the 1920 census by sector (primary 53.8%, secondary 20.5%, tertiary 23.7%, IPSS table 8-7); the split inside each sector is PROPOSED.",
+ "sources": [
+  "https://news.allabout.co.jp/articles/o/74601/",
+  "https://news.allabout.co.jp/articles/o/74602/",
+  "https://www.ipss.go.jp/syoushika/tohkei/Data/Popular2020/T08-07.files/sheet001.htm",
+  "https://en.wikipedia.org/wiki/Hait%C5%8D_Edict"
+ ],
+ "setting_year": 1915,
+ "given": {
+  "taisho": {
+   "born": [
+    1900,
+    1915
+   ],
+   "male": [
+    {
+     "name": "清",
+     "romaji": "Kiyoshi",
+     "weight": 141,
+     "years_ranked": [
+      1912,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "三郎",
+     "romaji": "Saburō",
+     "weight": 116,
+     "years_ranked": [
+      1912,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "茂",
+     "romaji": "Shigeru",
+     "weight": 90,
+     "years_ranked": [
+      1912,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "勇",
+     "romaji": "Isamu",
+     "weight": 89,
+     "years_ranked": [
+      1914,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "実",
+     "romaji": "Minoru",
+     "weight": 64,
+     "years_ranked": [
+      1914,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "正",
+     "romaji": "Tadashi",
+     "weight": 54,
+     "years_ranked": [
+      1912,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "一郎",
+     "romaji": "Ichirō",
+     "weight": 54,
+     "years_ranked": [
+      1912,
+      1925
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "博",
+     "romaji": "Hiroshi",
+     "weight": 49,
+     "years_ranked": [
+      1917,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "正雄",
+     "romaji": "Masao",
+     "weight": 46,
+     "years_ranked": [
+      1912,
+      1921
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "正一",
+     "romaji": "Shōichi",
+     "weight": 23,
+     "years_ranked": [
+      1912,
+      1917
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "弘",
+     "romaji": "Hiroshi",
+     "weight": 23,
+     "years_ranked": [
+      1919,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "義雄",
+     "romaji": "Yoshio",
+     "weight": 15,
+     "years_ranked": [
+      1913,
+      1919
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "武雄",
+     "romaji": "Takeo",
+     "weight": 12,
+     "years_ranked": [
+      1912,
+      1915
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "正二",
+     "romaji": "Shōji",
+     "weight": 10,
+     "years_ranked": [
+      1913,
+      1913
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "正三",
+     "romaji": "Shōzō",
+     "weight": 10,
+     "years_ranked": [
+      1914,
+      1914
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "辰雄",
+     "romaji": "Tatsuo",
+     "weight": 10,
+     "years_ranked": [
+      1916,
+      1916
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "秀雄",
+     "romaji": "Hideo",
+     "weight": 5,
+     "years_ranked": [
+      1914,
+      1922
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "正治",
+     "romaji": "Masaharu",
+     "weight": 4,
+     "years_ranked": [
+      1912,
+      1912
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "進",
+     "romaji": "Susumu",
+     "weight": 4,
+     "years_ranked": [
+      1923,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "正夫",
+     "romaji": "Masao",
+     "weight": 2,
+     "years_ranked": [
+      1912,
+      1912
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "正男",
+     "romaji": "Masao",
+     "weight": 1,
+     "years_ranked": [
+      1913,
+      1913
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "辰男",
+     "romaji": "Tatsuo",
+     "weight": 1,
+     "years_ranked": [
+      1916,
+      1916
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "武",
+     "romaji": "Takeshi",
+     "weight": 1,
+     "years_ranked": [
+      1924,
+      1924
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "一男",
+     "romaji": "Kazuo",
+     "weight": 1,
+     "years_ranked": [
+      1926,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    }
+   ],
+   "female": [
+    {
+     "name": "文子",
+     "romaji": "Fumiko",
+     "weight": 112,
+     "years_ranked": [
+      1912,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "千代子",
+     "romaji": "Chiyoko",
+     "weight": 102,
+     "years_ranked": [
+      1912,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "静子",
+     "romaji": "Shizuko",
+     "weight": 68,
+     "years_ranked": [
+      1912,
+      1924
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "久子",
+     "romaji": "Hisako",
+     "weight": 64,
+     "years_ranked": [
+      1918,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "幸子",
+     "romaji": "Sachiko",
+     "weight": 50,
+     "years_ranked": [
+      1921,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "清子",
+     "romaji": "Kiyoko",
+     "weight": 48,
+     "years_ranked": [
+      1915,
+      1924
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "キヨ",
+     "romaji": "Kiyo",
+     "weight": 46,
+     "years_ranked": [
+      1912,
+      1920
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "美代子",
+     "romaji": "Miyoko",
+     "weight": 40,
+     "years_ranked": [
+      1917,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "千代",
+     "romaji": "Chiyo",
+     "weight": 39,
+     "years_ranked": [
+      1912,
+      1918
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "愛子",
+     "romaji": "Aiko",
+     "weight": 30,
+     "years_ranked": [
+      1917,
+      1925
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "ハル",
+     "romaji": "Haru",
+     "weight": 29,
+     "years_ranked": [
+      1912,
+      1918
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "キミ",
+     "romaji": "Kimi",
+     "weight": 26,
+     "years_ranked": [
+      1914,
+      1919
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "貞子",
+     "romaji": "Sadako",
+     "weight": 20,
+     "years_ranked": [
+      1916,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "ヨシ",
+     "romaji": "Yoshi",
+     "weight": 19,
+     "years_ranked": [
+      1912,
+      1919
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "正子",
+     "romaji": "Masako",
+     "weight": 17,
+     "years_ranked": [
+      1912,
+      1913
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "芳子",
+     "romaji": "Yoshiko",
+     "weight": 17,
+     "years_ranked": [
+      1920,
+      1925
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "和子",
+     "romaji": "Kazuko",
+     "weight": 16,
+     "years_ranked": [
+      1919,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "八重子",
+     "romaji": "Yaeko",
+     "weight": 12,
+     "years_ranked": [
+      1916,
+      1925
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "信子",
+     "romaji": "Nobuko",
+     "weight": 12,
+     "years_ranked": [
+      1924,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "フミ",
+     "romaji": "Fumi",
+     "weight": 9,
+     "years_ranked": [
+      1913,
+      1916
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "きよ",
+     "romaji": "Kiyo",
+     "weight": 9,
+     "years_ranked": [
+      1914,
+      1915
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "ハナ",
+     "romaji": "Hana",
+     "weight": 8,
+     "years_ranked": [
+      1912,
+      1912
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "光子",
+     "romaji": "Mitsuko",
+     "weight": 8,
+     "years_ranked": [
+      1914,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "照子",
+     "romaji": "Teruko",
+     "weight": 7,
+     "years_ranked": [
+      1926,
+      1926
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "敏子",
+     "romaji": "Toshiko",
+     "weight": 6,
+     "years_ranked": [
+      1921,
+      1924
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "きみ",
+     "romaji": "Kimi",
+     "weight": 3,
+     "years_ranked": [
+      1913,
+      1915
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "トミ",
+     "romaji": "Tomi",
+     "weight": 3,
+     "years_ranked": [
+      1914,
+      1914
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "はる",
+     "romaji": "Haru",
+     "weight": 2,
+     "years_ranked": [
+      1912,
+      1915
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "マサ",
+     "romaji": "Masa",
+     "weight": 2,
+     "years_ranked": [
+      1913,
+      1913
+     ],
+     "src": "meiji_yasuda"
+    },
+    {
+     "name": "君子",
+     "romaji": "Kimiko",
+     "weight": 1,
+     "years_ranked": [
+      1920,
+      1920
+     ],
+     "src": "meiji_yasuda"
+    }
+   ]
+  },
+  "meiji": {
+   "born": [
+    1860,
+    1899
+   ],
+   "by": "PROPOSED",
+   "male": [
+    {
+     "name": "太郎",
+     "romaji": "Tarō",
+     "weight": 10
+    },
+    {
+     "name": "次郎",
+     "romaji": "Jirō",
+     "weight": 10
+    },
+    {
+     "name": "三郎",
+     "romaji": "Saburō",
+     "weight": 10
+    },
+    {
+     "name": "四郎",
+     "romaji": "Shirō",
+     "weight": 10
+    },
+    {
+     "name": "五郎",
+     "romaji": "Gorō",
+     "weight": 10
+    },
+    {
+     "name": "栄吉",
+     "romaji": "Eikichi",
+     "weight": 10
+    },
+    {
+     "name": "留吉",
+     "romaji": "Tomekichi",
+     "weight": 10
+    },
+    {
+     "name": "寅吉",
+     "romaji": "Torakichi",
+     "weight": 10
+    },
+    {
+     "name": "熊吉",
+     "romaji": "Kumakichi",
+     "weight": 10
+    },
+    {
+     "name": "松太郎",
+     "romaji": "Matsutarō",
+     "weight": 10
+    },
+    {
+     "name": "竹次郎",
+     "romaji": "Takejirō",
+     "weight": 10
+    },
+    {
+     "name": "梅吉",
+     "romaji": "Umekichi",
+     "weight": 10
+    },
+    {
+     "name": "徳次郎",
+     "romaji": "Tokujirō",
+     "weight": 10
+    },
+    {
+     "name": "喜助",
+     "romaji": "Kisuke",
+     "weight": 10
+    },
+    {
+     "name": "源次郎",
+     "romaji": "Genjirō",
+     "weight": 10
+    },
+    {
+     "name": "権三",
+     "romaji": "Gonzō",
+     "weight": 10
+    },
+    {
+     "name": "辰五郎",
+     "romaji": "Tatsugorō",
+     "weight": 10
+    },
+    {
+     "name": "長吉",
+     "romaji": "Chōkichi",
+     "weight": 10
+    },
+    {
+     "name": "亀吉",
+     "romaji": "Kamekichi",
+     "weight": 10
+    },
+    {
+     "name": "文吉",
+     "romaji": "Bunkichi",
+     "weight": 10
+    },
+    {
+     "name": "仙太郎",
+     "romaji": "Sentarō",
+     "weight": 10
+    },
+    {
+     "name": "平吉",
+     "romaji": "Heikichi",
+     "weight": 10
+    },
+    {
+     "name": "新吉",
+     "romaji": "Shinkichi",
+     "weight": 10
+    },
+    {
+     "name": "庄太郎",
+     "romaji": "Shōtarō",
+     "weight": 10
+    },
+    {
+     "name": "善吉",
+     "romaji": "Zenkichi",
+     "weight": 10
+    },
+    {
+     "name": "金蔵",
+     "romaji": "Kinzō",
+     "weight": 10
+    },
+    {
+     "name": "清吉",
+     "romaji": "Seikichi",
+     "weight": 10
+    },
+    {
+     "name": "房吉",
+     "romaji": "Fusakichi",
+     "weight": 10
+    },
+    {
+     "name": "豊吉",
+     "romaji": "Toyokichi",
+     "weight": 10
+    },
+    {
+     "name": "政吉",
+     "romaji": "Masakichi",
+     "weight": 10
+    }
+   ],
+   "female": [
+    {
+     "name": "ウメ",
+     "romaji": "Ume",
+     "weight": 10
+    },
+    {
+     "name": "マツ",
+     "romaji": "Matsu",
+     "weight": 10
+    },
+    {
+     "name": "タケ",
+     "romaji": "Take",
+     "weight": 10
+    },
+    {
+     "name": "ツル",
+     "romaji": "Tsuru",
+     "weight": 10
+    },
+    {
+     "name": "カメ",
+     "romaji": "Kame",
+     "weight": 10
+    },
+    {
+     "name": "トメ",
+     "romaji": "Tome",
+     "weight": 10
+    },
+    {
+     "name": "ハル",
+     "romaji": "Haru",
+     "weight": 10
+    },
+    {
+     "name": "キク",
+     "romaji": "Kiku",
+     "weight": 10
+    },
+    {
+     "name": "ヨシ",
+     "romaji": "Yoshi",
+     "weight": 10
+    },
+    {
+     "name": "シズ",
+     "romaji": "Shizu",
+     "weight": 10
+    },
+    {
+     "name": "ミツ",
+     "romaji": "Mitsu",
+     "weight": 10
+    },
+    {
+     "name": "ハナ",
+     "romaji": "Hana",
+     "weight": 10
+    },
+    {
+     "name": "フサ",
+     "romaji": "Fusa",
+     "weight": 10
+    },
+    {
+     "name": "イト",
+     "romaji": "Ito",
+     "weight": 10
+    },
+    {
+     "name": "スエ",
+     "romaji": "Sue",
+     "weight": 10
+    },
+    {
+     "name": "セキ",
+     "romaji": "Seki",
+     "weight": 10
+    },
+    {
+     "name": "トミ",
+     "romaji": "Tomi",
+     "weight": 10
+    },
+    {
+     "name": "キヨ",
+     "romaji": "Kiyo",
+     "weight": 10
+    },
+    {
+     "name": "ナツ",
+     "romaji": "Natsu",
+     "weight": 10
+    },
+    {
+     "name": "フミ",
+     "romaji": "Fumi",
+     "weight": 10
+    },
+    {
+     "name": "ハツ",
+     "romaji": "Hatsu",
+     "weight": 10
+    },
+    {
+     "name": "ミネ",
+     "romaji": "Mine",
+     "weight": 10
+    },
+    {
+     "name": "ソノ",
+     "romaji": "Sono",
+     "weight": 10
+    },
+    {
+     "name": "チヨ",
+     "romaji": "Chiyo",
+     "weight": 10
+    },
+    {
+     "name": "テル",
+     "romaji": "Teru",
+     "weight": 10
+    },
+    {
+     "name": "マサ",
+     "romaji": "Masa",
+     "weight": 10
+    },
+    {
+     "name": "ヤス",
+     "romaji": "Yasu",
+     "weight": 10
+    },
+    {
+     "name": "リン",
+     "romaji": "Rin",
+     "weight": 10
+    },
+    {
+     "name": "キン",
+     "romaji": "Kin",
+     "weight": 10
+    },
+    {
+     "name": "サダ",
+     "romaji": "Sada",
+     "weight": 10
+    }
+   ]
+  },
+  "edo": {
+   "born": [
+    1835,
+    1859
+   ],
+   "by": "PROPOSED",
+   "male": [
+    {
+     "name": "源右衛門",
+     "romaji": "Gen'emon",
+     "weight": 10
+    },
+    {
+     "name": "権兵衛",
+     "romaji": "Gonbei",
+     "weight": 10
+    },
+    {
+     "name": "太兵衛",
+     "romaji": "Tahei",
+     "weight": 10
+    },
+    {
+     "name": "甚兵衛",
+     "romaji": "Jinbei",
+     "weight": 10
+    },
+    {
+     "name": "与三郎",
+     "romaji": "Yosaburō",
+     "weight": 10
+    },
+    {
+     "name": "弥助",
+     "romaji": "Yasuke",
+     "weight": 10
+    },
+    {
+     "name": "藤吉",
+     "romaji": "Tōkichi",
+     "weight": 10
+    },
+    {
+     "name": "佐吉",
+     "romaji": "Sakichi",
+     "weight": 10
+    },
+    {
+     "name": "半蔵",
+     "romaji": "Hanzō",
+     "weight": 10
+    },
+    {
+     "name": "彦左衛門",
+     "romaji": "Hikozaemon",
+     "weight": 10
+    },
+    {
+     "name": "吉兵衛",
+     "romaji": "Kichibei",
+     "weight": 10
+    },
+    {
+     "name": "伝右衛門",
+     "romaji": "Den'emon",
+     "weight": 10
+    },
+    {
+     "name": "喜三郎",
+     "romaji": "Kisaburō",
+     "weight": 10
+    },
+    {
+     "name": "市兵衛",
+     "romaji": "Ichibei",
+     "weight": 10
+    },
+    {
+     "name": "八右衛門",
+     "romaji": "Hachiemon",
+     "weight": 10
+    }
+   ],
+   "female": [
+    {
+     "name": "ウメ",
+     "romaji": "Ume",
+     "weight": 10
+    },
+    {
+     "name": "マツ",
+     "romaji": "Matsu",
+     "weight": 10
+    },
+    {
+     "name": "タケ",
+     "romaji": "Take",
+     "weight": 10
+    },
+    {
+     "name": "ツル",
+     "romaji": "Tsuru",
+     "weight": 10
+    },
+    {
+     "name": "カメ",
+     "romaji": "Kame",
+     "weight": 10
+    },
+    {
+     "name": "トメ",
+     "romaji": "Tome",
+     "weight": 10
+    },
+    {
+     "name": "ハル",
+     "romaji": "Haru",
+     "weight": 10
+    },
+    {
+     "name": "キク",
+     "romaji": "Kiku",
+     "weight": 10
+    },
+    {
+     "name": "ヨシ",
+     "romaji": "Yoshi",
+     "weight": 10
+    },
+    {
+     "name": "シズ",
+     "romaji": "Shizu",
+     "weight": 10
+    },
+    {
+     "name": "ミツ",
+     "romaji": "Mitsu",
+     "weight": 10
+    },
+    {
+     "name": "ハナ",
+     "romaji": "Hana",
+     "weight": 10
+    },
+    {
+     "name": "フサ",
+     "romaji": "Fusa",
+     "weight": 10
+    },
+    {
+     "name": "イト",
+     "romaji": "Ito",
+     "weight": 10
+    },
+    {
+     "name": "スエ",
+     "romaji": "Sue",
+     "weight": 10
+    },
+    {
+     "name": "セキ",
+     "romaji": "Seki",
+     "weight": 10
+    },
+    {
+     "name": "トミ",
+     "romaji": "Tomi",
+     "weight": 10
+    },
+    {
+     "name": "キヨ",
+     "romaji": "Kiyo",
+     "weight": 10
+    }
+   ]
+  }
+ },
+ "female_kana_share": {
+  "_note": "share of girls given a kana name, by birth year (Meiji Yasuda top-10: 5 of 10 in 1912, 3 in 1916-19, 0 from 1921)",
+  "1912": 0.5,
+  "1916": 0.3,
+  "1921": 0.0
+ },
+ "address": {
+  "_note": "how townsfolk address each other (PROPOSED): -san by default; o- before a two-mora kana woman's name from older speakers (o-Ume-san); children by given name plus -chan or -kun"
+ },
+ "surnames": [
+  {
+   "name": "佐藤",
+   "romaji": "Satō",
+   "weight": 1.86,
+   "region": {
+    "tohoku": 2.5,
+    "kanto": 1.2,
+    "kansai": 0.6,
+    "kyushu": 0.9
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "鈴木",
+   "romaji": "Suzuki",
+   "weight": 1.79,
+   "region": {
+    "tohoku": 1.3,
+    "kanto": 1.8,
+    "kansai": 0.5,
+    "kyushu": 0.4
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "高橋",
+   "romaji": "Takahashi",
+   "weight": 1.41,
+   "region": {
+    "tohoku": 1.2,
+    "kanto": 1.4,
+    "kansai": 0.8,
+    "kyushu": 0.8
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "田中",
+   "romaji": "Tanaka",
+   "weight": 1.33,
+   "region": {
+    "tohoku": 0.6,
+    "kanto": 0.8,
+    "kansai": 1.5,
+    "kyushu": 1.8
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "伊藤",
+   "romaji": "Itō",
+   "weight": 1.07,
+   "region": {
+    "tohoku": 1.3,
+    "kanto": 1.0,
+    "kansai": 0.9,
+    "kyushu": 0.8
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "渡辺",
+   "romaji": "Watanabe",
+   "weight": 1.06,
+   "region": {
+    "tohoku": 1.0,
+    "kanto": 1.5,
+    "kansai": 0.8,
+    "kyushu": 0.9
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "山本",
+   "romaji": "Yamamoto",
+   "weight": 1.05,
+   "region": {
+    "tohoku": 0.5,
+    "kanto": 0.8,
+    "kansai": 1.8,
+    "kyushu": 1.3
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "中村",
+   "romaji": "Nakamura",
+   "weight": 1.04,
+   "region": {
+    "tohoku": 0.6,
+    "kanto": 0.9,
+    "kansai": 1.3,
+    "kyushu": 1.7
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "小林",
+   "romaji": "Kobayashi",
+   "weight": 1.01,
+   "region": {
+    "tohoku": 0.8,
+    "kanto": 1.5,
+    "kansai": 0.9,
+    "kyushu": 0.7
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "加藤",
+   "romaji": "Katō",
+   "weight": 0.89,
+   "region": {
+    "tohoku": 1.2,
+    "kanto": 1.2,
+    "kansai": 1.0,
+    "kyushu": 0.6
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "吉田",
+   "romaji": "Yoshida",
+   "weight": 0.83,
+   "region": {},
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "山田",
+   "romaji": "Yamada",
+   "weight": 0.81,
+   "region": {
+    "tohoku": 0.8,
+    "kansai": 1.3
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "佐々木",
+   "romaji": "Sasaki",
+   "weight": 0.68,
+   "region": {
+    "tohoku": 2.0,
+    "kanto": 0.9,
+    "kansai": 0.8,
+    "kyushu": 0.8
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "山口",
+   "romaji": "Yamaguchi",
+   "weight": 0.63,
+   "region": {
+    "tohoku": 0.7,
+    "kyushu": 1.6
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "松本",
+   "romaji": "Matsumoto",
+   "weight": 0.61,
+   "region": {
+    "tohoku": 0.7,
+    "kansai": 1.2,
+    "kyushu": 1.4
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "井上",
+   "romaji": "Inoue",
+   "weight": 0.6,
+   "region": {
+    "tohoku": 0.6,
+    "kansai": 1.3,
+    "kyushu": 1.5
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "木村",
+   "romaji": "Kimura",
+   "weight": 0.57,
+   "region": {},
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "林",
+   "romaji": "Hayashi",
+   "weight": 0.53,
+   "region": {
+    "tohoku": 0.7,
+    "kansai": 1.3
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "斎藤",
+   "romaji": "Saitō",
+   "weight": 0.52,
+   "region": {
+    "tohoku": 1.5,
+    "kanto": 1.3,
+    "kansai": 0.6,
+    "kyushu": 0.5
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "清水",
+   "romaji": "Shimizu",
+   "weight": 0.51,
+   "region": {
+    "kanto": 1.3
+   },
+   "src": "approx. modern counts, top 20"
+  },
+  {
+   "name": "山崎",
+   "romaji": "Yamazaki",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "森",
+   "romaji": "Mori",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "阿部",
+   "romaji": "Abe",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "池田",
+   "romaji": "Ikeda",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "橋本",
+   "romaji": "Hashimoto",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "山下",
+   "romaji": "Yamashita",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "石川",
+   "romaji": "Ishikawa",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "中島",
+   "romaji": "Nakajima",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "前田",
+   "romaji": "Maeda",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "藤田",
+   "romaji": "Fujita",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "小川",
+   "romaji": "Ogawa",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "後藤",
+   "romaji": "Gotō",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "岡田",
+   "romaji": "Okada",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "長谷川",
+   "romaji": "Hasegawa",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "村上",
+   "romaji": "Murakami",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "近藤",
+   "romaji": "Kondō",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "石井",
+   "romaji": "Ishii",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "坂本",
+   "romaji": "Sakamoto",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "遠藤",
+   "romaji": "Endō",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "青木",
+   "romaji": "Aoki",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "藤井",
+   "romaji": "Fujii",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "西村",
+   "romaji": "Nishimura",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "福田",
+   "romaji": "Fukuda",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "太田",
+   "romaji": "Ōta",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "三浦",
+   "romaji": "Miura",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "藤原",
+   "romaji": "Fujiwara",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "岡本",
+   "romaji": "Okamoto",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "松田",
+   "romaji": "Matsuda",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "中川",
+   "romaji": "Nakagawa",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "中野",
+   "romaji": "Nakano",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "原田",
+   "romaji": "Harada",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "小野",
+   "romaji": "Ono",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "田村",
+   "romaji": "Tamura",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "竹内",
+   "romaji": "Takeuchi",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "金子",
+   "romaji": "Kaneko",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "和田",
+   "romaji": "Wada",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "中山",
+   "romaji": "Nakayama",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "石田",
+   "romaji": "Ishida",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "上田",
+   "romaji": "Ueda",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "森田",
+   "romaji": "Morita",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "原",
+   "romaji": "Hara",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "柴田",
+   "romaji": "Shibata",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "酒井",
+   "romaji": "Sakai",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "工藤",
+   "romaji": "Kudō",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "横山",
+   "romaji": "Yokoyama",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "宮崎",
+   "romaji": "Miyazaki",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "宮本",
+   "romaji": "Miyamoto",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "内田",
+   "romaji": "Uchida",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "高木",
+   "romaji": "Takagi",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "安藤",
+   "romaji": "Andō",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "谷口",
+   "romaji": "Taniguchi",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "大野",
+   "romaji": "Ōno",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "丸山",
+   "romaji": "Maruyama",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "今井",
+   "romaji": "Imai",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "藤本",
+   "romaji": "Fujimoto",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "武田",
+   "romaji": "Takeda",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "上野",
+   "romaji": "Ueno",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "杉山",
+   "romaji": "Sugiyama",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "増田",
+   "romaji": "Masuda",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "平野",
+   "romaji": "Hirano",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "大塚",
+   "romaji": "Ōtsuka",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "千葉",
+   "romaji": "Chiba",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "久保",
+   "romaji": "Kubo",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "松井",
+   "romaji": "Matsui",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "小島",
+   "romaji": "Kojima",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "岩崎",
+   "romaji": "Iwasaki",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "桜井",
+   "romaji": "Sakurai",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "野口",
+   "romaji": "Noguchi",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "松尾",
+   "romaji": "Matsuo",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "野村",
+   "romaji": "Nomura",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "木下",
+   "romaji": "Kinoshita",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "菊地",
+   "romaji": "Kikuchi",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "佐野",
+   "romaji": "Sano",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "大西",
+   "romaji": "Ōnishi",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "杉本",
+   "romaji": "Sugimoto",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  },
+  {
+   "name": "新井",
+   "romaji": "Arai",
+   "weight": 0.3,
+   "region": {},
+   "src": "ranks 21-100, flat weight"
+  }
+ ],
+ "regions": [
+  "tohoku",
+  "kanto",
+  "kansai",
+  "kyushu"
+ ],
+ "occupations": [
+  {
+   "id": "farmer",
+   "jp": "農家",
+   "sector": "primary",
+   "share": 40.3,
+   "workplace": "kimetsu:paddy",
+   "schedule": "dawn_field",
+   "topics": [
+    "rice",
+    "weather",
+    "the landlord",
+    "a son who left for the city"
+   ],
+   "turning_lean": "plant",
+   "note": "Rice and vegetables; the main source of seed carrots and potatoes"
+  },
+  {
+   "id": "silk_farmer",
+   "jp": "養蚕農家",
+   "sector": "primary",
+   "share": 4.0,
+   "workplace": "kimetsu:silkworm_loft",
+   "schedule": "loft_day",
+   "topics": [
+    "mulberry",
+    "silk prices",
+    "the reeling mill"
+   ],
+   "turning_lean": "thread",
+   "note": "The Taishō silk boom; sells silk and string"
+  },
+  {
+   "id": "fisher",
+   "jp": "漁師",
+   "sector": "primary",
+   "share": 3.5,
+   "workplace": "kimetsu:jetty",
+   "schedule": "dawn_sea",
+   "topics": [
+    "tides",
+    "catches",
+    "a boat that didn't come back"
+   ],
+   "turning_lean": "water",
+   "note": "Fish for Sen; knows the coast"
+  },
+  {
+   "id": "charcoal_burner",
+   "jp": "炭焼き",
+   "sector": "primary",
+   "share": 2.0,
+   "workplace": "kimetsu:kiln",
+   "schedule": "mountain_day",
+   "topics": [
+    "the kiln",
+    "the cold",
+    "selling in town"
+   ],
+   "turning_lean": "fire",
+   "note": "Mountain households like the Kamado family's (never named Kamado)"
+  },
+  {
+   "id": "woodcutter",
+   "jp": "木こり",
+   "sector": "primary",
+   "share": 2.5,
+   "workplace": "kimetsu:lumber_yard",
+   "schedule": "forest_day",
+   "topics": [
+    "the forest",
+    "odd sounds at dusk"
+   ],
+   "turning_lean": "wood",
+   "note": "Timber and firewood"
+  },
+  {
+   "id": "tea_grower",
+   "jp": "茶農家",
+   "sector": "primary",
+   "share": 1.0,
+   "workplace": "kimetsu:tea_field",
+   "schedule": "field_day",
+   "topics": [
+    "the harvest",
+    "the tea house"
+   ],
+   "turning_lean": "plant",
+   "note": "Tea leaves; brown dye from roasted leaves (an option for brown_dye)"
+  },
+  {
+   "id": "hunter",
+   "jp": "猟師",
+   "sector": "primary",
+   "share": 0.5,
+   "workplace": "kimetsu:hunting_lodge",
+   "schedule": "dawn_mountain",
+   "topics": [
+    "tracks",
+    "bears",
+    "things that aren't bears"
+   ],
+   "turning_lean": "beast",
+   "note": "Mountain matagi; first to notice a feral den"
+  },
+  {
+   "id": "weaver",
+   "jp": "織工",
+   "sector": "secondary",
+   "share": 5.0,
+   "workplace": "kimetsu:loom_house",
+   "schedule": "day_shift",
+   "topics": [
+    "the mill",
+    "the foreman",
+    "sisters in the dormitory"
+   ],
+   "turning_lean": "thread",
+   "note": "Cloth and indigo work"
+  },
+  {
+   "id": "carpenter",
+   "jp": "大工",
+   "sector": "secondary",
+   "share": 3.0,
+   "workplace": "kimetsu:workshop",
+   "schedule": "day",
+   "topics": [
+    "jobs",
+    "the shrine roof",
+    "the new station"
+   ],
+   "turning_lean": "wood",
+   "note": "Repairs damaged houses after a fight"
+  },
+  {
+   "id": "blacksmith",
+   "jp": "鍛冶屋",
+   "sector": "secondary",
+   "share": 1.5,
+   "workplace": "kimetsu:forge",
+   "schedule": "day",
+   "topics": [
+    "tools",
+    "iron sand",
+    "the sword ban"
+   ],
+   "turning_lean": "metal",
+   "note": "Tools and hardware; never swords (the 1876 edict)"
+  },
+  {
+   "id": "miner",
+   "jp": "鉱夫",
+   "sector": "secondary",
+   "share": 2.0,
+   "workplace": "kimetsu:mine_head",
+   "schedule": "shift",
+   "topics": [
+    "the shaft",
+    "dust",
+    "missing workers"
+   ],
+   "turning_lean": "stone",
+   "note": "Copper and coal towns; the deep is where demons hide by day"
+  },
+  {
+   "id": "tile_maker",
+   "jp": "瓦職人",
+   "sector": "secondary",
+   "share": 1.0,
+   "workplace": "kimetsu:tile_kiln",
+   "schedule": "day",
+   "topics": [
+    "kilns",
+    "roof styles",
+    "the weather"
+   ],
+   "turning_lean": "earth",
+   "note": "Kawara roof tiles"
+  },
+  {
+   "id": "sake_brewer",
+   "jp": "酒造り",
+   "sector": "secondary",
+   "share": 1.0,
+   "workplace": "kimetsu:brewery",
+   "schedule": "winter_brewing",
+   "topics": [
+    "rice",
+    "the cellar",
+    "festival orders"
+   ],
+   "turning_lean": "water",
+   "note": "Sake for festivals"
+  },
+  {
+   "id": "dyer",
+   "jp": "紺屋",
+   "sector": "secondary",
+   "share": 1.0,
+   "workplace": "kimetsu:dye_house",
+   "schedule": "day",
+   "topics": [
+    "indigo vats",
+    "colours",
+    "cloth"
+   ],
+   "turning_lean": "dye",
+   "note": "Indigo and other dyes"
+  },
+  {
+   "id": "craftsman",
+   "jp": "職人",
+   "sector": "secondary",
+   "share": 1.5,
+   "workplace": "kimetsu:workshop",
+   "schedule": "day",
+   "topics": [
+    "lacquer",
+    "masks",
+    "combs",
+    "commissions"
+   ],
+   "turning_lean": "craft",
+   "note": "Lacquer, masks and cosmetics for the Notebook's tailors"
+  },
+  {
+   "id": "factory_worker",
+   "jp": "工員",
+   "sector": "secondary",
+   "share": 3.5,
+   "workplace": "kimetsu:factory",
+   "schedule": "shift",
+   "topics": [
+    "wages",
+    "the city",
+    "the night shift"
+   ],
+   "turning_lean": "metal",
+   "note": "Town factories and workshops"
+  },
+  {
+   "id": "paper_maker",
+   "jp": "紙漉き",
+   "sector": "secondary",
+   "share": 1.0,
+   "workplace": "kimetsu:paper_house",
+   "schedule": "day",
+   "topics": [
+    "washi",
+    "cold water",
+    "shoji orders"
+   ],
+   "turning_lean": "paper",
+   "note": "Paper for letters, lanterns and Report Scrolls"
+  },
+  {
+   "id": "merchant",
+   "jp": "商人",
+   "sector": "tertiary",
+   "share": 8.0,
+   "workplace": "kimetsu:shop",
+   "schedule": "shop_hours",
+   "topics": [
+    "prices",
+    "rumours",
+    "debts"
+   ],
+   "turning_lean": "trade",
+   "note": "Buys surplus for Sen, sells supplies (GDD Sen economy, weekly cap)"
+  },
+  {
+   "id": "peddler",
+   "jp": "行商人",
+   "sector": "tertiary",
+   "share": 2.0,
+   "workplace": "kimetsu:road",
+   "schedule": "travelling",
+   "topics": [
+    "roads",
+    "other towns",
+    "what they saw on the pass"
+   ],
+   "turning_lean": "road",
+   "note": "Moves between post stations; carries rumours for cases"
+  },
+  {
+   "id": "innkeeper",
+   "jp": "宿屋",
+   "sector": "tertiary",
+   "share": 1.5,
+   "workplace": "kimetsu:inn",
+   "schedule": "inn_hours",
+   "topics": [
+    "travellers",
+    "rooms",
+    "strange guests"
+   ],
+   "turning_lean": "home",
+   "note": "Lodging; Wisteria Family Houses are a special case (GDD)"
+  },
+  {
+   "id": "teahouse_keeper",
+   "jp": "茶屋",
+   "sector": "tertiary",
+   "share": 2.0,
+   "workplace": "kimetsu:teahouse",
+   "schedule": "shop_hours",
+   "topics": [
+    "gossip",
+    "sweets",
+    "regulars"
+   ],
+   "turning_lean": "home",
+   "note": "Food and gossip; the best rumour source in town"
+  },
+  {
+   "id": "rickshaw_puller",
+   "jp": "車夫",
+   "sector": "tertiary",
+   "share": 1.0,
+   "workplace": "kimetsu:rickshaw_stand",
+   "schedule": "street",
+   "topics": [
+    "fares",
+    "streets",
+    "the station"
+   ],
+   "turning_lean": "road",
+   "note": "Fast travel between town and station (an option for later)"
+  },
+  {
+   "id": "teacher",
+   "jp": "教師",
+   "sector": "tertiary",
+   "share": 1.0,
+   "workplace": "kimetsu:school",
+   "schedule": "school_hours",
+   "topics": [
+    "the children",
+    "the curriculum",
+    "a missing pupil"
+   ],
+   "turning_lean": "word",
+   "note": "Teaches; notices absences first"
+  },
+  {
+   "id": "police_officer",
+   "jp": "巡査",
+   "sector": "tertiary",
+   "share": 0.8,
+   "workplace": "kimetsu:police_box",
+   "schedule": "patrol",
+   "topics": [
+    "order",
+    "the sword ban",
+    "unexplained deaths"
+   ],
+   "turning_lean": "law",
+   "note": "Patrols until curfew; questions armed Slayers (canon-adjacent friction)"
+  },
+  {
+   "id": "doctor",
+   "jp": "医者",
+   "sector": "tertiary",
+   "share": 0.6,
+   "workplace": "kimetsu:clinic",
+   "schedule": "clinic_hours",
+   "topics": [
+    "patients",
+    "strange wounds",
+    "blood"
+   ],
+   "turning_lean": "medicine",
+   "note": "Treats townsfolk; strange bite wounds start a case"
+  },
+  {
+   "id": "priest",
+   "jp": "神主・僧侶",
+   "sector": "tertiary",
+   "share": 0.8,
+   "workplace": "kimetsu:shrine",
+   "schedule": "dawn_shrine",
+   "topics": [
+    "festivals",
+    "charms",
+    "old stories about demons"
+   ],
+   "turning_lean": "spirit",
+   "note": "Shrines and temples; tells folklore that is half true"
+  },
+  {
+   "id": "servant",
+   "jp": "奉公人",
+   "sector": "tertiary",
+   "share": 3.0,
+   "workplace": "kimetsu:household",
+   "schedule": "household",
+   "topics": [
+    "the master's family",
+    "chores",
+    "home"
+   ],
+   "turning_lean": "home",
+   "note": "Live-in help in larger houses"
+  },
+  {
+   "id": "labourer",
+   "jp": "人夫",
+   "sector": "tertiary",
+   "share": 3.0,
+   "workplace": "kimetsu:station_yard",
+   "schedule": "day",
+   "topics": [
+    "the railway",
+    "heavy loads",
+    "pay"
+   ],
+   "turning_lean": "stone",
+   "note": "Station and road work"
+  }
+ ],
+ "ages": {
+  "child": [
+   3,
+   14
+  ],
+  "adult": [
+   15,
+   59
+  ],
+  "elder": [
+   60,
+   80
+  ],
+  "_note": "children and elders take no occupation; elders keep their old trade as a topic"
+ },
+ "household": {
+  "size": [
+   2,
+   7
+  ],
+  "_note": "a household is a family sharing a surname and mostly one trade (70% of its adults), plus live-in servants with their own"
+ },
+ "repetition": {
+  "max_same_full_name_per_world": 1,
+  "max_same_given_per_town": 2,
+  "max_households_per_surname_per_town": 2,
+  "siblings_share_names": false,
+  "_note": "caps against template reuse (Watch Dogs: Legion's complaint); a surname may head at most 2 households in one town"
+ },
+ "blocklist": {
+  "_note": "Canon must never be generated: invented surnames, canon given names, and real surnames only in their canon pairing. Common Taishō given names that canon also uses (Shigeru, Takeo, Hanako, Kiyo, Sumi, Naho, Saburō) stay allowed except with their canon surname or in the cold-open region.",
+  "surnames": [
+   "竈門 Kamado",
+   "我妻 Agatsuma",
+   "嘴平 Hashibira",
+   "煉獄 Rengoku",
+   "宇髄 Uzui",
+   "胡蝶 Kochō",
+   "甘露寺 Kanroji",
+   "伊黒 Iguro",
+   "不死川 Shinazugawa",
+   "悲鳴嶼 Himejima",
+   "時透 Tokitō",
+   "産屋敷 Ubuyashiki",
+   "鱗滝 Urokodaki",
+   "栗花落 Tsuyuri",
+   "鋼鐵塚 Haganezuka",
+   "鬼舞辻 Kibutsuji",
+   "継国 Tsugikuni",
+   "桑島 Kuwajima",
+   "冨岡 Tomioka"
+  ],
+  "given": [
+   "炭治郎 Tanjirō",
+   "禰豆子 Nezuko",
+   "善逸 Zenitsu",
+   "伊之助 Inosuke",
+   "カナヲ Kanao",
+   "杏寿郎 Kyōjurō",
+   "千寿郎 Senjurō",
+   "槇寿郎 Shinjurō",
+   "天元 Tengen",
+   "蜜璃 Mitsuri",
+   "小芭内 Obanai",
+   "実弥 Sanemi",
+   "玄弥 Genya",
+   "行冥 Gyōmei",
+   "無一郎 Muichirō",
+   "有一郎 Yūichirō",
+   "しのぶ Shinobu",
+   "カナエ Kanae",
+   "義勇 Giyū",
+   "左近次 Sakonji",
+   "慈悟郎 Jigorō",
+   "獪岳 Kaigaku",
+   "縁壱 Yoriichi",
+   "巌勝 Michikatsu",
+   "無惨 Muzan",
+   "黒死牟 Kokushibō",
+   "童磨 Dōma",
+   "猗窩座 Akaza",
+   "累 Rui",
+   "魘夢 Enmu",
+   "珠世 Tamayo",
+   "愈史郎 Yushirō",
+   "錆兎 Sabito",
+   "真菰 Makomo",
+   "耀哉 Kagaya",
+   "輝利哉 Kiriya",
+   "葵 Aoi",
+   "炭十郎 Tanjūrō",
+   "六太 Rokuta",
+   "竹雄 Takeo (with Kamado only)",
+   "花子 Hanako (with Kamado only)",
+   "茂 Shigeru (with Kamado only)"
+  ],
+  "pairs": [
+   "村田 Murata (the Slayer)",
+   "尾崎 Ozaki (the Slayer)",
+   "神崎 アオイ Kanzaki Aoi",
+   "寺内 きよ Terauchi Kiyo",
+   "中原 すみ Nakahara Sumi",
+   "高田 なほ Takada Naho",
+   "金森 Kanamori (the swordsmith)"
+  ]
+ }
+}

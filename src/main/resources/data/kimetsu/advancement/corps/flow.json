@@ -1,0 +1,56 @@
+{
+  "neoforge:conditions": [
+    {
+      "type": "neoforge:registered",
+      "registry": "minecraft:trigger_type",
+      "value": "kimetsu:faction_joined"
+    },
+    {
+      "type": "neoforge:registered",
+      "registry": "minecraft:item",
+      "value": "kimetsu:nichirin_blade"
+    },
+    {
+      "type": "neoforge:registered",
+      "registry": "minecraft:loot_condition_type",
+      "value": "kimetsu:faction"
+    },
+    {
+      "type": "neoforge:registered",
+      "registry": "minecraft:trigger_type",
+      "value": "kimetsu:rhythm_tier"
+    }
+  ],
+  "parent": "kimetsu:corps/first_thread",
+  "display": {
+    "icon": {
+      "id": "kimetsu:nichirin_blade"
+    },
+    "title": {
+      "translate": "advancements.kimetsu.corps.flow.title"
+    },
+    "description": {
+      "translate": "advancements.kimetsu.corps.flow.description"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": false
+  },
+  "criteria": {
+    "flow": {
+      "trigger": "kimetsu:rhythm_tier",
+      "conditions": {
+        "player": {
+          "type": "kimetsu:faction",
+          "faction": "slayer"
+        },
+        "tier": 5
+      }
+    }
+  },
+  "requirements": [
+    [
+      "flow"
+    ]
+  ]
+}

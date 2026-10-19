@@ -1,0 +1,41 @@
+{
+  "neoforge:conditions": [
+    {
+      "type": "neoforge:registered",
+      "registry": "minecraft:trigger_type",
+      "value": "kimetsu:faction_joined"
+    },
+    {
+      "type": "neoforge:registered",
+      "registry": "minecraft:item",
+      "value": "kimetsu:nichirin_blade"
+    }
+  ],
+  "display": {
+    "icon": {
+      "id": "kimetsu:nichirin_blade"
+    },
+    "title": {
+      "translate": "advancements.kimetsu.corps.root.title"
+    },
+    "description": {
+      "translate": "advancements.kimetsu.corps.root.description"
+    },
+    "background": "kimetsu:gui/advancements/backgrounds/corps",
+    "show_toast": false,
+    "announce_to_chat": false
+  },
+  "criteria": {
+    "joined": {
+      "trigger": "kimetsu:faction_joined",
+      "conditions": {
+        "faction": "slayer"
+      }
+    }
+  },
+  "requirements": [
+    [
+      "joined"
+    ]
+  ]
+}

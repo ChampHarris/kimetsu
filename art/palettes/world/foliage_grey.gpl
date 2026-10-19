@@ -1,0 +1,9 @@
+GIMP Palette
+Name: foliage_grey
+Columns: 8
+# greyscale for leaves and grass; the model's tintindex and a BlockTintSource apply the biome colour, as vanilla does
+ 90  90  90	foliage_grey-0
+110 110 110	foliage_grey-1
+140 140 140	foliage_grey-2
+172 172 172	foliage_grey-3
+196 196 196	foliage_grey-4

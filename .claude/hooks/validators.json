@@ -1,0 +1,17 @@
+{
+  "_comment": "post_edit.py runs each validator whose glob matches the edited file (project-relative path). {python}, {file} and {root} are substituted. A validator whose .py script doesn't exist yet is skipped, so planned ones can be listed before they are written (write them once the M1 spec fixes the schema). Datapack registry files live at data/<pack-ns>/<registry-ns>/<registry-path>/.",
+  "validators": [
+    {
+      "name": "frame data schema",
+      "glob": "src/main/resources/data/*/kimetsu/frame_data/*.json",
+      "command": ["{python}", "tools/validate_frame_data.py", "{file}"],
+      "timeout": 20
+    },
+    {
+      "name": "baked blade arc vs frame data",
+      "glob": "src/main/resources/data/*/kimetsu/arcs/*.json",
+      "command": ["{python}", "tools/validate_arcs.py", "{file}"],
+      "timeout": 20
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "neoforge:conditions": [
+    {
+      "type": "neoforge:registered",
+      "registry": "minecraft:trigger_type",
+      "value": "kimetsu:faction_joined"
+    },
+    {
+      "type": "neoforge:registered",
+      "registry": "minecraft:item",
+      "value": "kimetsu:nichirin_blade"
+    },
+    {
+      "type": "neoforge:registered",
+      "registry": "minecraft:loot_condition_type",
+      "value": "kimetsu:faction"
+    }
+  ],
+  "parent": "kimetsu:corps/root",
+  "display": {
+    "icon": {
+      "id": "kimetsu:nichirin_blade"
+    },
+    "title": {
+      "translate": "advancements.kimetsu.corps.first_thread.title"
+    },
+    "description": {
+      "translate": "advancements.kimetsu.corps.first_thread.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": false
+  },
+  "criteria": {
+    "killed_demon": {
+      "trigger": "minecraft:player_killed_entity",
+      "conditions": {
+        "player": {
+          "type": "kimetsu:faction",
+          "faction": "slayer"
+        },
+        "entity": {
+          "type": "minecraft:entity_properties",
+          "entity": "this",
+          "predicate": {
+            "minecraft:entity_type": "#kimetsu:demons"
+          }
+        }
+      }
+    }
+  },
+  "requirements": [
+    [
+      "killed_demon"
+    ]
+  ]
+}

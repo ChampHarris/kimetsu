@@ -1,0 +1,167 @@
+{
+  "_comment": "R7-02 material ramps for 16 px textures that sit beside vanilla. Spacing follows vanilla's measured ramps (art/vanilla-style-stats.json): woods 7 colours over about 30 L* like vanilla planks; plaster and paper tight like quartz; stone 5 low-chroma greys; foliage is greyscale so the biome tints it, as vanilla's leaves are. Rebuild: python tools/make_ramp.py. 'by' is PROPOSED until Champ approves the look.",
+  "ramps": {
+    "sugi": {
+      "mid": "#7c4f37",
+      "steps": 7,
+      "range": 30,
+      "hue_shift": 6,
+      "note": "Japanese cedar: reddish heartwood for boards, pillars and the Twilight Cedars",
+      "chroma_slope": 0.4
+    },
+    "hinoki": {
+      "mid": "#c9a678",
+      "steps": 7,
+      "range": 28,
+      "hue_shift": 5,
+      "note": "cypress: pale shrine and bath wood",
+      "chroma_slope": 0.3
+    },
+    "keyaki": {
+      "mid": "#9c6a3a",
+      "steps": 7,
+      "range": 30,
+      "hue_shift": 6,
+      "note": "zelkova: golden temple beams and doors",
+      "chroma_slope": 0.4
+    },
+    "yakisugi": {
+      "mid": "#3b3430",
+      "steps": 6,
+      "range": 22,
+      "hue_shift": 2,
+      "note": "charred cedar cladding (shou sugi ban)",
+      "chroma_slope": 0.3
+    },
+    "shikkui": {
+      "mid": "#e6e1d6",
+      "steps": 5,
+      "range": 12,
+      "hue_shift": 3,
+      "note": "lime plaster walls",
+      "chroma_slope": -0.5
+    },
+    "washi": {
+      "mid": "#efe6cf",
+      "steps": 5,
+      "range": 10,
+      "hue_shift": 3,
+      "note": "paper for shoji and lanterns",
+      "chroma_slope": -0.4
+    },
+    "tatami": {
+      "mid": "#b8ab6b",
+      "steps": 6,
+      "range": 24,
+      "hue_shift": 6,
+      "note": "woven igusa rush mats",
+      "chroma_slope": 0.3
+    },
+    "tsuchikabe": {
+      "mid": "#9a7a52",
+      "steps": 6,
+      "range": 26,
+      "hue_shift": 8,
+      "note": "earthen walls, ochre clay with straw",
+      "chroma_slope": 0.5
+    },
+    "kawara": {
+      "mid": "#5d636d",
+      "steps": 6,
+      "range": 26,
+      "hue_shift": 4,
+      "note": "fired roof tiles, cool blue-grey",
+      "chroma_slope": 0.0
+    },
+    "ishigaki": {
+      "mid": "#8b8780",
+      "steps": 5,
+      "range": 24,
+      "hue_shift": 4,
+      "note": "castle and shrine stone walls, granite",
+      "chroma_slope": 0.2
+    },
+    "shu": {
+      "mid": "#c4472f",
+      "steps": 6,
+      "range": 30,
+      "hue_shift": 8,
+      "note": "vermilion lacquer from cinnabar: torii and shrine posts",
+      "chroma_slope": 0.0
+    },
+    "urushi": {
+      "mid": "#2a2224",
+      "steps": 5,
+      "range": 18,
+      "hue_shift": 2,
+      "note": "black lacquer, saya and furniture",
+      "chroma_slope": 0.3
+    },
+    "bengara": {
+      "mid": "#8a3a2c",
+      "steps": 6,
+      "range": 26,
+      "hue_shift": 6,
+      "note": "red iron-oxide wash on townhouses",
+      "chroma_slope": 0.3
+    },
+    "ai": {
+      "mid": "#2f4a6e",
+      "steps": 6,
+      "range": 26,
+      "hue_shift": -4,
+      "note": "indigo cloth: noren, kimono, work clothes",
+      "chroma_slope": 0.2
+    },
+    "fuji": {
+      "mid": "#9b7bbf",
+      "steps": 6,
+      "range": 28,
+      "hue_shift": -6,
+      "note": "wisteria blossom, untinted",
+      "chroma_slope": 0.0
+    },
+    "dou": {
+      "mid": "#8a6a3e",
+      "steps": 6,
+      "range": 28,
+      "hue_shift": 8,
+      "note": "bronze: temple bells, lanterns, Corps fittings",
+      "chroma_slope": 0.3
+    },
+    "tetsu": {
+      "mid": "#6b7178",
+      "steps": 6,
+      "range": 30,
+      "hue_shift": 4,
+      "note": "iron and raw steel",
+      "chroma_slope": 0.0
+    },
+    "gakuran": {
+      "mid": "#262a33",
+      "steps": 5,
+      "range": 18,
+      "hue_shift": -3,
+      "note": "Corps uniform black, slightly navy",
+      "chroma_slope": 0.2
+    },
+    "foliage_grey": {
+      "colours": [
+        "#5a5a5a",
+        "#6e6e6e",
+        "#8c8c8c",
+        "#acacac",
+        "#c4c4c4"
+      ],
+      "note": "greyscale for leaves and grass; the model's tintindex and a BlockTintSource apply the biome colour, as vanilla does"
+    },
+    "koke": {
+      "mid": "#5b6f3a",
+      "steps": 6,
+      "range": 26,
+      "hue_shift": 8,
+      "note": "moss on stone lanterns and roofs, untinted",
+      "chroma_slope": 0.4
+    }
+  }
+}

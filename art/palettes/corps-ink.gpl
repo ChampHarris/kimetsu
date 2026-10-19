@@ -1,0 +1,17 @@
+GIMP Palette
+Name: Kimetsu corps-ink
+Columns: 8
+# UI, the Corps Notebook, crows and Slayer VFX ink
+#
+ 11  11  13	sumi 1
+ 26  26  30	sumi 2
+ 45  45  51	sumi 3
+ 74  74  82	sumi 4
+122 122 132	sumi wash
+243 238 226	washi 1
+230 222 201	washi 2
+207 196 168	washi 3
+168 158 132	washi shadow
+199  55  42	hanko vermilion
+184 150  74	gold leaf
+ 42  53  80	crow sheen

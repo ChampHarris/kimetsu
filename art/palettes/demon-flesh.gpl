@@ -1,0 +1,17 @@
+GIMP Palette
+Name: Kimetsu demon-flesh
+Columns: 8
+# Demon skin, flesh, blood and Blood Demon Art effects. Never cue red
+#
+ 18   7   8	void
+ 42  12  15	blood 1
+ 69  18  26	blood 2
+ 90  10  18	blood 3
+122  16  24	blood 4
+142  26  34	blood 5
+143 122 114	pallor 1
+185 164 154	pallor 2
+ 59  30  58	vein
+216 205 184	bone
+ 74  58  48	horn
+201 185 143	eye sclera

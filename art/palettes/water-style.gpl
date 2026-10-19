@@ -1,0 +1,14 @@
+GIMP Palette
+Name: Kimetsu water-style
+Columns: 8
+# Water Breathing effects and crest. Palest tone kept bluer than cue white
+#
+ 11  11  13	ink
+ 16  32  63	water 1
+ 23  49  99	water 2
+ 31  74 138	water 3
+ 47 111 181	water 4
+ 76 149 209	water 5
+125 184 227	water 6
+164 205 235	water 7
+191 221 242	spray

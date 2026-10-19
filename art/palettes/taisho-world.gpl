@@ -1,0 +1,121 @@
+GIMP Palette
+Name: taisho-world
+Columns: 8
+# Union of art/palettes/world/*.gpl (R7-02, 16 px, vanilla-like ramps). Rebuild: python tools/make_ramp.py
+ 82  46  32	sugi
+ 96  57  39	sugi
+110  68  47	sugi
+124  79  55	sugi
+138  91  63	sugi
+153 103  71	sugi
+168 115  79	sugi
+162 129  94	hinoki
+175 141 102	hinoki
+188 153 111	hinoki
+201 166 120	hinoki
+214 179 129	hinoki
+227 192 138	hinoki
+241 205 147	hinoki
+113  70  39	keyaki
+127  82  45	keyaki
+142  94  52	keyaki
+156 106  58	keyaki
+170 119  65	keyaki
+185 132  71	keyaki
+199 145  78	keyaki
+ 35  29  26	yakisugi
+ 44  38  35	yakisugi
+ 54  47  43	yakisugi
+ 64  57  53	yakisugi
+ 75  67  62	yakisugi
+ 85  77  72	yakisugi
+215 208 195	shikkui
+222 216 204	shikkui
+230 225 214	shikkui
+238 234 224	shikkui
+246 242 234	shikkui
+228 215 188	washi
+233 223 198	washi
+239 230 207	washi
+245 237 216	washi
+251 245 226	washi
+155 138  87	tatami
+167 151  95	tatami
+178 164 103	tatami
+190 178 111	tatami
+201 192 120	tatami
+212 206 129	tatami
+118  90  65	tsuchikabe
+132 102  71	tsuchikabe
+147 115  78	tsuchikabe
+161 129  86	tsuchikabe
+175 143  93	tsuchikabe
+189 157 100	tsuchikabe
+ 62  68  78	kawara
+ 74  80  90	kawara
+ 87  93 103	kawara
+100 105 115	kawara
+113 118 129	kawara
+126 131 142	kawara
+109 105  99	ishigaki
+124 120 113	ishigaki
+139 135 128	ishigaki
+155 151 143	ishigaki
+170 167 158	ishigaki
+155  13  28	shu
+171  41  35	shu
+188  61  43	shu
+204  80  51	shu
+220  99  60	shu
+236 117  70	shu
+ 23  15  18	urushi
+ 32  25  27	urushi
+ 42  34  36	urushi
+ 52  43  45	urushi
+ 63  53  55	urushi
+ 97  30  27	bengara
+113  41  34	bengara
+130  52  41	bengara
+146  64  47	bengara
+163  76  54	bengara
+179  88  60	bengara
+ 23  44  75	ai
+ 33  56  89	ai
+ 42  68 103	ai
+ 52  80 117	ai
+ 62  93 132	ai
+ 71 106 147	ai
+126  85 148	fuji
+138 100 165	fuji
+149 115 182	fuji
+161 131 200	fuji
+172 146 217	fuji
+184 162 235	fuji
+103  71  40	dou
+117  85  49	dou
+131  99  57	dou
+145 113  67	dou
+159 128  76	dou
+173 143  86	dou
+ 71  77  83	tetsu
+ 85  91  98	tetsu
+100 106 112	tetsu
+115 120 128	tetsu
+130 136 143	tetsu
+146 151 159	tetsu
+ 21  24  31	gakuran
+ 29  33  41	gakuran
+ 38  42  51	gakuran
+ 47  52  61	gakuran
+ 56  62  72	gakuran
+ 90  90  90	foliage_grey
+110 110 110	foliage_grey
+140 140 140	foliage_grey
+172 172 172	foliage_grey
+196 196 196	foliage_grey
+ 69  77  36	koke
+ 78  90  44	koke
+ 87 104  53	koke
+ 95 118  63	koke
+103 133  73	koke
+110 148  85	koke

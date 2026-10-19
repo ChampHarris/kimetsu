@@ -1,0 +1,37 @@
+# Gradle and IDEs
+.gradle/
+build/
+out/
+run/
+runs/
+*.iml
+.idea/
+.vscode/
+bin/
+
+# Reference material: local only, never commit or redistribute
+ref-src/
+reference/
+
+# Claude Code local state
+.claude/.state/
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Secrets
+.env
+.env.*
+secrets/
+*.jks
+*.keystore
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# palette_fit previews
+art/previews/

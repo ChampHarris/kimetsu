@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "outputStyle": "Kimetsu Lead",
+  "effortLevel": "xhigh",
+  "env": {
+    "PYTHONUTF8": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew build*)",
+      "Bash(./gradlew test*)",
+      "Bash(./gradlew check*)",
+      "Bash(./gradlew compileJava*)",
+      "Bash(./gradlew :core*)",
+      "Bash(./gradlew runGameTestServer*)",
+      "Bash(./gradlew runData*)",
+      "Bash(./gradlew tasks*)",
+      "Bash(./gradlew dependencies*)",
+      "Bash(./gradlew --version)",
+      "Bash(python tools/check_spec.py*)",
+      "Bash(python tools/texture_lint.py*)",
+      "Bash(python tools/palette_fit.py*)",
+      "Bash(python tools/vanilla_coverage.py*)",
+      "Bash(python tools/audio_lint.py*)",
+      "Bash(python tools/contact_sheet.py*)",
+      "Bash(python tools/clip_to_frames.py*)",
+      "Bash(python tools/refsrc.py*)",
+      "Bash(python tools/sims/pulse_sim.py*)",
+      "Bash(python tools/sims/duel_sim.py*)",
+      "Bash(python .claude/hooks/tests/test_guard.py*)",
+      "Bash(python tools/vanilla_scope.py*)",
+      "Bash(python tools/vanilla_style.py*)",
+      "Bash(python tools/make_ramp.py*)",
+      "Bash(python tools/townsfolk_names.py*)",
+      "Bash(python tools/sims/night_sim.py*)",
+      "Bash(python tools/tests/test_vanilla_scope.py*)",
+      "Bash(python3 tools/check_spec.py*)",
+      "Bash(python3 tools/texture_lint.py*)",
+      "Bash(python3 tools/palette_fit.py*)",
+      "Bash(python3 tools/vanilla_coverage.py*)",
+      "Bash(python3 tools/audio_lint.py*)",
+      "Bash(python3 tools/contact_sheet.py*)",
+      "Bash(python3 tools/clip_to_frames.py*)",
+      "Bash(python3 tools/refsrc.py*)",
+      "Bash(python3 tools/sims/pulse_sim.py*)",
+      "Bash(python3 tools/sims/duel_sim.py*)",
+      "Bash(python3 .claude/hooks/tests/test_guard.py*)",
+      "Bash(python3 tools/vanilla_scope.py*)",
+      "Bash(python3 tools/vanilla_style.py*)",
+      "Bash(python3 tools/make_ramp.py*)",
+      "Bash(python3 tools/townsfolk_names.py*)",
+      "Bash(python3 tools/sims/night_sim.py*)",
+      "Bash(python3 tools/tests/test_vanilla_scope.py*)",
+      "Bash(py -3 tools/check_spec.py*)",
+      "Bash(py -3 tools/texture_lint.py*)",
+      "Bash(py -3 tools/palette_fit.py*)",
+      "Bash(py -3 tools/vanilla_coverage.py*)",
+      "Bash(py -3 tools/audio_lint.py*)",
+      "Bash(py -3 tools/contact_sheet.py*)",
+      "Bash(py -3 tools/clip_to_frames.py*)",
+      "Bash(py -3 tools/refsrc.py*)",
+      "Bash(py -3 tools/sims/pulse_sim.py*)",
+      "Bash(py -3 tools/sims/duel_sim.py*)",
+      "Bash(py -3 .claude/hooks/tests/test_guard.py*)",
+      "Bash(py -3 tools/vanilla_scope.py*)",
+      "Bash(py -3 tools/vanilla_style.py*)",
+      "Bash(py -3 tools/make_ramp.py*)",
+      "Bash(py -3 tools/townsfolk_names.py*)",
+      "Bash(py -3 tools/sims/night_sim.py*)",
+      "Bash(py -3 tools/tests/test_vanilla_scope.py*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git branch*)",
+      "Bash(git switch *)",
+      "Bash(git stash*)",
+      "Bash(rg *)",
+      "Bash(grep *)",
+      "Bash(ls)",
+      "Bash(ls *)",
+      "Bash(ffprobe *)",
+      "WebSearch",
+      "WebFetch(domain:docs.neoforged.net)",
+      "WebFetch(domain:neoforged.net)",
+      "WebFetch(domain:maven.neoforged.net)",
+      "WebFetch(domain:minecraft.wiki)",
+      "WebFetch(domain:www.minecraft.net)",
+      "WebFetch(domain:kimetsu-no-yaiba.fandom.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:modrinth.com)",
+      "WebFetch(domain:www.curseforge.com)",
+      "WebFetch(domain:docs.zigythebird.com)",
+      "WebFetch(domain:wiki.geckolib.com)",
+      "WebFetch(domain:moddedmc.wiki)",
+      "WebFetch(domain:code.claude.com)",
+      "WebFetch(domain:api.modrinth.com)",
+      "WebFetch(domain:www.jetbrains.com)",
+      "WebFetch(domain:renderdoc.org)",
+      "mcp__mctest__mc_status",
+      "mcp__mctest__mc_screenshot",
+      "mcp__mctest__mc_logs",
+      "mcp__mctest__mc_crash_report",
+      "mcp__mctest__mc_player",
+      "mcp__mctest__mc_entities",
+      "mcp__mctest__mc_block",
+      "mcp__mctest__mc_time_status",
+      "mcp__mctest__mc_gametest_list",
+      "mcp__mctest__mc_server_status",
+      "mcp__mctest__mc_server_logs",
+      "mcp__mctest__mc_server_players"
+    ],
+    "ask": [
+      "Bash(git push*)",
+      "Bash(git rebase*)",
+      "Bash(git branch -D*)",
+      "Bash(git branch -d*)",
+      "Bash(git branch --delete*)",
+      "Bash(git stash drop*)",
+      "Bash(git stash clear*)"
+    ],
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/secrets/**)",
+      "Read(**/*.jks)",
+      "Read(**/*.keystore)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" session_start.py",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" doctrine_inject.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" guard_paths.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" post_edit.py",
+            "timeout": 90
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" spec_gate.py",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "jdtls-lsp@claude-plugins-official": true
+  }
+}

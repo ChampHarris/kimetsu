@@ -1,0 +1,67 @@
+name: ci
+on: [push, pull_request]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pillow
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Specs pass check_spec
+        run: python tools/check_spec.py docs/design/specs/*.md
+      - name: Hook guard still blocks what it should
+        run: python .claude/hooks/tests/test_guard.py
+      - name: Textures follow the art bible
+        run: python tools/texture_lint.py
+      - name: Mod textures blend with vanilla (R7-02)
+        run: python tools/vanilla_style.py --all
+      - name: Material ramps match ramps.json
+        run: |
+          python tools/make_ramp.py
+          git diff --exit-code -- art/palettes || { echo "Ramps are stale: run python tools/make_ramp.py and commit."; exit 1; }
+      - name: Audio follows the audio bible
+        run: python tools/audio_lint.py
+      - name: Vanilla scope tool tests
+        run: python tools/tests/test_vanilla_scope.py
+      - name: Cache the 26.3 vanilla data
+        uses: actions/cache@v4
+        with:
+          path: ref-src/vanilla-data
+          key: vanilla-data-26.3-${{ hashFiles('tools/refsrc.py') }}
+      - name: Vanilla scope holds at every milestone and the generated datapack is fresh (R7-01)
+        run: |
+          python tools/refsrc.py --mcmeta 26.3
+          python tools/vanilla_scope.py --stages
+          python tools/vanilla_scope.py --check
+      - name: Townsfolk names never produce canon names (R7-05)
+        run: python tools/townsfolk_names.py --check
+      - name: Sims still run
+        run: |
+          python tools/sims/pulse_sim.py > /dev/null
+          python tools/sims/duel_sim.py --fights 200
+          python tools/sims/night_sim.py --nights 30 > /dev/null
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build, unit tests and GameTests
+        run: |
+          if [ ! -f gradlew ]; then echo "No Gradle project yet; skipping."; exit 0; fi
+          chmod +x gradlew
+          ./gradlew build --stacktrace
+          ./gradlew runGameTestServer --stacktrace
+      - name: Restyle coverage (report only; /milestone-check enforces it)
+        run: |
+          if [ ! -f gradlew ]; then echo "No Gradle project yet; skipping."; exit 0; fi
+          python3 tools/refsrc.py --assets || echo "refsrc could not find the vanilla assets; skipping coverage."
+          python3 tools/vanilla_coverage.py --top 20 || true

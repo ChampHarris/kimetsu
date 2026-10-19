@@ -1,0 +1,123 @@
+{
+  "_comment": "Read by tools/texture_lint.py and tools/palette_fit.py. Paths are relative to assets_root (namespace first). R7-02: blocks and items are 16 px like vanilla; colours come from vanilla-like ramps (art/palettes/world/, union in taisho-world.gpl); tools/vanilla_style.py checks the blend. Change palettes or the house resolution only with Champ's OK.",
+  "assets_root": "src/main/resources/assets",
+  "resolution": 16,
+  "house_resolution_dirs": [
+    "textures/block",
+    "textures/item"
+  ],
+  "atlas_dirs": [
+    "textures/block",
+    "textures/item",
+    "textures/particle",
+    "textures/gui/sprites",
+    "textures/mob_effect",
+    "textures/painting"
+  ],
+  "cutout_globs": [
+    "*/textures/block/*leaves*",
+    "*/textures/block/*_plant*",
+    "*/textures/block/*grass*",
+    "*/textures/block/*wisteria_vine*",
+    "*/textures/block/*shoji*"
+  ],
+  "size_exceptions": {
+    "*/textures/gui/*": "any",
+    "*/textures/entity/*": "any",
+    "*/textures/kfx/*": "any",
+    "*/textures/form_names/*": "any",
+    "*/textures/environment/*": "any"
+  },
+  "palette_tolerance": 8.0,
+  "max_off_palette_percent": 3.0,
+  "palette_map": [
+    {
+      "glob": "*/textures/cue/*",
+      "palette": "art/palettes/cue-reserved.gpl",
+      "tolerance": 4.0,
+      "max_off_palette_percent": 20.0
+    },
+    {
+      "glob": "*/textures/kfx/water/*",
+      "palette": "art/palettes/water-style.gpl",
+      "max_off_palette_percent": 15.0
+    },
+    {
+      "glob": "*/textures/entity/demon/*",
+      "palette": "art/palettes/demon-flesh.gpl",
+      "max_off_palette_percent": 6.0
+    },
+    {
+      "glob": "*/textures/gui/*",
+      "palette": "art/palettes/corps-ink.gpl",
+      "max_off_palette_percent": 5.0
+    },
+    {
+      "glob": "*/textures/block/*_leaves*",
+      "palette": "art/palettes/world/foliage_grey.gpl",
+      "max_off_palette_percent": 3.0
+    },
+    {
+      "glob": "*/textures/block/*",
+      "palette": "art/palettes/taisho-world.gpl"
+    },
+    {
+      "glob": "*/textures/item/*",
+      "palette": "art/palettes/taisho-world.gpl"
+    }
+  ],
+  "reserved_colors": [
+    {
+      "name": "cue white",
+      "rgb": [
+        244,
+        250,
+        255
+      ]
+    },
+    {
+      "name": "cue red",
+      "rgb": [
+        255,
+        43,
+        43
+      ]
+    },
+    {
+      "name": "cue purple",
+      "rgb": [
+        176,
+        76,
+        255
+      ]
+    },
+    {
+      "name": "cue gold",
+      "rgb": [
+        255,
+        210,
+        60
+      ]
+    }
+  ],
+  "reserved_tolerance": 12.0,
+  "reserved_max_pixels": 4,
+  "reserved_check_globs": [
+    "*_e.png",
+    "*/textures/particle/*",
+    "*/textures/kfx/*",
+    "*/textures/form_names/*"
+  ],
+  "reserved_allowed_globs": [
+    "*/textures/cue/*",
+    "*/textures/particle/cue_*"
+  ],
+  "entity_texel_density": "1 texel per model unit (vanilla's): a 64x64 humanoid skin, 16 px blocks",
+  "tinted_globs": [
+    "*/textures/block/*_leaves*",
+    "*/textures/block/*grass*",
+    "*/textures/block/*fern*",
+    "*/textures/block/*vine*"
+  ],
+  "tinted_note": "Tinted textures are greyscale (the foliage_grey ramp). The block model's tintindex picks a BlockTintSource that the mod registers in RegisterColorHandlersEvent.BlockTintSources (26.1 replaced BlockColor with BlockTintSource); its colorInWorld returns the biome colour, so mod foliage shifts with vanilla's. Check vanilla's BlockTintSources helpers in ref-src/ before writing your own."
+}

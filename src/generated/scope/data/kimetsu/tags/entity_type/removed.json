@@ -1,0 +1,28 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:blaze",
+    "minecraft:dragon_fireball",
+    "minecraft:end_crystal",
+    "minecraft:ender_dragon",
+    "minecraft:ender_pearl",
+    "minecraft:endermite",
+    "minecraft:eye_of_ender",
+    "minecraft:fireball",
+    "minecraft:ghast",
+    "minecraft:happy_ghast",
+    "minecraft:hoglin",
+    "minecraft:magma_cube",
+    "minecraft:piglin",
+    "minecraft:piglin_brute",
+    "minecraft:shulker",
+    "minecraft:shulker_bullet",
+    "minecraft:small_fireball",
+    "minecraft:strider",
+    "minecraft:wither",
+    "minecraft:wither_skeleton",
+    "minecraft:wither_skull",
+    "minecraft:zoglin",
+    "minecraft:zombified_piglin"
+  ]
+}

@@ -1,0 +1,3 @@
+path,status,family,method,tool,prompt,seed,date,notes
+kimetsu/textures/block/sugi_planks.png,placeholder,sugi,procedural,procedural (make_ramp sugi + board script),,,2026-10-18,"R7-02 pipeline sample: 7 colours, 4 boards, offset joints; replace in the first texture pass"
+kimetsu/textures/gui/advancements/backgrounds/corps.png,placeholder,gui,procedural,procedural (corps-ink washi tile script),,1915,2026-10-19,"R7-04: the Corps Record tab background (root.json names it), tiled 16x16 washi with kozo fibres; replace in the first UI pass"

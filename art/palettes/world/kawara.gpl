@@ -1,0 +1,10 @@
+GIMP Palette
+Name: kawara
+Columns: 8
+# fired roof tiles, cool blue-grey
+ 62  68  78	kawara-0
+ 74  80  90	kawara-1
+ 87  93 103	kawara-2
+100 105 115	kawara-3
+113 118 129	kawara-4
+126 131 142	kawara-5

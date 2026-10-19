@@ -1,0 +1,1297 @@
+{
+ "version": 2,
+ "_comment": "R7-01. Every vanilla thing gets one action: keep (vanilla function and vanilla art; menial things), restyle (vanilla function, the mod's art at vanilla's 16 px), replace (gone; a mod thing does its job, named in 'with'), remove (unreachable). Rules are ordered; the first match wins. 'by' says who decided: Champ, the GDD, or PROPOSED (Claude's call, waiting for Champ; the R6 or R7 item it comes from in brackets). Round 6 is PROPOSED too, so an R6 item never decides by itself; where Champ made the call and Claude the staging, the label says both. Ids are vanilla ids without 'minecraft:'; globs and #tags work. kind 'content' means item and block. Potions are one id per content: potion@strength. Spawn eggs and mob buckets follow their mob. An entity replace rule may name convert_to: that mob becomes the mod entity in place. tool_stand_ins: a mod item that does a removed vanilla tool's job (the drops that need that tool). After any change run: python tools/vanilla_scope.py --orphans, then --datapack src/generated/scope --lock.",
+ "milestone": "M1",
+ "target_milestone": "M5",
+ "_milestone_note": "milestone: the build the generated pack is for (bump it when a milestone starts, then rerun --datapack and --lock). target_milestone: where the plan must be complete; --check tests every milestone in between. A rule's 'from' (default M1) is the milestone it starts at.",
+ "empty_trade_levels": "empty",
+ "_empty_trade_levels_note": "PROPOSED (R7-01; decide list item 5). A villager level the trade rewrite empties (the cleric's 3, the mason's and weaponsmith's 5; from M3 the armorer's 4 and 5) adds no offer when a villager reaches it ('empty'). 'lower' makes it roll the stocked lower level with the most trades instead, which repeats offers the villager already holds: certainly for every one but the mason's level 5 (about 1 in 8 there). A level 1 left empty always fails --check.",
+ "advancements": {
+  "mode": "replace_all",
+  "from": "M2",
+  "by": "PROPOSED (D-015)",
+  "why": "the Corps Record and the Blood Record (R7-04) arrive with the Slayer slice (M2)"
+ },
+ "extra_entities": {
+  "cat": {
+   "from": "M5",
+   "note": "town cats in the Taisho towns; vanilla cats need villages and swamp huts. PROPOSED"
+  }
+ },
+ "mod_sources": {
+  "grass_seeds": {
+   "gives": [
+    "carrot",
+    "potato",
+    "beetroot_seeds"
+   ],
+   "needs": [
+    "block:short_grass"
+   ],
+   "from": "M5",
+   "kind": "data",
+   "by": "PROPOSED",
+   "source": "short grass sometimes drops a carrot (2%), a potato (2%) or beetroot seeds (3%) when broken without shears, as it drops wheat seeds; town farmers also sell seed stock. Until M5 village farms and zombies supply them",
+   "files": {
+    "data/kimetsu/loot_modifiers/grass_seeds.json": {
+     "type": "neoforge:add_table",
+     "condition": {
+      "type": "neoforge:loot_table_id",
+      "loot_table_id": "minecraft:blocks/short_grass"
+     },
+     "table": "kimetsu:gameplay/grass_seeds"
+    },
+    "data/kimetsu/loot_table/gameplay/grass_seeds.json": {
+     "type": "minecraft:block",
+     "pools": [
+      {
+       "rolls": 1,
+       "condition": {
+        "type": "minecraft:inverted",
+        "term": {
+         "type": "minecraft:any_of",
+         "terms": [
+          "minecraft:tool/can_shear"
+         ]
+        }
+       },
+       "entries": [
+        {
+         "type": "minecraft:alternatives",
+         "children": [
+          {
+           "type": "minecraft:item",
+           "name": "minecraft:carrot",
+           "condition": {
+            "type": "minecraft:random_chance",
+            "chance": 0.02
+           }
+          },
+          {
+           "type": "minecraft:item",
+           "name": "minecraft:potato",
+           "condition": {
+            "type": "minecraft:random_chance",
+            "chance": 0.02
+           }
+          },
+          {
+           "type": "minecraft:item",
+           "name": "minecraft:beetroot_seeds",
+           "condition": {
+            "type": "minecraft:random_chance",
+            "chance": 0.03
+           }
+          }
+         ]
+        }
+       ],
+       "modifier": [
+        {
+         "type": "minecraft:explosion_decay"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "fern_dye": {
+   "gives": [
+    "green_dye"
+   ],
+   "needs": [
+    "fern"
+   ],
+   "from": "M5",
+   "kind": "data",
+   "by": "PROPOSED",
+   "source": "fern -> green dye (cactus goes with the deserts at M5)",
+   "files": {
+    "data/kimetsu/recipe/green_dye_from_fern.json": {
+     "type": "minecraft:crafting_shapeless",
+     "group": "green_dye",
+     "ingredients": [
+      "minecraft:fern"
+     ],
+     "result": {
+      "id": "minecraft:green_dye"
+     }
+    }
+   }
+  },
+  "mushroom_dye": {
+   "gives": [
+    "brown_dye"
+   ],
+   "needs": [
+    "brown_mushroom"
+   ],
+   "from": "M5",
+   "kind": "data",
+   "by": "PROPOSED",
+   "source": "brown mushroom -> brown dye (cha-iro, tea brown); cocoa goes with the jungles at M5",
+   "files": {
+    "data/kimetsu/recipe/brown_dye_from_brown_mushroom.json": {
+     "type": "minecraft:crafting_shapeless",
+     "group": "brown_dye",
+     "ingredients": [
+      "minecraft:brown_mushroom"
+     ],
+     "result": {
+      "id": "minecraft:brown_dye"
+     }
+    }
+   }
+  },
+  "bone_block_cutting": {
+   "gives": [
+    "bone"
+   ],
+   "needs": [
+    "bone_block",
+    "stonecutter"
+   ],
+   "from": "M5",
+   "kind": "data",
+   "by": "PROPOSED",
+   "source": "bone block -> 3 bone at the stonecutter (fossils keep generating bone blocks). Skeletons go at M3; until M5 structure chests still hold bones",
+   "files": {
+    "data/kimetsu/recipe/bone_from_bone_block_stonecutting.json": {
+     "type": "minecraft:stonecutting",
+     "ingredient": "minecraft:bone_block",
+     "result": {
+      "id": "minecraft:bone",
+      "count": 3
+     }
+    }
+   }
+  },
+  "black_powder": {
+   "gives": [
+    "gunpowder"
+   ],
+   "needs": [
+    "charcoal",
+    "sulfur"
+   ],
+   "from": "M5",
+   "kind": "data",
+   "by": "PROPOSED",
+   "source": "black powder: charcoal + sulfur (26.3's sulfur caves) -> 2 gunpowder, for hanabi. Creepers and witches go at M3; until M5 structure chests still hold gunpowder",
+   "files": {
+    "data/kimetsu/recipe/gunpowder_from_black_powder.json": {
+     "type": "minecraft:crafting_shapeless",
+     "group": "gunpowder",
+     "ingredients": [
+      "minecraft:charcoal",
+      "minecraft:sulfur"
+     ],
+     "result": {
+      "id": "minecraft:gunpowder",
+      "count": 2
+     }
+    }
+   }
+  },
+  "natagumo_webs": {
+   "gives": [],
+   "places": [
+    "cobweb"
+   ],
+   "needs": [],
+   "from": "M5",
+   "kind": "worldgen",
+   "by": "PROPOSED",
+   "source": "the Natagumo region, Rui's spider mountain [canon], generates webs; cutting one with the blade gives string, shearing it gives the web (regional: one mountain, so it supplies webs, not the world's string)",
+   "regional": true
+  },
+  "hemp": {
+   "gives": [
+    "string"
+   ],
+   "needs": [],
+   "from": "M5",
+   "kind": "code",
+   "by": "PROPOSED",
+   "source": "asa (hemp): wild hemp in plains and forests, a crop; 1 stem -> 2 string. Its leaf is the asanoha pattern of Nezuko's kimono [canon]"
+  }
+ },
+ "worldgen_leaks": {},
+ "tool_stand_ins": {
+  "#minecraft:swords": {
+   "with": "kimetsu:nichirin_blade",
+   "from": "M1",
+   "by": "PROPOSED",
+   "why": "the sword goes at Build 0; the blade's minecraft:tool component copies the sword's rules (cobweb: correct_for_drops, speed 15; #sword_instantly_mines; #sword_efficient 1.5), so a cobweb cut with it drops string as before"
+  }
+ },
+ "texture_entity_dirs": {
+  "illager": "pillager",
+  "zombie_villager": "zombie_villager",
+  "zombie": "zombie",
+  "skeleton": "skeleton",
+  "spider": "spider",
+  "slime": "slime",
+  "creeper": "creeper",
+  "enderman": "enderman",
+  "villager": "villager",
+  "wandering_trader": "wandering_trader",
+  "piglin": "piglin",
+  "hoglin": "hoglin",
+  "horse": "horse",
+  "llama": "llama",
+  "fish": "cod",
+  "squid": "squid",
+  "cow": "cow",
+  "pig": "pig",
+  "chicken": "chicken",
+  "sheep": "sheep",
+  "wolf": "wolf",
+  "cat": "cat",
+  "fox": "fox",
+  "bee": "bee",
+  "frog": "frog",
+  "rabbit": "rabbit",
+  "turtle": "turtle",
+  "goat": "goat",
+  "panda": "panda",
+  "parrot": "parrot",
+  "bear": "polar_bear",
+  "axolotl": "axolotl",
+  "camel": "camel",
+  "sniffer": "sniffer",
+  "armadillo": "armadillo",
+  "warden": "warden",
+  "allay": "allay",
+  "breeze": "breeze",
+  "creaking": "creaking",
+  "iron_golem": "iron_golem",
+  "snow_golem": "snow_golem",
+  "copper_golem": "copper_golem",
+  "ghast": "ghast",
+  "happy_ghast": "happy_ghast",
+  "strider": "strider",
+  "shulker": "shulker",
+  "end_crystal": "end_crystal",
+  "enderdragon": "ender_dragon",
+  "wither": "wither",
+  "guardian": "guardian",
+  "phantom": "phantom",
+  "bat": "bat",
+  "dolphin": "dolphin",
+  "tadpole": "tadpole",
+  "nautilus": "nautilus",
+  "sulfur_cube": "sulfur_cube",
+  "boat": "oak_boat",
+  "chest_boat": "oak_chest_boat",
+  "minecart": "minecart",
+  "projectiles": "arrow",
+  "trident": "trident",
+  "experience_orb": "experience_orb"
+ },
+ "texture_weights": {
+  "block": 3,
+  "item": 2,
+  "entity": 2,
+  "painting": 4,
+  "gui": 5,
+  "environment": 5,
+  "particle": 2
+ },
+ "rules": [
+  {
+   "kind": "content",
+   "ids": [
+    "netherite_*",
+    "ancient_debris"
+   ],
+   "action": "remove",
+   "from": "M1",
+   "by": "Champ; PROPOSED (from M1)",
+   "why": "netherite goes (2026-10-18)"
+  },
+  {
+   "kind": "item",
+   "ids": [
+    "*_sword"
+   ],
+   "action": "replace",
+   "with": "kimetsu:nichirin_blade (Slayers; tag #kimetsu:nichirin) and the mod's own blades",
+   "from": "M1",
+   "by": "Champ (the sword goes); PROPOSED (the blade takes its job, from M1)",
+   "why": "the vanilla sword goes (Champ, 2026-10-18). Canon fits: carrying swords has been illegal since the 1876 Haitorei (Sword Abolishment Edict), so the unofficial Corps hides its blades [canon]"
+  },
+  {
+   "kind": "item",
+   "ids": [
+    "elytra"
+   ],
+   "action": "remove",
+   "from": "M1",
+   "by": "Champ; PROPOSED (from M1)",
+   "why": "the elytra goes (2026-10-18)"
+  },
+  {
+   "kind": "item",
+   "ids": [
+    "*potion@strength",
+    "*potion@long_strength",
+    "*potion@strong_strength"
+   ],
+   "action": "remove",
+   "from": "M1",
+   "by": "Champ; PROPOSED (from M1)",
+   "why": "Strength potions go (2026-10-18)"
+  },
+  {
+   "kind": "entity",
+   "ids": [
+    "villager"
+   ],
+   "action": "replace",
+   "with": "kimetsu:townsperson",
+   "from": "M5",
+   "by": "Champ (the replacement); PROPOSED (from M5)",
+   "why": "generated, named townsfolk you can talk to (Champ, 2026-10-18, R7-05). The M2 home village spawns its own townsfolk; vanilla villagers go with the vanilla villages at M5, when the Taisho towns replace them. A villager already in an older world becomes a townsperson in place (convert_to), keeping its name and spot",
+   "convert_to": "kimetsu:townsperson"
+  },
+  {
+   "kind": "entity",
+   "ids": [
+    "zombie",
+    "husk",
+    "drowned",
+    "zombie_villager",
+    "skeleton",
+    "stray",
+    "bogged",
+    "parched",
+    "spider",
+    "cave_spider",
+    "creeper",
+    "slime",
+    "witch",
+    "enderman",
+    "phantom",
+    "silverfish",
+    "sulfur_cube"
+   ],
+   "action": "replace",
+   "with": "kimetsu:demon (the Director's night spawns, R7-03)",
+   "from": "M3",
+   "by": "PROPOSED",
+   "why": "Champ wants demons every night for groups (R7-03). They go when the demons come (M3): until then they are the night's only threat, and afterwards they would compete for the slot"
+  },
+  {
+   "kind": "entity",
+   "ids": [
+    "wandering_trader",
+    "trader_llama"
+   ],
+   "action": "replace",
+   "with": "kimetsu:night_market (GDD)",
+   "from": "M5",
+   "by": "PROPOSED (the GDD's Night Market takes the job; from M5)",
+   "why": "the GDD's Night Market (an event with masked merchants) takes the wandering trader's job when the living world arrives (M5)"
+  },
+  {
+   "kind": "structure",
+   "ids": [
+    "ruined_portal*",
+    "stronghold"
+   ],
+   "action": "remove",
+   "from": "M1",
+   "by": "PROPOSED (R7-01)",
+   "why": "Nether and End flavour: ruined portals' netherrack, magma and crying obsidian, and the stronghold's End portal, go with the Nether and the End at Build 0"
+  },
+  {
+   "kind": "structure",
+   "ids": [
+    "*"
+   ],
+   "action": "remove",
+   "from": "M5",
+   "by": "PROPOSED (R6-13)",
+   "why": "the Taisho preset (R6-13) places its own towns, shrines and ruins; until it exists (M5) vanilla structures generate, and what only they hold stays with them"
+  },
+  {
+   "kind": "structure",
+   "ids": [
+    "*"
+   ],
+   "action": "keep",
+   "from": "M1",
+   "by": "PROPOSED (R6-13)",
+   "why": "until the Taisho preset exists (M5), vanilla structures generate"
+  },
+  {
+   "kind": "feature",
+   "ids": [
+    "monster_room",
+    "monster_room_deep",
+    "ore_infested"
+   ],
+   "action": "remove",
+   "from": "M3",
+   "by": "PROPOSED",
+   "why": "dungeon spawners and infested stone belong to the vanilla hostiles, which go at M3"
+  },
+  {
+   "kind": "feature",
+   "ids": [
+    "bamboo_vegetation"
+   ],
+   "action": "remove",
+   "from": "M5",
+   "by": "PROPOSED",
+   "why": "the bamboo jungle stays as the bamboo seas (chikurin); this feature grows its jungle trees (70% mega jungle trees), and jungle wood goes at M5. The bamboo itself comes from the 'bamboo' feature"
+  },
+  {
+   "kind": "feature",
+   "ids": [
+    "*"
+   ],
+   "action": "keep",
+   "from": "M1",
+   "by": "PROPOSED",
+   "why": "natural decoration stays until the Taisho preset replaces it"
+  },
+  {
+   "kind": "biome",
+   "ids": [
+    "#minecraft:is_nether",
+    "#minecraft:is_end",
+    "the_void"
+   ],
+   "action": "remove",
+   "from": "M1",
+   "by": "PROPOSED (R7-01)",
+   "why": "the Nether and the End are unreachable from Build 0 (portals and End travel are blocked)"
+  },
+  {
+   "kind": "biome",
+   "ids": [
+    "mushroom_fields",
+    "mangrove_swamp",
+    "pale_garden",
+    "savanna",
+    "savanna_plateau",
+    "windswept_savanna",
+    "jungle",
+    "sparse_jungle",
+    "badlands",
+    "wooded_badlands",
+    "eroded_badlands",
+    "desert",
+    "ice_spikes",
+    "deep_dark"
+   ],
+   "action": "remove",
+   "from": "M5",
+   "by": "PROPOSED (R6-13)",
+   "why": "not Japan: the Taisho preset (R6-13) doesn't generate them. Until it exists (M5) every overworld biome generates. The bamboo jungle stays as the bamboo seas. A world made before M5 keeps them in the chunks it already generated (start a new Taisho world at M5)"
+  },
+  {
+   "kind": "biome",
+   "ids": [
+    "*"
+   ],
+   "action": "keep",
+   "from": "M1",
+   "by": "PROPOSED (R6-13)",
+   "why": "stand-ins until the preset's own biomes exist"
+  },
+  {
+   "kind": "entity",
+   "ids": [
+    "piglin",
+    "piglin_brute",
+    "zombified_piglin",
+    "hoglin",
+    "zoglin",
+    "strider",
+    "ghast",
+    "happy_ghast",
+    "blaze",
+    "magma_cube",
+    "wither_skeleton",
+    "wither",
+    "ender_dragon",
+    "shulker",
+    "endermite",
+    "end_crystal",
+    "eye_of_ender",
+    "ender_pearl",
+    "dragon_fireball",
+    "fireball",
+    "small_fireball",
+    "wither_skull",
+    "shulker_bullet"
+   ],
+   "action": "remove",
+   "from": "M1",
+   "by": "PROPOSED (R7-01)",
+   "why": "the Nether and the End are unreachable"
+  },
+  {
+   "kind": "entity",
+   "ids": [
+    "pillager",
+    "vindicator",
+    "evoker",
+    "vex",
+    "ravager",
+    "illusioner",
+    "evoker_fangs",
+    "creaking",
+    "giant",
+    "skeleton_horse",
+    "zombie_horse",
+    "zombie_nautilus"
+   ],
+   "action": "remove",
+   "from": "M3",
+   "by": "PROPOSED",
+   "why": "patrols, raids and night traps: demons are the threat from M3 (their custom spawners go with them)"
+  },
+  {
+   "kind": "entity",
+   "ids": [
+    "guardian",
+    "elder_guardian",
+    "warden",
+    "breeze",
+    "breeze_wind_charge",
+    "wind_charge",
+    "ominous_item_spawner"
+   ],
+   "action": "remove",
+   "from": "M5",
+   "by": "PROPOSED",
+   "why": "structure guardians and bosses go with their structures (M5)"
+  },
+  {
+   "kind": "entity",
+   "ids": [
+    "iron_golem",
+    "snow_golem",
+    "copper_golem",
+    "allay"
+   ],
+   "action": "remove",
+   "from": "M5",
+   "by": "PROPOSED",
+   "why": "towns are protected by Wisteria wards and lantern waves (GDD), not golems; golems and allays live in vanilla villages and outposts until those go (M5)"
+  },
+  {
+   "kind": "entity",
+   "ids": [
+    "panda",
+    "parrot",
+    "ocelot",
+    "polar_bear",
+    "llama",
+    "llama_spit",
+    "camel",
+    "camel_husk",
+    "sniffer",
+    "armadillo",
+    "mooshroom",
+    "axolotl",
+    "nautilus"
+   ],
+   "action": "remove",
+   "from": "M5",
+   "by": "PROPOSED",
+   "why": "not Taisho Japan's wildlife; they go with their biomes (M5)"
+  },
+  {
+   "kind": "entity",
+   "ids": [
+    "trident",
+    "arrow",
+    "spectral_arrow",
+    "splash_potion",
+    "lingering_potion"
+   ],
+   "action": "remove",
+   "from": "M3",
+   "by": "PROPOSED",
+   "why": "projectiles: the weapons that fire them go at Build 0, and the mobs that still shoot or throw them (skeletons, strays, bogged and pillagers, drowned with tridents, witches with potions) go at M3"
+  },
+  {
+   "kind": "entity",
+   "ids": [
+    "*minecart",
+    "tnt_minecart"
+   ],
+   "action": "remove",
+   "from": "M5",
+   "by": "PROPOSED (R6-14)",
+   "why": "rails go with the structures that generate them (M5)"
+  },
+  {
+   "kind": "entity",
+   "ids": [
+    "experience_bottle"
+   ],
+   "action": "remove",
+   "from": "M5",
+   "by": "PROPOSED",
+   "why": "the thrown bottle o' enchanting goes with the bottle (M5)"
+  },
+  {
+   "kind": "entity",
+   "ids": [
+    "*"
+   ],
+   "action": "keep",
+   "from": "M1",
+   "by": "PROPOSED",
+   "why": "farm animals, wildlife that fits Japan, fish, boats and technical entities"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "*_spear",
+    "mace",
+    "heavy_core",
+    "trident",
+    "bow",
+    "crossbow",
+    "arrow",
+    "spectral_arrow",
+    "tipped_arrow",
+    "shield",
+    "totem_of_undying"
+   ],
+   "action": "remove",
+   "from": "M1",
+   "by": "PROPOSED",
+   "why": "the same reason as the sword: vanilla weapons skip the combat state machine (GDD: no vanilla shortcuts in mod fights), and the M1 demon exists from Build 0; the totem of undying does nothing in mod combat and being Downed replaces it (GDD), so it goes with them"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "*_helmet",
+    "*_chestplate",
+    "*_leggings",
+    "*_boots",
+    "*_horse_armor",
+    "*_nautilus_armor",
+    "wolf_armor",
+    "*_armor_trim_smithing_template",
+    "*_harness"
+   ],
+   "action": "replace",
+   "with": "the Corps uniform and Haori (canon fibre; cosmetic, GDD)",
+   "from": "M3",
+   "by": "PROPOSED",
+   "why": "mod damage ignores armour (GDD), so it has no job once the vanilla mobs go (M3); until then it protects against them"
+  },
+  {
+   "kind": "item",
+   "ids": [
+    "potion@water"
+   ],
+   "action": "keep",
+   "from": "M1",
+   "by": "PROPOSED",
+   "why": "a water bottle makes mud; it is not brewing"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "potion@*",
+    "splash_potion@*",
+    "lingering_potion@*",
+    "splash_potion",
+    "lingering_potion",
+    "fermented_spider_eye",
+    "glistering_melon_slice",
+    "rabbit_foot",
+    "spider_eye"
+   ],
+   "action": "replace",
+   "with": "the Butterfly Mansion's medicine and Wisteria toxin coatings (GDD Tier 2)",
+   "from": "M1",
+   "by": "PROPOSED",
+   "why": "brewing: the Nether is unreachable from Build 0, so nether wart (every awkward potion) and blaze powder (the brewing stand's fuel) are gone and brewing is dead; potions do nothing in mod fights (GDD). The Butterfly Mansion's medicine and Wisteria coatings (GDD Tier 2) take the job"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "brewing_stand"
+   ],
+   "action": "replace",
+   "with": "the Butterfly Mansion's medicine (GDD Tier 2)",
+   "from": "M5",
+   "by": "PROPOSED",
+   "why": "village churches and igloos generate brewing stands, and it is the cleric's workstation, until the villages and igloos go (M5); every brewing recipe is off from Build 0"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "player_head",
+    "player_wall_head"
+   ],
+   "action": "keep",
+   "from": "M1",
+   "by": "PROPOSED",
+   "why": "creative and commands only"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "nether*",
+    "*_nether_*",
+    "quartz*",
+    "*_quartz*",
+    "nether_quartz_ore",
+    "*_nylium",
+    "basalt",
+    "blackstone*",
+    "*_blackstone*",
+    "gilded_blackstone",
+    "soul_soil",
+    "soul_fire",
+    "soul_torch",
+    "soul_wall_torch",
+    "soul_campfire",
+    "glowstone*",
+    "shroomlight",
+    "*_fungus*",
+    "twisting_vines*",
+    "weeping_vines*",
+    "nether_sprouts",
+    "magma_cream",
+    "blaze_*",
+    "ghast_tear",
+    "dried_ghast",
+    "respawn_anchor",
+    "crying_obsidian",
+    "pearlescent_froglight",
+    "verdant_froglight",
+    "ochre_froglight",
+    "fire_charge",
+    "nether_star",
+    "beacon",
+    "wither_rose",
+    "*crimson*",
+    "*warped*",
+    "piglin_head",
+    "piglin_wall_head",
+    "wither_skeleton_skull",
+    "wither_skeleton_wall_skull",
+    "skull_banner_pattern",
+    "piglin_banner_pattern",
+    "music_disc_pigstep",
+    "music_disc_tears",
+    "rib_armor_trim_smithing_template",
+    "snout_armor_trim_smithing_template"
+   ],
+   "action": "remove",
+   "from": "M1",
+   "by": "PROPOSED (R7-01)",
+   "why": "Nether-only, or made from Nether materials, or found only in Nether structures (froglights need magma cubes, the skull pattern a wither skeleton skull). Soul fire goes now as well: it drops nothing, so the soul fire ancient cities place is harmless; the Nether blocks they place that drop something stay until the structures go (M5)"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "zombie_head",
+    "zombie_wall_head",
+    "creeper_head",
+    "creeper_wall_head",
+    "creeper_banner_pattern",
+    "music_disc_lava_chicken",
+    "music_disc_11",
+    "music_disc_blocks",
+    "music_disc_chirp",
+    "music_disc_far",
+    "music_disc_mall",
+    "music_disc_mellohi",
+    "music_disc_stal",
+    "music_disc_strad",
+    "music_disc_wait",
+    "music_disc_ward"
+   ],
+   "action": "remove",
+   "from": "M3",
+   "by": "PROPOSED",
+   "why": "what only the vanilla hostiles give: their heads (charged-creeper kills), the pattern made from one, the disc a chicken jockey drops and the ten discs only a creeper killed by a skeleton drops (13 and cat are also in chests until M5); they go with their mobs. Ancient cities' skeleton skulls wait for the structures (M5)"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "ominous_bottle",
+    "ominous_trial_key",
+    "flow_banner_pattern",
+    "music_disc_creator"
+   ],
+   "action": "remove",
+   "from": "M3",
+   "by": "PROPOSED",
+   "why": "Bad Omen comes only from the ominous bottle, and it starts raids, whose raiders go at M3 (a raid with no raiders could hand out Hero of the Village). Without it there are no ominous trials either, so what only ominous vaults and spawners give goes too (the flow armour trim goes with armour, M3). Until M3 both work"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "soul_sand",
+    "soul_lantern",
+    "polished_basalt",
+    "skeleton_skull",
+    "skeleton_wall_skull"
+   ],
+   "action": "remove",
+   "from": "M5",
+   "by": "PROPOSED",
+   "why": "ancient cities place them after their other sources are gone (the Nether at M1, skeletons at M3); they stay until the structures go, so a city's blocks drop what they are"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "end_*",
+    "purpur*",
+    "chorus_*",
+    "popped_chorus_fruit",
+    "dragon_*",
+    "ender_*",
+    "shulker_*",
+    "*_shulker_box",
+    "spire_armor_trim_smithing_template",
+    "eye_armor_trim_smithing_template"
+   ],
+   "action": "remove",
+   "from": "M1",
+   "by": "PROPOSED (R7-01)",
+   "why": "End-only, or found only in End cities and strongholds (the stronghold goes with the End portal)"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "filled_map"
+   ],
+   "action": "keep",
+   "from": "M1",
+   "by": "PROPOSED",
+   "why": "a plain paper map stays; explorer maps (*_map) go with the structures they point at (M5)"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "rotten_flesh",
+    "phantom_membrane",
+    "infested_*"
+   ],
+   "action": "remove",
+   "from": "M3",
+   "by": "PROPOSED",
+   "why": "zombie and phantom loot, and infested stone (whose feature and silverfish go at M3)"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "trial_*",
+    "vault",
+    "*trial_key",
+    "breeze_rod",
+    "wind_charge",
+    "*_pottery_sherd",
+    "suspicious_sand",
+    "suspicious_gravel",
+    "brush",
+    "sculk*",
+    "*_sculk_sensor",
+    "echo_shard",
+    "recovery_compass",
+    "disc_fragment_5",
+    "music_disc_*",
+    "jukebox",
+    "reinforced_deepslate",
+    "sponge",
+    "wet_sponge",
+    "prismarine*",
+    "*_prismarine*",
+    "sea_lantern",
+    "heart_of_the_sea",
+    "conduit",
+    "nautilus_shell",
+    "enchanted_golden_apple",
+    "experience_bottle",
+    "spawner",
+    "bell",
+    "*_map",
+    "guster_banner_pattern",
+    "globe_banner_pattern",
+    "mojang_banner_pattern",
+    "sniffer_egg",
+    "torchflower*",
+    "pitcher_*",
+    "potted_torchflower",
+    "armadillo_scute",
+    "turtle_scute",
+    "creaking_heart",
+    "*pale_oak*",
+    "resin*",
+    "*_resin*",
+    "chiseled_resin_bricks",
+    "copper_golem_statue",
+    "*_copper_golem_statue",
+    "pale_moss*",
+    "pale_hanging_moss"
+   ],
+   "action": "remove",
+   "from": "M5",
+   "by": "PROPOSED",
+   "why": "only found in vanilla structures or removed biomes, or only useful for removed content; they go with their structures and biomes (M5)"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "*acacia*",
+    "*jungle*",
+    "*mangrove*",
+    "cactus",
+    "cactus_flower",
+    "potted_cactus",
+    "red_sand",
+    "red_sandstone*",
+    "*_red_sandstone*",
+    "mycelium",
+    "short_dry_grass",
+    "tall_dry_grass",
+    "cocoa*",
+    "*eyeblossom*",
+    "cookie"
+   ],
+   "action": "remove",
+   "from": "M5",
+   "by": "PROPOSED",
+   "why": "wood and plants of removed biomes, gone with them (M5); the cookie needs cocoa. Dead bushes stay: old-growth taigas and swamps grow them"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "mud",
+    "packed_mud",
+    "mud_brick*"
+   ],
+   "action": "keep",
+   "from": "M1",
+   "by": "PROPOSED",
+   "why": "earthen walls (tsuchikabe) and earthen bricks; mud comes from water and dirt"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "command_block",
+    "repeating_command_block",
+    "structure_block",
+    "structure_void",
+    "jigsaw",
+    "test_block",
+    "test_instance_block",
+    "debug_stick",
+    "chain_command_block",
+    "barrier",
+    "light"
+   ],
+   "action": "keep",
+   "from": "M1",
+   "by": "PROPOSED",
+   "why": "operator and test tools, never reachable in survival; structure and test blocks build the GameTest arenas, so they stay in the creative tab"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "observer",
+    "daylight_detector"
+   ],
+   "action": "remove",
+   "from": "M1",
+   "by": "PROPOSED (R6-14)",
+   "why": "contraptions whose recipes need nether quartz, so they die with the Nether at Build 0. What kept structures generate stays until the structures go (M5, the contraptions rule): ancient cities' comparators and redstone lamps, and trial chambers' copper bulbs (their recipe needs a blaze rod, but an axe scrapes a waxed bulb into a plain one, so every bulb waits)"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "redstone_torch",
+    "redstone_wall_torch",
+    "repeater",
+    "piston",
+    "sticky_piston",
+    "piston_head",
+    "moving_piston",
+    "dispenser",
+    "dropper",
+    "hopper",
+    "target",
+    "comparator",
+    "redstone_lamp",
+    "crafter",
+    "*copper_bulb",
+    "rail",
+    "powered_rail",
+    "detector_rail",
+    "activator_rail",
+    "minecart",
+    "*_minecart",
+    "slime_ball",
+    "slime_block",
+    "tnt",
+    "tnt_minecart",
+    "fletching_table",
+    "smithing_table",
+    "knowledge_book"
+   ],
+   "action": "remove",
+   "from": "M5",
+   "by": "PROPOSED (R6-14)",
+   "why": "contraptions, rails and things whose job is gone (R6-14). They go with the structures that generate them (M5): rails in mineshafts, dispensers and pistons in jungle temples and trial chambers, TNT in desert pyramids, comparators and redstone lamps in ancient cities, smithing and fletching tables in villages. PROPOSED addition: TNT, a griefing tool on a shared server; black powder is for hanabi"
+  },
+  {
+   "kind": "item",
+   "ids": [
+    "tadpole_bucket"
+   ],
+   "action": "remove",
+   "from": "M5",
+   "by": "PROPOSED",
+   "why": "frogs breed with slime balls (#minecraft:frog_food), which go at M5; with no frogspawn there are no tadpoles to catch. Frogs stay and still spawn in swamps"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "clock"
+   ],
+   "action": "remove",
+   "from": "M3",
+   "by": "PROPOSED",
+   "why": "the GDD's sky dial is the only clock; it arrives with the demon core's dawn and dusk warnings (M3)"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "#minecraft:coals",
+    "coal*",
+    "charcoal",
+    "torch",
+    "wall_torch",
+    "stone",
+    "apple",
+    "carrot",
+    "carrots",
+    "bread",
+    "*_ore",
+    "raw_*",
+    "*_ingot",
+    "*_nugget",
+    "crafting_table",
+    "furnace"
+   ],
+   "action": "keep",
+   "from": "M1",
+   "by": "Champ",
+   "why": "menial vanilla stays: ores and crafting, coal, torches, stone, apples, carrots, bread (2026-10-18)"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "painting"
+   ],
+   "action": "keep",
+   "from": "M1",
+   "by": "PROPOSED",
+   "why": "the item stays; its variants are restyled as hanging scrolls (texture rule below)"
+  },
+  {
+   "kind": "content",
+   "ids": [
+    "*"
+   ],
+   "action": "keep",
+   "from": "M1",
+   "by": "PROPOSED",
+   "why": "menial by default (Champ's rule): building blocks, wood, plants, farming, food, tools, dyes, decoration"
+  },
+  {
+   "kind": "texture",
+   "ids": [
+    "block/destroy*",
+    "block/debug*",
+    "block/bed_*",
+    "block/item_frame",
+    "block/glow_item_frame",
+    "block/dried_kelp_*",
+    "block/mushroom_block_inside",
+    "block/redstone_dust_*",
+    "block/magma"
+   ],
+   "action": "keep",
+   "by": "PROPOSED",
+   "why": "shared block textures for kept content (break cracks, beds, frames, dried kelp, mushroom blocks, redstone wire); block/magma is the magma block's texture (the block stays: the overworld generates it under water)"
+  },
+  {
+   "kind": "texture",
+   "ids": [
+    "painting/*"
+   ],
+   "action": "restyle",
+   "by": "PROPOSED",
+   "why": "vanilla paintings are European canvases; replace the variants (data-driven) with kakejiku scrolls in vanilla's style"
+  },
+  {
+   "kind": "texture",
+   "ids": [
+    "gui/sprites/toast/advancement"
+   ],
+   "action": "restyle",
+   "from": "M2",
+   "by": "PROPOSED (R7-04)",
+   "why": "the advancement toast's 160x32 sprite becomes ink-wash when the Corps Record arrives (M2); listed so the coverage check tracks the override"
+  },
+  {
+   "kind": "texture",
+   "ids": [
+    "entity/villager/*",
+    "entity/zombie_villager/*",
+    "entity/wandering_trader*",
+    "entity/illager/*",
+    "entity/iron_golem/*"
+   ],
+   "action": "replace",
+   "by": "Champ (villager); PROPOSED (the rest)",
+   "why": "townsfolk and demons have their own models"
+  },
+  {
+   "kind": "texture",
+   "ids": [
+    "entity/zombie/*",
+    "entity/skeleton/*",
+    "entity/spider/*",
+    "entity/creeper/*",
+    "entity/slime/*",
+    "entity/witch*",
+    "entity/enderman/*",
+    "entity/phantom*",
+    "entity/silverfish*",
+    "entity/sulfur_cube/*"
+   ],
+   "action": "replace",
+   "by": "PROPOSED",
+   "why": "demons take the night (R7-03)"
+  },
+  {
+   "kind": "texture",
+   "ids": [
+    "entity/end_crystal/*",
+    "entity/enderdragon/*",
+    "entity/shulker/*",
+    "entity/piglin/*",
+    "entity/hoglin/*",
+    "entity/strider/*",
+    "entity/ghast/*",
+    "entity/blaze*",
+    "entity/wither/*",
+    "entity/warden/*",
+    "entity/guardian*",
+    "entity/breeze/*",
+    "entity/creaking/*",
+    "entity/allay/*",
+    "entity/minecart*",
+    "entity/trident*",
+    "entity/shield*",
+    "entity/banner/creeper",
+    "entity/banner/skull",
+    "entity/banner/piglin",
+    "entity/banner/flow",
+    "entity/banner/guster",
+    "entity/banner/globe",
+    "entity/banner/mojang",
+    "entity/conduit/*",
+    "entity/bell/*",
+    "entity/decorated_pot/*",
+    "entity/equipment/humanoid/*",
+    "entity/equipment/humanoid_baby/*",
+    "entity/equipment/humanoid_leggings/*",
+    "entity/equipment/horse_body/*",
+    "entity/equipment/wolf_body/*",
+    "entity/equipment/llama_body/*",
+    "entity/equipment/nautilus_body/*",
+    "entity/equipment/nautilus_saddle/*",
+    "entity/equipment/camel_saddle/*",
+    "entity/equipment/camel_husk_saddle/*",
+    "entity/equipment/happy_ghast_body/*",
+    "entity/equipment/strider_saddle/*",
+    "entity/equipment/skeleton_horse_saddle/*",
+    "entity/equipment/zombie_horse_saddle/*",
+    "entity/equipment/wings/*",
+    "entity/chest/christmas*",
+    "entity/projectiles/arrow*",
+    "entity/panda/*",
+    "entity/parrot/*",
+    "entity/cat/ocelot*",
+    "entity/bear/*",
+    "entity/llama/*",
+    "entity/camel/*",
+    "entity/sniffer/*",
+    "entity/armadillo/*",
+    "entity/axolotl/*",
+    "entity/nautilus/*",
+    "entity/copper_golem/*",
+    "entity/iron_golem/*",
+    "entity/snow_golem*",
+    "entity/horse/horse_skeleton*",
+    "entity/horse/horse_zombie*",
+    "entity/wolf/wolf_armor*",
+    "entity/cow/mooshroom*",
+    "entity/projectiles/wind_charge",
+    "gui/signs/crimson",
+    "gui/signs/warped",
+    "gui/signs/mangrove",
+    "gui/signs/jungle",
+    "gui/signs/acacia",
+    "gui/signs/pale_oak",
+    "gui/hanging_signs/crimson",
+    "gui/hanging_signs/warped",
+    "gui/hanging_signs/mangrove",
+    "gui/hanging_signs/jungle",
+    "gui/hanging_signs/acacia",
+    "gui/hanging_signs/pale_oak"
+   ],
+   "action": "remove",
+   "by": "PROPOSED",
+   "why": "the content they draw is removed (Nether and End mobs and woods, structure guardians, removed wildlife, weapons, armour and the removed mounts' gear, the removed banner patterns, the sign screens of removed woods); the banners, saddles and signs that stay keep vanilla art"
+  },
+  {
+   "kind": "texture",
+   "ids": [
+    "entity/*"
+   ],
+   "action": "keep",
+   "by": "PROPOSED",
+   "why": "kept animals, boats, chests, signs, beds and banners keep vanilla art"
+  },
+  {
+   "kind": "texture",
+   "ids": [
+    "gui/*",
+    "font/*",
+    "misc/*",
+    "environment/*",
+    "particle/*",
+    "mob_effect/*",
+    "map/*",
+    "colormap/*",
+    "effect/*",
+    "palettes/*",
+    "trims/*"
+   ],
+   "action": "keep",
+   "by": "PROPOSED",
+   "why": "vanilla GUI, sky, particles and fonts stay where they're menial; the mod's own screens (Notebook, Ledger, Corps Record) and kfx are new art, not overrides"
+  }
+ ]
+}

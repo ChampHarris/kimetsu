@@ -1,0 +1,204 @@
+{
+  "meta": {
+    "status": "PROPOSED",
+    "source": "docs/design/round6-revision.md#v0-numbers-m1",
+    "note": "v0 numbers for the M1 grey-box fight. tools/sims/duel_sim.py reads this file; the frame-data JSON should start from the same values. 1 tick = 50 ms.",
+    "key_notes": {
+      "player_attacks.forms.*": "damage and posture are per hit; hits (default 1) multiplies them",
+      "player_attacks.flow_bonus": "one damage multiplier standing in for the per-form Flow finishers (round6-revision.md, ruling Q5)",
+      "breath.water_step": "Water halves the Step's cost (GDD, Style modifiers to the Step)",
+      "player.water_step_space_ms": "Water's Step has no i-frames; the window in which the curved dash leaves the strike's reach. Measure against the arc files in the grey box",
+      "player.step_iframes_ticks": "the Concentration Step of every other style (8 frames)"
+    }
+  },
+  "pulse": {
+    "water_bpm": 92,
+    "on_beat_ms": 120,
+    "assist_on_beat_ms": 180,
+    "deflect_ms": 150,
+    "perfect_ms": 60,
+    "assist_window_scale": 1.5,
+    "late_allowance_cap_ms": 80,
+    "whiff_rearm_ms": 250,
+    "credits_per_beat": 1
+  },
+  "rhythm": {
+    "points_per_tier": 4,
+    "max_tier": 5,
+    "on_beat": 1,
+    "deflect": 1,
+    "perfect_deflect": 2,
+    "off_beat": -1,
+    "hit_taken": -4,
+    "idle_s_per_tier_lost": 3,
+    "multipliers": [
+      1.0,
+      1.1,
+      1.2,
+      1.32,
+      1.45,
+      1.6
+    ],
+    "flow_spend_to_tier": 3
+  },
+  "breath": {
+    "max": 100,
+    "regen_idle_per_s": 10,
+    "regen_combat_per_s": 4,
+    "on_beat_inhale": 6,
+    "held_guard_per_s": 6,
+    "step": 15,
+    "water_step": 7.5,
+    "feint": 10,
+    "winded_s": 2.0
+  },
+  "posture": {
+    "player_max": 100,
+    "regen_per_s": 12,
+    "regen_delay_s": 1.5,
+    "on_beat_bonus": 4,
+    "deflect_self": 4,
+    "deflect_attacker": 8,
+    "perfect_attacker_pct": 0.07,
+    "stagger_s": 1.5,
+    "thread_after_break_s": 1.5,
+    "reset_after_missed_break_pct": 0.5
+  },
+  "player_attacks": {
+    "kata": [
+      {
+        "damage": 2.0,
+        "posture": 3,
+        "beats": 1
+      },
+      {
+        "damage": 2.0,
+        "posture": 3,
+        "beats": 1
+      },
+      {
+        "damage": 3.0,
+        "posture": 10,
+        "beats": 1
+      }
+    ],
+    "forms": {
+      "water_surface_slash": {
+        "breath": 20,
+        "damage": 6.0,
+        "posture": 15,
+        "beats": 2,
+        "windup_ticks": 6,
+        "horizontal": true
+      },
+      "water_wheel": {
+        "breath": 25,
+        "damage": 7.0,
+        "posture": 18,
+        "beats": 2,
+        "windup_ticks": 7,
+        "horizontal": false
+      },
+      "striking_tide": {
+        "breath": 30,
+        "damage": 2.0,
+        "posture": 6,
+        "beats": 3,
+        "windup_ticks": 6,
+        "horizontal": false,
+        "hits": 4
+      },
+      "waterfall_basin": {
+        "breath": 25,
+        "damage": 6.0,
+        "posture": 15,
+        "beats": 2,
+        "windup_ticks": 8,
+        "horizontal": false
+      }
+    },
+    "flow_bonus": 1.3,
+    "radial_ms": 150
+  },
+  "m1_demon": {
+    "hp": 100,
+    "posture": 300,
+    "hunger": 100,
+    "regen_hp_per_s": 1.0,
+    "hunger_per_hp": 1.0,
+    "seal_s": 20,
+    "hardening_above_hunger_pct": 0.25,
+    "collapse_s": 5.0,
+    "rise_hp_pct": 0.25,
+    "posture_regen_per_s": 30,
+    "posture_regen_delay_s": 1.0,
+    "block_chance_kata": 0.35,
+    "block_chance_form": 0.15,
+    "blocked_kata_posture": 8,
+    "blocked_form_posture": 20,
+    "cycle_beats": 4,
+    "cycle_jitter_beats": 1,
+    "clash_reaction_ms": [
+      380,
+      60
+    ],
+    "attacks": {
+      "swipe": {
+        "cue": "white",
+        "weight": 52,
+        "damage": 1.25,
+        "block_posture": 8,
+        "recovery_ms": 650,
+        "lead_ticks": 10
+      },
+      "heavy": {
+        "cue": "white",
+        "weight": 18,
+        "damage": 2.5,
+        "block_posture": 20,
+        "recovery_ms": 900,
+        "lead_ticks": 14
+      },
+      "leap": {
+        "cue": "red",
+        "weight": 11,
+        "damage": 3.0,
+        "recovery_ms": 1100,
+        "lead_ticks": 12,
+        "answer": "step",
+        "hunger": 5
+      },
+      "sweep": {
+        "cue": "red",
+        "weight": 9,
+        "damage": 1.5,
+        "recovery_ms": 700,
+        "lead_ticks": 10,
+        "answer": "jump"
+      },
+      "grab": {
+        "cue": "purple",
+        "weight": 10,
+        "damage": 1.0,
+        "recovery_ms": 1200,
+        "lead_ticks": 12,
+        "breath_drain_per_s": 15,
+        "escape_on_beat_inputs": 3
+      }
+    },
+    "perfect_deflect_stun_ms": 400,
+    "string_lengths": {
+      "1": 0.45,
+      "2": 0.35,
+      "3": 0.2
+    },
+    "posture_regen_floor": 0.25,
+    "thread_beats_hardening": true
+  },
+  "player": {
+    "hp": 20,
+    "step_iframes_ticks": 8,
+    "jump_window_ms": 300,
+    "water_step_space_ms": 350
+  }
+}
