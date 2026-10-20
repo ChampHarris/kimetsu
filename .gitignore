@@ -19,6 +19,12 @@ bin/
 !**/src/**/run/
 src/generated/**/.cache/
 
+# Eclipse JDT files the Java language-server plugin writes (root and core/)
+.classpath
+.project
+.settings/
+.eclipse/
+
 # Reference material: local only, never commit or redistribute
 ref-src/
 reference/
