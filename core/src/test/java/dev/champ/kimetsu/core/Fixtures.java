@@ -91,7 +91,7 @@ public final class Fixtures {
                 List.of(1.00, 1.10, 1.20, 1.32, 1.45, 1.60),   // Rhythm multipliers
                 1, 1, 2, 1, -1, -4,                            // Rhythm changes: credit, deflect, Perfect, dodge, off-beat, hit
                 60,       // Rhythm decay: after 3 s idle
-                3);       // Flow spend: to tier 3
+                3);       // Mushin spend: to tier 3
     }
 
     public static HungerRules hunger() {

@@ -4,7 +4,7 @@ import java.util.List;
 
 /**
  * Rhythm (Rules 2.5 and 4.3): points per tier, the tier multipliers, what each answer scores, the idle decay and the
- * Flow spend. {@code multipliers} has one entry per tier, 0 to {@code maxTier}.
+ * Mushin spend. {@code multipliers} has one entry per tier, 0 to {@code maxTier}.
  */
 public record RhythmRules(
         int pointsPerTier,
@@ -17,7 +17,7 @@ public record RhythmRules(
         int offBeat,
         int hitTaken,
         int idleDecayTicks,
-        int flowSpendToTier) {
+        int mushinSpendToTier) {
 
     public RhythmRules {
         Check.positive("points_per_tier", pointsPerTier);
@@ -31,8 +31,8 @@ public record RhythmRules(
             Check.atLeast("multipliers[" + i + "]", multipliers.get(i), i == 0 ? 0.0 : multipliers.get(i - 1));
         }
         Check.atLeast("idle_decay_ticks", idleDecayTicks, 1);
-        Check.atLeast("flow_spend_to_tier", flowSpendToTier, 0);
-        Check.atMost("flow_spend_to_tier", flowSpendToTier, maxTier - 1);
+        Check.atLeast("mushin_spend_to_tier", mushinSpendToTier, 0);
+        Check.atMost("mushin_spend_to_tier", mushinSpendToTier, maxTier - 1);
     }
 
     /** The top of the scale: every tier's points. */

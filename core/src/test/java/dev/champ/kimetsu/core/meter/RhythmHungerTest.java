@@ -19,7 +19,7 @@ class RhythmHungerTest {
         r.add(points);
         assertEquals(tier, r.tier());
         assertEquals(multiplier, r.multiplier(), 1e-9);
-        assertEquals(tier == 5, r.flow());
+        assertEquals(tier == 5, r.mushin());
     }
 
     @Test
@@ -54,11 +54,11 @@ class RhythmHungerTest {
     }
 
     @Test
-    void aFlowFormDropsRhythmToTierThree() {
+    void aMushinFormDropsRhythmToTierThree() {
         Rhythm r = new Rhythm(Fixtures.rhythm());
         r.add(20);
-        assertTrue(r.flow());
-        r.spendFlow();
+        assertTrue(r.mushin());
+        r.spendMushin();
         assertEquals(12, r.points());
         assertEquals(3, r.tier());
     }

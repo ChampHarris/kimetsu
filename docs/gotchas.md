@@ -136,6 +136,7 @@ Things that already cost someone time. Read the relevant section before working 
 - On Windows with Git Bash, any scoped `Bash(...)` deny rule (this kit has two, against force-pushes) switches the PowerShell tool off for the session, so Claude uses Git Bash, which the hooks need anyway. If you turn PowerShell back on (`CLAUDE_CODE_USE_POWERSHELL_TOOL=1`), add matching `PowerShell(...)` rules: `Bash(...)` rules don't cover it. The guard hook checks PowerShell commands either way.
 - In permission rules, `Bash(git status:*)` and `Bash(git status *)` mean the same thing; `:*` is only recognised at the end of a pattern. A deny rule beats any allow rule, and an ask rule beats an allow rule.
 - A Bash heredoc of about 10 KB or more gets cut off ("unexpected EOF while looking for matching"). Write long scripts with the Write tool and run the file.
+- The guard hook blocks any Bash command that names a spec path together with `status: APPROVED` or "approve", even a read-only one ("Only Champ approves specs, and not through the shell either"). It cost two retries on 2026-10-20. Put a script that only reads in a file and run the file, and keep the literal `APPROVED` out of the command line.
 - PostToolUse and Stop hooks reach Claude through exit code 2 plus stderr; a JSON `decision` on stdout is easy to get wrong. The kit's hooks use `fail_with()` in `_common.py`.
 
 ## Windows

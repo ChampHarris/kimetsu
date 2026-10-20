@@ -1,10 +1,10 @@
 # Glossary (use these exact names in prose, code, data, UI and commits)
 
-From the GDD (Part 3, 2026-10-18). Terms marked *R6* or *R7* are proposed in `docs/design/round6-revision.md` or `round7-revision.md` and become official only when Champ accepts them. He accepted R6-03 to R6-09 and R8-01 to R8-04 on 2026-10-20 (D-026), so the beat lock, the Perfect window, the credit cap, the arc file, vitality coupling and the reference camera are official.
+From the GDD (Part 3, 2026-10-18). Terms marked *R6* or *R7* are proposed in `docs/design/round6-revision.md` or `round7-revision.md` and become official only when Champ accepts them. He accepted R6-03 to R6-09 and R8-01 to R8-04 on 2026-10-20 (D-026), so the beat lock, the Perfect window, the credit cap, the arc file, vitality coupling and the reference camera are official, and R9-06's renames (D-031): the Light Chain and Mushin.
 
 **Meters and timing**
 - **Pulse**: the heartbeat everything times to (90–110 BPM; the Breathing Style sets the tempo; a Domain boss sets one tempo for everyone).
-- **Breath**: Slayer stamina. **Posture**: guard; breaking it staggers. **Rhythm** (tiers 0–5): on-beat combo multiplier and mastery source; tier 5 is **Flow**.
+- **Breath**: Slayer stamina. **Posture**: guard; breaking it staggers. **Rhythm** (tiers 0–5): on-beat combo multiplier and mastery source; tier 5 is **Mushin** (無心, "no-mind"; called Flow until R9-06, since canon has Whirlpool, Flow).
 - **Hunger**: demon combat fuel. **Essence**: permanent demon progression (sets art tier), never lost. **Carnage**: demon Rhythm tier 5.
 - **Frame data**: each form's and art's timing file, the server's source of truth for hits. 1 frame = 1 tick = 50 ms.
 - *R6* **Beat lock**: an NPC strike's impact lands on the target's beat. **Perfect window**: the last 60 ms before impact. **Credit cap**: one Rhythm credit per beat.
@@ -13,7 +13,7 @@ From the GDD (Part 3, 2026-10-18). Terms marked *R6* or *R7* are proposed in `do
 - *R8* **Reference camera**: the view every form must read in (proposed: first person). **Breath on the Pulse**: the breathing bone breathes to the beat. **Smear**: the trail's solid first frame on a strike's first active tick.
 
 **Combat verbs**
-- **Kata** (3-hit light combo), **Pommel Strike**, **Recovery Breath** (on-beat Inhale after a form), **Inhale** (a quick tap of Breathe), **Feint** (cancel a windup; both factions), **Tech** (the one recovery input), **Focus** (the one sense key for both factions), **Velocity State** (travel), **Kizuki Stride**.
+- **Light Chain** (3-hit light combo; its hits are Chain 1 to 3; called Kata until R9-06, since Viz translates 型 as "Form"), **Pommel Strike**, **Recovery Breath** (on-beat Inhale after a form), **Inhale** (a quick tap of Breathe), **Feint** (cancel a windup; both factions), **Tech** (the one recovery input), **Focus** (the one sense key for both factions), **Velocity State** (travel), **Kizuki Stride**.
 - Demon toolkit: **Feral Grapple**, **Flesh Mending**, **Blood-Weaving**.
 - **Deflect**, **Perfect Deflect**, **micro-clash** (the only sync minigame), **wall splat**.
 - **Form radial**: hold Breathe, flick to one of 8 slots, release on the beat. **Contextual forms** fire from a state (falling, sprinting, airborne, underwater, after a Perfect Deflect).

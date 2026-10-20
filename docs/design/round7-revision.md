@@ -198,7 +198,7 @@ Kills per player hold steady from solo to six players, which is the goal. Solo n
 | The First Thread [task] | Kill your first demon and watch it turn to ash | Muzan's Blood [task] | Become a demon |
 | Seven Nights [goal] | Survive Final Selection | First Art [task] | Roll your first Blood Demon Art |
 | Steel That Changes Colour [task] | Your Nichirin takes your colour | Torpor [task] | Sleep out a day in Torpor |
-| Flow [goal] | Reach Flow, Rhythm tier 5 (not "Total Concentration": the GDD names its Constant unlock that) | Infamy [task] | A town's rumours name you |
+| Mushin [goal] | Reach Mushin, Rhythm tier 5 (Flow until R9-06, D-031; not "Total Concentration": the GDD names its Constant unlock that) | Infamy [task] | A town's rumours name you |
 | Listen for the Ting [challenge] | Perfect Deflect a full three-strike string | Family [task] | Form a Family |
 | The Crow's First Words [task] | Get your first mission | Blood Chorus [goal] | Land a Family technique |
 | Who Went Missing [goal] | Close a case by naming the right townsperson (R6-15) | Lower Moon [goal] | Take a Lower Moon seat |

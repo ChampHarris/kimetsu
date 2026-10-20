@@ -1,6 +1,6 @@
 # Round 9 revision: what the M1 technical spec changes in the GDD
 
-Status: PROPOSED, except what Champ accepted on 2026-10-20 (D-026, D-027): R9-01, R9-03, R9-08, R9-09, R9-10 and R9-11. R9-06's names are still open, and R9-02, R9-04, R9-05 and R9-07 were in no open question. Written by Claude for Champ on 2026-10-20 from the `/forge "M1 technical spec"` run; nothing here is in the GDD until Champ merges it. Each item is specified in `docs/design/specs/m1-combat-core.md`; the evidence is in `docs/research/briefs/m1-combat-core-*.md`. Tags: `[canon]` `[prior-art]` `[tech]`; `[sim]` marks `tools/sims/` results. Every number is PROPOSED.
+Status: PROPOSED, except what Champ accepted on 2026-10-20: R9-01, R9-03, R9-08, R9-09, R9-10 and R9-11 (D-026, D-027), and R9-02, R9-04 and R9-05 with the spec (D-032). R9-06 was decided on 2026-10-20 (D-031: the Light Chain and Mushin). R9-07 (M2–M3) was in no open question. Written by Claude for Champ on 2026-10-20 from the `/forge "M1 technical spec"` run; nothing here is in the GDD until Champ merges it. Each item is specified in `docs/design/specs/m1-combat-core.md`; the evidence is in `docs/research/briefs/m1-combat-core-*.md`. Tags: `[canon]` `[prior-art]` `[tech]`; `[sim]` marks `tools/sims/` results. Every number is PROPOSED.
 
 ## Summary
 
@@ -57,7 +57,7 @@ Status: PROPOSED, except what Champ accepted on 2026-10-20 (D-026, D-027): R9-01
 ## R9-06 Two names collide with canon
 - **"Kata"** (the 3-hit light combo, and "the Kata engine" for forms): 型 (kata) is the word Viz translates as "Form", so in canon terms "the Kata" are the forms `[canon]`.
 - **"Flow"** (Rhythm tier 5): canon Water forms already include Whirlpool, Flow (ねじれ渦・流流), Splashing Water Flow and Flowing Dance. "The Flow finisher of Whirlpool" next to the canon "Whirlpool, Flow" would be ambiguous `[canon]`.
-- **Decide.** Keep both names, or rename them (names are Champ's). The glossary, the Corps Record's "Flow" entry (D-015) and the spec follow whatever he picks.
+- **Decided (Champ, 2026-10-20, D-031):** "Kata" becomes the **Light Chain** (its hits Chain 1 to 3) and "Flow" becomes **Mushin** (無心, the martial arts' "no-mind", which no canon form or technique uses). The glossary, the Corps Record's entry (D-015), the spec and `core/` follow.
 
 ## R9-07 Canon fixes for later milestones
 Found by the canon pass; recorded so they're fixed before those milestones build them `[canon]`:

@@ -74,7 +74,7 @@ class RulesTest {
     }
 
     @Test
-    void theFlowSpendMustLeaveFlow() {
+    void theMushinSpendMustLeaveMushin() {
         assertThrows(IllegalArgumentException.class,
                 () -> new RhythmRules(4, 5, List.of(1.0, 1.1, 1.2, 1.32, 1.45, 1.6), 1, 1, 2, 1, -1, -4, 60, 5));
     }
