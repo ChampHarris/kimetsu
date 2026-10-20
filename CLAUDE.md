@@ -37,7 +37,7 @@ When sources disagree on a design fact: `docs/gdd/` > `docs/decisions.md` > R6 a
 ```bash
 ./gradlew build                       # compile (Error Prone, NullAway), format check, test, jar
 ./gradlew spotlessApply               # format Java with palantir-java-format before committing
-./gradlew --write-verification-metadata sha256 help spotlessCheck   # after any dependency or plugin change (D-033)
+GRADLE_USER_HOME="$(mktemp -d)" ./gradlew --write-verification-metadata sha256 help spotlessCheck build runGameTestServer   # after any dependency, plugin or Gradle change, from an empty Gradle home (D-033); delete that folder after
 ./gradlew :core:test                  # fast rules tests (no Minecraft)
 ./gradlew runGameTestServer           # in-world tests; exit code = failed required tests
 ./gradlew runClient                   # dev client (Lens scenarios run here; MCTest drives it)

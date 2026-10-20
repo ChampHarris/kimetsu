@@ -110,7 +110,7 @@ dependencies {
 // Dependency verification (gradle/verification-metadata.xml) records what the machine writing it resolves, and Gradle
 // picks Minecraft's natives (LWJGL's) for the host OS through minecraft-dependencies' operating-system variants. These
 // three ask for every OS's natives, so metadata written on Windows covers CI's Linux too. No build task resolves them;
-// only `--write-verification-metadata` does (D-033).
+// only `--write-verification-metadata` and reports such as `dependencies` do (D-033).
 var nativesScope = configurations.dependencyScope('verificationNatives')
 dependencies {
     verificationNatives "net.neoforged:minecraft-dependencies:${minecraft_version}"

@@ -200,10 +200,14 @@ Run `claude mcp list`: `bbmodel`, `mctest` and, once added, `aseprite` and `blen
 ## 12. Code quality gates (D-033)
 Gradle fetches every tool, so there's nothing to install. `gradle/quality.gradle` sets them up for the mod and `core/`, and CI's build job runs each as its own step.
 - **Formatting:** run `./gradlew spotlessApply` before committing (palantir-java-format; `spotlessCheck` runs inside `check`). For matching formatting in the editor, install IntelliJ's palantir-java-format plugin and enable it for this project. Leave **Build and run using** on Gradle (D-021), so IntelliJ's builds run Error Prone too.
-- **Nullness and bug patterns:** `./gradlew build` runs Error Prone and NullAway on every compile, and any warning fails it. Every package needs a `package-info.java` that marks it `@NullMarked`, as Minecraft's packages are; mark what may be null `@Nullable` (JSpecify).
-- **Dependencies:** every Gradle run checks each artifact it resolves against `gradle/verification-metadata.xml`. After adding or bumping a dependency or a plugin, regenerate the file and read the diff:
+- **Nullness and bug patterns:** `./gradlew build` runs Error Prone and NullAway on every compile, and any javac or Error Prone warning fails it. Every package needs a `package-info.java` that marks it `@NullMarked`, as Minecraft's packages are (a package without one fails the build); mark what may be null `@Nullable` (JSpecify).
+- **Dependencies:** every Gradle run checks each artifact it resolves against `gradle/verification-metadata.xml`. After adding or bumping a dependency, a plugin or the Gradle version, regenerate the file from an empty Gradle home (Git Bash), then read the diff:
   ```bash
-  ./gradlew --write-verification-metadata sha256 help spotlessCheck
+  GRADLE_USER_HOME="$(mktemp -d)" ./gradlew --write-verification-metadata sha256 help spotlessCheck build runGameTestServer
   ```
-  `help` resolves every configuration, including the three that fetch other operating systems' natives (`build.gradle`); `spotlessCheck` resolves the formatter, which happens only while a task runs. Before committing, check that each new entry is the artifact you meant to add.
+  - **The empty home is required.** A warm cache skips metadata files that a fresh machine downloads, such as a BOM's `.module` file. The first metadata, written from the normal cache, failed CI that way (`junit-bom-5.14.3.module`).
+  - **The run downloads everything again,** about 1.8 GB in 8 minutes; delete the folder after. If Windows says files in it are busy, run `./gradlew --stop` with the same `GRADLE_USER_HOME`, then delete it.
+  - **The tasks:** `help` resolves every configuration, including the three that fetch other operating systems' natives (`build.gradle`). The other tasks resolve what only happens while a task runs, the formatter included.
+  - **Before committing,** check that each new entry is the artifact you meant to add.
+  - **Stale entries:** regenerating only adds entries. Now and then, delete the file and regenerate it whole, then put the `<trusted-artifacts>` block back, to drop the stale ones.
 - **Line endings:** Java and Gradle files are LF on every OS (`.gitattributes`, `.editorconfig`). If an editor wrote CRLF, `spotlessApply` fixes it.

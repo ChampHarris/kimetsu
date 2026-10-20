@@ -13,8 +13,9 @@ spotless {
 }
 
 // Static analysis: Error Prone, with NullAway checking nullness the JSpecify way. Minecraft marks its packages
-// @NullMarked, and every package here does the same in its package-info.java. Every warning fails the build (-Werror).
-// JSpecify is the one library core/ may import: annotations only, compile-only (D-033).
+// @NullMarked, and every package here does the same in its package-info.java; RequireExplicitNullMarking fails a class
+// outside one, since NullAway would silently skip it. Any javac or Error Prone warning fails the build (-Werror),
+// removal warnings included. JSpecify is the one library core/ may import: annotations only, compile-only (D-033).
 dependencies {
     errorprone "com.google.errorprone:error_prone_core:${errorprone_version}"
     errorprone "com.uber.nullaway:nullaway:${nullaway_version}"
@@ -25,13 +26,15 @@ dependencies {
 tasks.withType(JavaCompile).configureEach {
     options.compilerArgs.add('-Werror')
     options.errorprone {
-        error('NullAway')
+        error('NullAway', 'RequireExplicitNullMarking')
         option('NullAway:OnlyNullMarked', 'true')
         option('NullAway:JSpecifyMode', 'true')
     }
 }
 
-// Tests hand null to code on purpose; Error Prone's other checks still run on them.
-tasks.named('compileTestJava') {
-    options.errorprone.disable('NullAway')
+// Test code (every source set but main) hands null to code on purpose; Error Prone's other checks still run on it.
+sourceSets.matching { it.name != 'main' }.configureEach { set ->
+    tasks.named(set.compileJavaTaskName) {
+        options.errorprone.disable('NullAway', 'RequireExplicitNullMarking')
+    }
 }

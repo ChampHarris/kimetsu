@@ -31,7 +31,8 @@ public record TickRecord(
         if (frozen || paused) {
             return Micros.ofTicks(tick);
         }
-        // A double holds nanos exactly for 104 days of uptime, and to 128 ns decades later: far below a verdict's µs.
+        // Nanos count from boot (HotSpot's nanoTime origin): a double holds them exactly for 104 days of uptime, and to
+        // 128 ns decades later, far below a verdict's µs.
         return Micros.roundMicros(combatMicros(tick, startNanos, tickLengthNanos, (double) arrivalNanos));
     }
 
@@ -47,8 +48,8 @@ public record TickRecord(
      * change goes out on the tick it's seen. Steady T̄ noise at 1 ms of tick-start jitter pushes about once a minute.
      * Under {@code /tick sprint} only the change of state is pushed.
      */
-    public boolean movedFrom(TickRecord sent, double rateChange) {
-        if (stateChangedFrom(sent)) {
+    public boolean movedFrom(@Nullable TickRecord sent, double rateChange) {
+        if (sent == null || stateChangedFrom(sent)) {
             return true;
         }
         return !sprinting && Math.abs(tickLengthNanos - sent.tickLengthNanos) > rateChange * sent.tickLengthNanos;

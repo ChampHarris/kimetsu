@@ -48,7 +48,7 @@ The PDFs' other picks are rejected below, each with its reason.
 | Effort per task | The effort check: `effort_prompt.py` and the `max`, `extra` and `high` skills | Claude Code 2.1.304 behaviour, probed 2026-10-19 (`docs/tools/effort.md`) | asks Champ which effort to use (Ultracode, Max, Extra, High) and switches the turn to his pick | M0 (D-024) |
 | Bug patterns and nullness at compile time | Error Prone with NullAway (JSpecify mode) | Error Prone 2.50.0, NullAway 0.14.2, `net.ltgt.errorprone` 5.1.1, JSpecify 1.0.1 | compile errors from `./gradlew build` and IntelliJ's Gradle builds name the file, line and check | M1 (D-033) |
 | Formatting | Spotless with palantir-java-format | Spotless 8.10.4, palantir-java-format 2.102.0 | `./gradlew spotlessApply` formats; `spotlessCheck` runs in `check` and in CI | M1 (D-033) |
-| Dependency integrity | Gradle dependency verification | `gradle/verification-metadata.xml`: SHA-256 for 304 components | strict on every Gradle run; a swapped or missing checksum fails the build and names the artifact | M1 (D-033) |
+| Dependency integrity | Gradle dependency verification | `gradle/verification-metadata.xml`: SHA-256 for 308 components | strict on every Gradle run; a swapped or missing checksum fails the build and names the artifact | M1 (D-033) |
 | Screen UI library (spike only) | LDLib2 | 26.3.2.41 beta (Modrinth only) | one Corps Record screen as a spike before committing | after Champ approves the spike |
 
 Dev-only mods go in a `localRuntime` configuration: they load in the runs and never reach the jar. The guide has the Gradle block.
@@ -57,18 +57,22 @@ Dev-only mods go in a `localRuntime` configuration: they load in the runs and ne
 Champ asked for them before `core/` slice 2. `gradle/quality.gradle` sets them up once for the mod and `core/`. CI's build job runs three steps (`spotlessCheck`, `build`, `runGameTestServer`), each with `--dependency-verification strict`. The commands are in `docs/tools/toolchain.md` step 12.
 
 - **Policy:**
-  - **NullAway** is an error, with `OnlyNullMarked` and `JSpecifyMode`. Every package is `@NullMarked` in its `package-info.java`, as Minecraft 26.3's 697 packages are, and what may be null is `@Nullable`. NullAway skips test code, which hands null to code on purpose.
-  - **Error Prone**'s default checks run on every compile, tests included, and any warning fails the build (`-Werror`). Under `-Werror` javac stops at the first class that warns, so a full list needs one local compile without it.
+  - **NullAway** is an error, with `OnlyNullMarked` and `JSpecifyMode`. Every package is `@NullMarked` in its `package-info.java`, as Minecraft's 565 packages and NeoForge's 132 are in 26.3, and what may be null is `@Nullable`.
+    - **The gap it closes:** under `OnlyNullMarked`, NullAway silently skips code outside `@NullMarked`, so NullAway's own `RequireExplicitNullMarking` check, also an error, fails any class in a package without `package-info.java`.
+    - **Tests:** both checks skip every source set but `main`, since test code hands null to code on purpose.
+  - **Error Prone**'s default checks run on every compile, tests included.
+    - **What fails the build:** any javac or Error Prone warning (`-Werror`). That includes javac's removal warnings: 16 Minecraft and NeoForge source files mark APIs `forRemoval`, among them `GameTestHelper`, the NBT tags and NeoForge's `IItemExtension`. An unavoidable use takes a local `@SuppressWarnings("removal")` with its reason.
+    - **A full list:** under `-Werror` javac stops at the first class that warns, so seeing every finding takes one local compile without it.
   - **Suppressions** are local, never global, each with its reason on the same line. There are two today: `ArrayRecordComponent` on two test records whose per-tick series are never compared or hashed.
   - **JSpecify** is the one library `core/` may import, compile-only (`.claude/rules/java.md`).
 - **What they flagged in slice 1, and the fixes:**
 
   | Check | Where | Fix |
   |---|---|---|
-  | NullAway: field not initialised | `RecordPush.sent`, null until the first record | `@Nullable`, and on `TickRecord.stateChangedFrom`'s parameter |
+  | NullAway: field not initialised | `RecordPush.sent`, null until the first record | `@Nullable`, on `TickRecord.stateChangedFrom`'s parameter too and (after review) on `movedFrom`'s, whose test passes null |
   | OperatorPrecedence | `ClockEstimator.onRecord` and one test | `a \|\| (b && c)` grouped explicitly |
-  | LongDoubleConversion | `TickRecord.arrivalMicros`, ten test asserts | explicit casts; a double holds nanoseconds exactly for 104 days of uptime and to 128 ns decades later |
-  | LongFloatConversion | three `assertEquals(long, long, delta)` calls | They resolved to JUnit's float overload. `ClockEstimatorTest` compared a combat time near 1.1·10¹⁰ µs, where floats are about 1,024 µs apart, so its "within 2 µs" checked to about a millisecond. The new `Asserts.assertNear` compares in long arithmetic, and the test still passes at 2 µs |
+  | LongDoubleConversion | `TickRecord.arrivalMicros`, nine test asserts and one test call | explicit casts (one test literal became a double instead). A double holds nanoseconds since boot exactly for 104 days of uptime, and to 128 ns decades later |
+  | LongFloatConversion | three `assertEquals(long, long, delta)` calls | They resolve to JUnit's float overload. These tests' values (at most 1.2·10⁷ µs) were still exact, but a float is exact only to 2²⁴: in µs its spacing reaches 2 µs past 16.8 s and about 1 ms past 2.4 hours, and live combat times are 50 µs × the world's game time in ticks. `Asserts.assertNear` compares in long arithmetic and throws rather than wrap, so a `Long.MIN_VALUE` sentinel can't pass as near |
   | ArrayRecordComponent | two test records | suppressed there with the reason (above) |
 
   The mod's two files (`Kimetsu`, `ScopeGameTests`) had no findings, even checked against Minecraft's `@NullMarked` APIs.
@@ -77,11 +81,16 @@ Champ asked for them before `core/` slice 2. `gradle/quality.gradle` sets them u
 - **Dependency verification:**
   - **What it covers:** every artifact Gradle resolves, plugins included, by SHA-256. It also covers every OS's Minecraft natives: three helper configurations in `build.gradle` ask for each OS's variant of `net.neoforged:minecraft-dependencies`, because Gradle otherwise records only the host's. IDE sources and javadoc jars are trusted by pattern, as Gradle recommends.
   - **What it doesn't:** the Minecraft jars and assets NeoFormRuntime downloads itself (it checks them against Mojang's SHA-1s), and the JDK that foojay fetches. The Gradle wrapper is pinned separately by `distributionSha256Sum`.
-  - **Upkeep:** after any dependency or plugin change, run `./gradlew --write-verification-metadata sha256 help spotlessCheck` and read the diff.
+  - **Upkeep:**
+    - **When:** after any dependency, plugin or Gradle version change (which metadata files Gradle fetches can change between versions), regenerate from an empty Gradle home and read the diff. The command is in `docs/tools/toolchain.md` step 12.
+    - **Why the empty home:** a warm cache skips metadata files that a fresh machine downloads. The first file was written from the normal cache, and CI failed on `junit-bom-5.14.3.module`. Regenerated from an empty home, it gained 15 BOM and parent metadata entries.
+    - **Stale entries:** regenerating only adds entries. Now and then, delete the file and regenerate it whole, keeping the `<trusted-artifacts>` block, to drop the stale ones.
+    - **Cost:** about 8 minutes and 1.8 GB of downloads.
 - **Checked on 2026-10-20:**
-  - each gate fails a bad change (a nullable dereference, a misformatted line, one corrupted checksum);
+  - each gate fails a bad change: a nullable dereference, a package without `package-info.java`, a misformatted line, one corrupted checksum;
   - `./gradlew spotlessCheck build --dependency-verification strict`: `:core:test` 179 tests, 0 failures;
-  - `runGameTestServer`: 3 of 3 required tests pass.
+  - `runGameTestServer`: 3 of 3 required tests pass, also from an empty Gradle home;
+  - a code review (REQUEST CHANGES: 1 high, 2 medium, 6 low), folded in; the high one was the warm-cache metadata above.
 
 ## Rejected or deferred
 

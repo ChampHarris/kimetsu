@@ -25,11 +25,11 @@ paths:
 - Logging: SLF4J via `LogUtils.getLogger()`. No `System.out`.
 - Hot paths (per tick, per entity): no allocation in loops, no streams, no reflection.
 - Quality gates (D-033, ADR 0002; `gradle/quality.gradle`), all run by `./gradlew build` and CI:
-  - **Nullness:** every package is `@NullMarked` in its `package-info.java`, as Minecraft's are; mark what may be null `@Nullable` (JSpecify, placed as a type annotation: `private @Nullable TickRecord sent`). NullAway fails the build otherwise. It doesn't check tests.
-  - **Error Prone:** every warning fails the build (`-Werror`). Fix the code; if a check is wrong for one spot, `@SuppressWarnings("CheckName")` there with the reason on the same line.
+  - **Nullness:** every package is `@NullMarked` in its `package-info.java`, as Minecraft's are. A new package without one fails the build (`RequireExplicitNullMarking`). Mark what may be null `@Nullable` (JSpecify, placed as a type annotation: `private @Nullable TickRecord sent`); NullAway fails the build otherwise. It doesn't check tests.
+  - **Warnings:** any javac or Error Prone warning fails the build (`-Werror`), including javac's removal warnings on Minecraft and NeoForge APIs marked `forRemoval`. Fix the code; if a check is wrong for one spot, `@SuppressWarnings("CheckName")` there (or `"removal"`) with the reason on the same line.
   - **Formatting:** palantir-java-format; run `./gradlew spotlessApply` before committing.
-  - **Dependencies:** a new or bumped dependency needs `gradle/verification-metadata.xml` regenerated (the command is in `CLAUDE.md`).
-- Tests: JUnit has no `assertEquals(long, long, long delta)`; that call resolves to the float overload and loses precision past about 16 s of µs. Use `Asserts.assertNear` in `core/`'s tests.
+  - **Dependencies:** a new or bumped dependency, plugin or Gradle version needs `gradle/verification-metadata.xml` regenerated from an empty Gradle home (the command is in `CLAUDE.md`).
+- Tests: JUnit has no `assertEquals(long, long, long delta)`; that call resolves to the float overload, exact only to 2²⁴ (16.8 s of µs). Use `Asserts.assertNear` in `core/`'s tests.
 
 ## Anti-patterns (D-018)
 - **Per-tick polling where an event exists.** Use NeoForge events, attachment change listeners and scheduled ticks. When a system must tick (the Director, the strike scheduler), it runs at its own rate and does bounded work: the Director once a second, at most 4 spawn attempts per party cluster.
