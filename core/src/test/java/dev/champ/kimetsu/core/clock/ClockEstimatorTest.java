@@ -1,5 +1,6 @@
 package dev.champ.kimetsu.core.clock;
 
+import static dev.champ.kimetsu.core.Asserts.assertNear;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -232,7 +233,7 @@ class ClockEstimatorTest {
         est.onRecord(later, new TickRecord(219, start, slow, false, false, false, 0), BEAT);
         long beatWall = Math.round(BEAT * slow / Micros.PER_TICK); // one combat beat at 15 TPS, in ns
         long v = est.estimateMicros(later + beatWall);
-        assertEquals(e0 + BEAT - 40_000, v, 2);
+        assertNear(e0 + BEAT - 40_000, v, 2);
     }
 
     // ---- the spec's bound: synthetic delays against a real tick schedule ----
@@ -258,7 +259,7 @@ class ClockEstimatorTest {
         while (ideal < t0 + dur + 2000 * MS) {
             double since = ideal - t0;
             boolean overloaded = scenario.equals("load15")
-                    || scenario.equals("load") && since >= 60_000 * MS && since < 120_000 * MS;
+                    || (scenario.equals("load") && since >= 60_000 * MS && since < 120_000 * MS);
             if (overloaded) { // back to back, each tick taking 67 ± 3 ms
                 last += Math.max(20 * MS, (66.7 + 3 * rng.nextGaussian()) * MS);
                 ideal = last;
@@ -336,7 +337,7 @@ class ClockEstimatorTest {
             assertTrue(v >= previous, "the estimate stepped back at " + t);
             previous = v;
             int g = latest(m, t);
-            double conv = TickRecord.combatMicros(g, rec[g].startNanos(), rec[g].tickLengthNanos(), t);
+            double conv = TickRecord.combatMicros(g, rec[g].startNanos(), rec[g].tickLengthNanos(), (double) t);
             out[n++] = Math.abs(v - conv);
         }
         return Arrays.copyOf(out, n);

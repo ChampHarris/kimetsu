@@ -11,7 +11,7 @@ paths:
 **Verify, don't recall.** Minecraft 26.x is unobfuscated (Mojang names) and newer than most training data. Before using any Minecraft, NeoForge or library type, find it in `ref-src/` (`rg -n "class PostChain" ref-src/`) or with go-to-definition. Read the NeoForge primer for the version (`docs.neoforged.net/primer/docs/26.3/`) before touching rendering, GUI or networking. If a symbol isn't in `ref-src/`, it doesn't exist in this version.
 
 ## Modules
-- `core/`: plain Java 25 plus JUnit. The rules live here: meters (Breath, Posture, Rhythm, Hunger), the Pulse clock, frame data, the combat state machine, hit resolution. No Minecraft, NeoForge or library imports (the PreToolUse hook blocks them). Deterministic: time comes in as ticks and milliseconds, never from `System.currentTimeMillis()`.
+- `core/`: plain Java 25 plus JUnit. The rules live here: meters (Breath, Posture, Rhythm, Hunger), the Pulse clock, frame data, the combat state machine, hit resolution. No Minecraft, NeoForge or library imports (the PreToolUse hook blocks them); the one exception is JSpecify's nullness annotations, compile-only (D-033). Deterministic: time comes in as ticks and milliseconds, never from `System.currentTimeMillis()`.
 - The mod module adapts `core/` to the game: events, attachments, payloads, entities, rendering. Rendering stays in a `client.render` package (see `rendering.md`).
 - Gradle: use `implementation`, not `modImplementation` (26.x is unobfuscated). Pin every dependency to an exact version in `gradle.properties`. Parchment is unnecessary on 26.x.
 
@@ -24,6 +24,12 @@ paths:
 - Config: `ModConfigSpec` (client: assist level, reduced shake, guard hold/toggle; server: timing windows, caps).
 - Logging: SLF4J via `LogUtils.getLogger()`. No `System.out`.
 - Hot paths (per tick, per entity): no allocation in loops, no streams, no reflection.
+- Quality gates (D-033, ADR 0002; `gradle/quality.gradle`), all run by `./gradlew build` and CI:
+  - **Nullness:** every package is `@NullMarked` in its `package-info.java`, as Minecraft's are; mark what may be null `@Nullable` (JSpecify, placed as a type annotation: `private @Nullable TickRecord sent`). NullAway fails the build otherwise. It doesn't check tests.
+  - **Error Prone:** every warning fails the build (`-Werror`). Fix the code; if a check is wrong for one spot, `@SuppressWarnings("CheckName")` there with the reason on the same line.
+  - **Formatting:** palantir-java-format; run `./gradlew spotlessApply` before committing.
+  - **Dependencies:** a new or bumped dependency needs `gradle/verification-metadata.xml` regenerated (the command is in `CLAUDE.md`).
+- Tests: JUnit has no `assertEquals(long, long, long delta)`; that call resolves to the float overload and loses precision past about 16 s of µs. Use `Asserts.assertNear` in `core/`'s tests.
 
 ## Anti-patterns (D-018)
 - **Per-tick polling where an event exists.** Use NeoForge events, attachment change listeners and scheduled ticks. When a system must tick (the Director, the strike scheduler), it runs at its own rate and does bounded work: the Director once a second, at most 4 spawn attempts per party cluster.

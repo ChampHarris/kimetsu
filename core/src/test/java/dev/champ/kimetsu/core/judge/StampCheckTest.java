@@ -1,5 +1,6 @@
 package dev.champ.kimetsu.core.judge;
 
+import static dev.champ.kimetsu.core.Asserts.assertNear;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -42,7 +43,7 @@ class StampCheckTest {
             long lag = ONE_WAY + (k % 2 == 0 ? -10_000 : 10_000); // SD 10.1 ms
             check.frame(k * 50_000, k * 50_000 + lag, RTT, 0);
         }
-        assertEquals(30_380, check.toleranceMicros(), 50);
+        assertNear(30_380, check.toleranceMicros(), 50);
         for (long k = 40; k < 80; k++) {
             long lag = ONE_WAY + (k % 2 == 0 ? -40_000 : 40_000);
             check.frame(k * 50_000, k * 50_000 + lag, RTT, 0);

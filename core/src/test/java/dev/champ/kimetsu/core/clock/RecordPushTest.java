@@ -30,7 +30,7 @@ class RecordPushTest {
     void aSteadyRateIsNeverPushed() {
         RecordPush push = joined();
         for (long g = 1; g < 400; g++) {
-            assertFalse(push.offer(at(g, TICK + (g % 2 == 0 ? 200_000 : -200_000)), g * TICK)); // ±0.4%
+            assertFalse(push.offer(at(g, TICK + (g % 2 == 0 ? 200_000.0 : -200_000.0)), g * TICK)); // ±0.4%
         }
     }
 

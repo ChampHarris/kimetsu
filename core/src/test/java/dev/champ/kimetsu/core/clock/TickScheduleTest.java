@@ -1,5 +1,6 @@
 package dev.champ.kimetsu.core.clock;
 
+import static dev.champ.kimetsu.core.Asserts.assertNear;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -21,6 +22,7 @@ class TickScheduleTest {
     private static final double[] FRACTIONS = {0.0, 0.25, 0.5, 0.75, 0.999};
 
     /** Measured tick starts (ns), what each tick is, and the nominal tick length in force. */
+    @SuppressWarnings("ArrayRecordComponent") // a scenario's series, read by index; never compared or hashed
     private record Scenario(long[] start, char[] kind, long[] nominal) {
         int stall() {
             for (int g = 0; g < kind.length; g++) {
@@ -185,9 +187,9 @@ class TickScheduleTest {
         }
         long slow = 66_666_667L;
         TickRecord r = schedule.onTickStart(new TickInput(30, t, slow, false, false, false, false, false));
-        assertEquals(slow, r.tickLengthNanos(), 0.0); // the interval that straddled the change isn't counted
+        assertEquals((double) slow, r.tickLengthNanos(), 0.0); // the interval that straddled the change isn't counted
         TickRecord next = schedule.onTickStart(new TickInput(31, t + slow, slow, false, false, false, false, false));
-        assertEquals(slow, next.tickLengthNanos(), 1.0);
+        assertEquals((double) slow, next.tickLengthNanos(), 1.0);
     }
 
     @Test
@@ -206,7 +208,7 @@ class TickScheduleTest {
             t += NOMINAL;
         }
         TickRecord resumed = schedule.onTickStart(TickInput.normal(31, t)); // unflagged: detected as a resume
-        assertEquals(t, resumed.startNanos(), 0.0);
+        assertEquals((double) t, resumed.startNanos(), 0.0);
         assertEquals(Micros.ofTicks(31) + 25_000, resumed.arrivalMicros(t + 25_000_000L));
     }
 
@@ -226,7 +228,7 @@ class TickScheduleTest {
         long back = t + 5_000_000_000L;
         TickRecord r =
                 schedule.onTickStart(new TickInput(30, back, NOMINAL, false, false, false, false, false, lastEnd, 0));
-        assertEquals(back, r.startNanos(), 0.0);
+        assertEquals((double) back, r.startNanos(), 0.0);
         assertEquals(Micros.ofTicks(30) + 25_000, r.arrivalMicros(back + 25_000_000L));
         assertEquals(0, r.epoch());
     }
@@ -247,7 +249,7 @@ class TickScheduleTest {
         TickRecord r = schedule.onTickStart(new TickInput(
                 30, stallEnd + 100_000L, NOMINAL, false, false, false, false, false, stallEnd, 550_100_000L));
         assertEquals(last.startNanos() + last.tickLengthNanos(), r.startNanos(), 1.0);
-        assertEquals(Micros.ofTicks(29) + 600_100, r.arrivalMicros(stallEnd + 100_000L), 2_000);
+        assertNear(Micros.ofTicks(29) + 600_100, r.arrivalMicros(stallEnd + 100_000L), 2_000);
     }
 
     /**
@@ -266,12 +268,12 @@ class TickScheduleTest {
         }
         for (; g < 5030; g++) { // 5,000 sprint ticks in 10 s
             TickRecord r = schedule.onTickStart(new TickInput(g, t, NOMINAL, false, false, true, false, false));
-            assertEquals(t, r.startNanos(), 0.0);
+            assertEquals((double) t, r.startNanos(), 0.0);
             assertEquals(NOMINAL, r.tickLengthNanos(), 0.0);
             t += 2_000_000L;
         }
         TickRecord after = schedule.onTickStart(TickInput.normal(g, t));
-        assertEquals(t, after.startNanos(), 0.0);
+        assertEquals((double) t, after.startNanos(), 0.0);
         assertEquals(Micros.ofTicks(g) + 25_000, after.arrivalMicros(t + 25_000_000L));
     }
 
@@ -287,7 +289,7 @@ class TickScheduleTest {
         TickRecord r = schedule.onTickStart(new TickInput(30, t, NOMINAL, false, false, false, true, false));
         assertEquals(1, r.epoch());
         assertEquals(1, schedule.epoch());
-        assertEquals(t, r.startNanos(), 0.0);
+        assertEquals((double) t, r.startNanos(), 0.0);
         assertEquals(Micros.ofTicks(30), r.arrivalMicros(t));
     }
 

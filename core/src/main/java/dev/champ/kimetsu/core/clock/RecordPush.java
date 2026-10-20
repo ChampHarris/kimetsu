@@ -1,6 +1,7 @@
 package dev.champ.kimetsu.core.clock;
 
 import dev.champ.kimetsu.core.data.ClockRules;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Which tick records the server pushes to one client (Netcode, {@code ClockRecord}). A record goes when T̄ has moved
@@ -13,7 +14,7 @@ import dev.champ.kimetsu.core.data.ClockRules;
  */
 public final class RecordPush {
     private final ClockRules rules;
-    private TickRecord sent;
+    private @Nullable TickRecord sent; // none until the join's pong burst carries the first record
     private double tokens;
     private long lastNanos;
     private boolean started;

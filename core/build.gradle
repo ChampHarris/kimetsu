@@ -1,8 +1,10 @@
 // The combat rules as plain Java 25 with JUnit only. Nothing from Minecraft, NeoForge or the mod libraries is on
 // this classpath, so `./gradlew :core:test` is fast and an engine import here fails the build (the hook also blocks it).
+// The one exception is JSpecify's nullness annotations, compile-only, added by gradle/quality.gradle (D-033).
 plugins {
     id 'java'
     id 'com.diffplug.spotless'
+    id 'net.ltgt.errorprone'
 }
 
 apply from: rootProject.file('gradle/quality.gradle')

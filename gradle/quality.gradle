@@ -11,3 +11,27 @@ spotless {
         palantirJavaFormat(palantir_version)
     }
 }
+
+// Static analysis: Error Prone, with NullAway checking nullness the JSpecify way. Minecraft marks its packages
+// @NullMarked, and every package here does the same in its package-info.java. Every warning fails the build (-Werror).
+// JSpecify is the one library core/ may import: annotations only, compile-only (D-033).
+dependencies {
+    errorprone "com.google.errorprone:error_prone_core:${errorprone_version}"
+    errorprone "com.uber.nullaway:nullaway:${nullaway_version}"
+    compileOnly "org.jspecify:jspecify:${jspecify_version}"
+    testCompileOnly "org.jspecify:jspecify:${jspecify_version}"
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs.add('-Werror')
+    options.errorprone {
+        error('NullAway')
+        option('NullAway:OnlyNullMarked', 'true')
+        option('NullAway:JSpecifyMode', 'true')
+    }
+}
+
+// Tests hand null to code on purpose; Error Prone's other checks still run on them.
+tasks.named('compileTestJava') {
+    options.errorprone.disable('NullAway')
+}

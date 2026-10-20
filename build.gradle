@@ -3,6 +3,7 @@ plugins {
     id 'net.neoforged.moddev' version '2.0.148'
     id 'idea'
     id 'com.diffplug.spotless'
+    id 'net.ltgt.errorprone'
 }
 
 apply from: rootProject.file('gradle/quality.gradle')

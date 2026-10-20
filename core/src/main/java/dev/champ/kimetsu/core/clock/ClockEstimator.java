@@ -93,7 +93,7 @@ public final class ClockEstimator {
             awaitingNewer = false;
         }
         if (seen) {
-            if (record.epoch() < newestEpoch || record.epoch() == newestEpoch && record.tick() < newestTick) {
+            if (record.epoch() < newestEpoch || (record.epoch() == newestEpoch && record.tick() < newestTick)) {
                 return; // overtaken on the wire by a newer record: its rate is stale
             }
             if (record.epoch() != newestEpoch) {

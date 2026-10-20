@@ -22,6 +22,7 @@ class VanillaLoopTest {
     private static final double[] FRACTIONS = {0.0, 0.25, 0.5, 0.75, 0.999};
 
     /** A run of the loop: each tick's Pre and Post times (ns), whether vanilla was behind, and the schedule's records. */
+    @SuppressWarnings("ArrayRecordComponent") // a run's series, read by index; never compared or hashed
     private record Run(long[] pre, long[] post, long[] late, boolean[] dropped, TickRecord[] rec) {}
 
     private static Run run(int ticks, IntToDoubleFunction workMs, IntToDoubleFunction packetsMs, long seed) {
@@ -170,7 +171,7 @@ class VanillaLoopTest {
         }
         assertTrue(drop > 200, "no drop");
         assertEquals(1, r.rec[drop].epoch());
-        assertEquals(r.pre[drop], r.rec[drop].startNanos(), 0.0);
+        assertEquals((double) r.pre[drop], r.rec[drop].startNanos(), 0.0);
         assertTrue(worst(r, drop + 1, 399, -1, -1) <= 10);
     }
 
@@ -187,6 +188,6 @@ class VanillaLoopTest {
         long slow = 66_666_667L;
         TickRecord at = schedule.onTickStart(new TickInput(30, t, slow, false, false, false, false, false));
         assertEquals(before.startNanos() + N, at.startNanos(), 1.0);
-        assertEquals(slow, at.tickLengthNanos(), 0.0);
+        assertEquals((double) slow, at.tickLengthNanos(), 0.0);
     }
 }

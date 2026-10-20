@@ -1,5 +1,7 @@
 package dev.champ.kimetsu.core.clock;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * What the server publishes once per tick for the network thread (Rule 1.2): the game time this tick's engine step
  * uses, the mod's own schedule for the tick's start, the typical tick length and the ticking state. Immutable, so the
@@ -29,7 +31,8 @@ public record TickRecord(
         if (frozen || paused) {
             return Micros.ofTicks(tick);
         }
-        return Micros.roundMicros(combatMicros(tick, startNanos, tickLengthNanos, arrivalNanos));
+        // A double holds nanos exactly for 104 days of uptime, and to 128 ns decades later: far below a verdict's µs.
+        return Micros.roundMicros(combatMicros(tick, startNanos, tickLengthNanos, (double) arrivalNanos));
     }
 
     /** Rule 1.2's conversion, unrounded, for any tick length: the server's arrivals and the client's clock share it. */
@@ -52,7 +55,7 @@ public record TickRecord(
     }
 
     /** Whether the ticking state or the epoch differs from {@code sent}'s (always true against nothing sent). */
-    public boolean stateChangedFrom(TickRecord sent) {
+    public boolean stateChangedFrom(@Nullable TickRecord sent) {
         return sent == null
                 || epoch != sent.epoch
                 || frozen != sent.frozen
