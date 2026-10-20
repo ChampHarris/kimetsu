@@ -1,6 +1,6 @@
 # Round 8 revision: 3D animation standards
 
-Status: PROPOSED. Written by Claude for Champ on 2026-10-19; nothing here is in the GDD until Champ merges it. Evidence tags: `[canon]` `[prior-art]` `[tech]` (checked in the 26.3 sources in `ref-src/`). Every number is PROPOSED.
+Status: PROPOSED, except R8-01 to R8-04, which Champ accepted on 2026-10-20 (D-026). Written by Claude for Champ on 2026-10-19; nothing here is in the GDD until Champ merges it. Evidence tags: `[canon]` `[prior-art]` `[tech]` (checked in the 26.3 sources in `ref-src/`). Every number is PROPOSED.
 
 ## Summary
 

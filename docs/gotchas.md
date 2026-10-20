@@ -40,7 +40,15 @@ Things that already cost someone time. Read the relevant section before working 
 ## Timing and networking
 - A beat at 90–110 BPM is 545–667 ms (11–13 ticks); a ±120 ms window is only 2.4 ticks wide each side. Do beat maths in milliseconds; stamp inputs with tick + sub-tick fraction.
 - Hit-stop is client presentation only. Never pause server logic or delay sending inputs for it.
-- Vanilla invulnerability frames swallow rapid mod hits: bypass `invulnerableTime` for mod damage (a bypass-cooldown damage-type tag or clearing it per hit; check the 26.3 tag name) and track hits per attacker and swing yourself.
+- Vanilla invulnerability frames swallow rapid mod hits. In 26.3 living i-frames are `LivingEntity.damageCooldownTime`, not `invulnerableTime`. Tag mod damage `bypasses_cooldown`, which skips the check but still sets the cooldown to 20 and shields the target from its next vanilla hit, so also call `setInvulnerabilityTicks(0)` in `LivingIncomingDamageEvent`. Never tag it `bypasses_invulnerability` (that passes creative mode and the totem), and set `"scaling": "never"` or players take difficulty-scaled mod damage. Track hits per attacker and swing yourself.
+- Vanilla's tick schedule isn't game time under sustained lag. `MinecraftServer.getNextTickTime()` (public) moves on one tick length per tick whether or not the tick finished on time, and skips forward only when 2 s behind, at most once per 15 s ("Can't keep up!", `MinecraftServer.java:734–754`): at 15 TPS it drifts 16.7 ms a tick. Keep your own schedule from measured tick starts and re-anchor when vanilla skips (M1 spec Rules 1.2 and 1.8).
+- Queued packets run before `ServerTickEvent.Pre` (`processPacketsAndTick`), and the integrated server's pause skips both Pre and Post.
+- An attachment syncs on every `setData` (no equality check) and on a `getData` that creates the default, and every receiver gets the same bytes: no per-receiver content, and set it once per change.
+- `CustomPacketPayload.createType(String)` puts the id in the `minecraft:` namespace; give it a `kimetsu:` id.
+- `hurtMarked` is now `Entity.syncVelocity` (`markHurt()`); `push` and `knockback` alone never reach the player who's pushed.
+- Input codes are SDL's: mouse left 1, middle 2, right 3 (`InputConstants`), keys are scancodes (`KEY_A = 4`). The javadoc of NeoForge's `InputEvent.MouseButton` still describes GLFW values.
+- A `piercing_weapon` item makes the server ignore attack packets and turns on STAB; keep it off the Nichirin.
+- `ModConfig.Type` is LOCAL, CLIENT, SYNCED and STARTUP (no SERVER or COMMON). `DataPackRegistryEvent.NewRegistry` is gone: use `NewDatapackRegistryEvent`, whose `worldRegistry` can sync and whose `reloadableRegistry` reloads on `/reload` but can't sync.
 
 ## Assets and audio
 - One sprite with an odd size lowers mipmaps for its whole atlas. Atlas sprites must be ≥ 16 px and multiples of 16 (`tools/texture_lint.py` checks).
@@ -93,6 +101,8 @@ Things that already cost someone time. Read the relevant section before working 
 - Day and night are timelines: `minecraft:day` marks night at tick 13000, and `minecraft:moon` has a 192,000-tick phase track. `Level#getDefaultClockTime()`, which an earlier note named, appears nowhere in the NeoForge 26.3 sources: find the clock accessor in `ref-src/` before using one.
 - Block tinting: 26.1 replaced `BlockColor` with `BlockTintSource`, registered in `RegisterColorHandlersEvent.BlockTintSources`. Older docs name `RegisterColorHandlersEvent.Block`, which is gone.
 - No Mojang access (some CI and sandboxes)? `python tools/refsrc.py --mcmeta 26.3` fetches the vanilla data from raw.githubusercontent.com alone and resumes if interrupted.
+- 26.3 renamed the `doDaylightCycle` game rule to `advance_time` (`GameRules.ADVANCE_TIME`; the datafixer maps the old name): `/gamerule advance_time false` holds the time.
+- `ref-src/vanilla-data` has no `damage_type` or `tags/damage_type`; read the tags from the 26.3 sources or misode.
 
 ## Dev tools (ADR 0002)
 - MCTest's `mc_launch` needs `loader: "neoforge"` (it has no default) and defaults to multi-loader task names (`:neoforge:runClient`); this build is a single project, so pass `loader: "neoforge", task: "runClient"`. The client API is on port 25599 and the server API on 25598; a second client needs its own `mctest.port`.
@@ -105,6 +115,8 @@ Things that already cost someone time. Read the relevant section before working 
 - Spyglass validates datapacks in the editor only; there's no command-line validator for CI.
 - MCTest clients started with `mc_launch` close when the MCP session that launched them ends; run launch, `mc_wait_ready`, the checks and `mc_close_all` in one session. The first launch of a fresh `run/` folder stops on vanilla's accessibility onboarding screen (`mc_key` escape dismisses it), and any mod loading warning shows NeoForge's warning screen first: Chunky 1.5.4's deprecated `logoFile` did, so Chunky stays out of `localRuntime` until M5.
 - Without an audio device the dev client logs "Failed to open OpenAL device" and runs silent; audio checks need a machine with sound.
+- No mock player can fight in a GameTest: `makeMockPlayer` isn't a `ServerPlayer`, `makeMockServerPlayer` has a null connection (so `hurtServer` and a synced `setData` should throw; read from the code, not run), and NeoForge's `FakePlayer` can't be hurt. Use a test-dummy combatant and the engine harness in GameTests, and MCTest for end-to-end fights.
+- A sim must step per tick wherever a timer can expire inside a step. `duel_sim.py` advanced the 2–3 s gap between strings in one step and tested the demon's 1 s recovery delay only at its start, so the demon never recovered Posture, and Round 6's duel table rested on it (R9-11); `test_duel_sim.py` pins the per-tick stepping. Likewise `netcode_sim.py`'s token bucket refilled by arrival time while it metered stamps, which dropped 23,000 honest frames at 15 TPS: meter stamps in wall-equivalent time.
 
 ## Claude Code
 - Hook `additionalContext` must sit inside `hookSpecificOutput` or it's silently ignored. Exit 0 from PreToolUse doesn't approve a call.

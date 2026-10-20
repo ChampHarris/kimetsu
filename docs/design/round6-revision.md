@@ -2,6 +2,8 @@
 
 **Status: PROPOSED.** Written by Claude (Cowork) for Champ. Nothing here is in the GDD until Champ merges it into the live doc; code follows the GDD, not this file. Tags: `[canon]` `[prior-art]` `[tech]` mark evidence; `[sim]` marks results from `tools/sims/` (re-run them yourself); "My read" marks judgment.
 
+**Accepted by Champ (2026-10-20, D-026):** R6-03 to R6-09 and the v0 numbers, as Round 9 revises them (R9-10, R9-11).
+
 **Amended by Round 7 (2026-10-18).** Champ's calls of that day change R6-14 (selective vanilla at 16 px: R7-01, R7-02) and R6-15 (ordinary demons still spawn at night: R7-03), and townsfolk replace villagers in R6-15, R6-16 and R6-17 (R7-05). The amendments are marked in place; `docs/design/round7-revision.md` has the evidence.
 
 **Verdict on the current design:** the pillars are right and most systems are strong. Five things would hurt the mod as written: it targets a Minecraft version whose rendering code is a dead end; the Perfect Deflect rule makes the mod's signature mechanic a coin flip; input spam can farm Rhythm under assist and latency; the player rig standard can't be built with the player animation library; and "no vanilla textures" has no production plan. Round 6 fixes those, then adds six ideas that use what only this mod has. Since Champ ruled the build private (D-010), it also adopts the one mechanic that was held back only for publishing reasons (R6-22).
@@ -207,6 +209,8 @@ Also below: rulings for the 13 open M1 questions, the v0 numbers, what this roun
 | 13 | All the numbers | v0 table below; tier = 4 Rhythm points; a deflect's "+1 Rhythm" is one point, not a tier; breakfall cap: saves at most 10 HP | Simulated, not guessed |
 
 ## v0 numbers (M1)
+
+> **Correction, 2026-10-20.** The sim table below came from an integration bug in `tools/sims/duel_sim.py`: `Fight.advance` tested the demon's 1 s Posture-recovery delay once per call, and the 2–3 s gap between strings was advanced in one call right after a hit, so the demon never recovered Posture (found by the M1 spec's red team, fixed and pinned by `tools/tests/test_duel_sim.py`). Stepped tick by tick, these numbers give 100 / 98.0 / 19.4 / 66.3% wins and almost no Posture-break wins. The claims that rest on the table (R6-06's 84 / 90 / 89%, R6-07's strings trade-off, the seal finding behind D-008, ruling Q3's 29%) were rerun on the fixed sim with the M1 spec's rules: `docs/design/round9-revision.md` R9-11 gives the results and the retune (the demon's Posture recovers at 12/s after 2 s), and R9-03 the regeneration finding. `--legacy-advance` reproduces the table as it was.
 
 The source of truth is `tools/sims/m1_v0.json`; the frame-data JSON starts from it. Everything is **PROPOSED** until the gate playtest logs confirm it.
 

@@ -1,6 +1,6 @@
 # Glossary (use these exact names in prose, code, data, UI and commits)
 
-From the GDD (Part 3, 2026-10-18). Terms marked *R6* or *R7* are proposed in `docs/design/round6-revision.md` or `round7-revision.md` and become official only when Champ accepts them.
+From the GDD (Part 3, 2026-10-18). Terms marked *R6* or *R7* are proposed in `docs/design/round6-revision.md` or `round7-revision.md` and become official only when Champ accepts them. He accepted R6-03 to R6-09 and R8-01 to R8-04 on 2026-10-20 (D-026), so the beat lock, the Perfect window, the credit cap, the arc file, vitality coupling and the reference camera are official.
 
 **Meters and timing**
 - **Pulse**: the heartbeat everything times to (90–110 BPM; the Breathing Style sets the tempo; a Domain boss sets one tempo for everyone).

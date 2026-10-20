@@ -8,7 +8,7 @@ Champ's lore-accurate, skill-first Demon Slayer (Kimetsu no Yaiba) action RPG fo
 | What | Where |
 |---|---|
 | Design (source of truth) | `docs/gdd/`: snapshot of the live claude.ai GDD. Read-only; Champ edits the live doc |
-| Proposed changes | `docs/design/round6-revision.md`, `docs/design/round7-revision.md`, `docs/design/round8-revision.md` (PROPOSED until Champ merges an item; R7 amends R6-14 and R6-15; R8 sets the 3D animation standards) |
+| Proposed changes | `docs/design/round6-revision.md`, `docs/design/round7-revision.md`, `docs/design/round8-revision.md`, `docs/design/round9-revision.md` (PROPOSED until Champ merges an item; R7 amends R6-14 and R6-15; R8 sets the 3D animation standards; R9 holds the GDD changes the M1 spec proposes) |
 | Specs | `docs/design/specs/`, from `docs/design/TEMPLATE-spec.md` |
 | Decisions and their reasons | `docs/decisions.md` |
 | Where we are, what's next | `docs/state.md` (the session hook shows its `## Now`) |
