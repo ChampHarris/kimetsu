@@ -54,12 +54,16 @@ jobs:
           distribution: temurin
           java-version: "25"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build, unit tests and GameTests
+      # The code quality gates (ADR 0002, D-033). Every Gradle step checks each dependency it resolves against
+      # gradle/verification-metadata.xml; strict is the default, and the flag keeps a local override from loosening it.
+      - name: Formatting (Spotless, palantir-java-format)
         run: |
-          if [ ! -f gradlew ]; then echo "No Gradle project yet; skipping."; exit 0; fi
           chmod +x gradlew
-          ./gradlew build --stacktrace
-          ./gradlew runGameTestServer --stacktrace
+          ./gradlew spotlessCheck --dependency-verification strict --stacktrace
+      - name: Build with Error Prone and NullAway, and the unit tests
+        run: ./gradlew build --dependency-verification strict --stacktrace
+      - name: GameTests
+        run: ./gradlew runGameTestServer --dependency-verification strict --stacktrace
       - name: Restyle coverage (report only; /milestone-check enforces it)
         run: |
           if [ ! -f gradlew ]; then echo "No Gradle project yet; skipping."; exit 0; fi

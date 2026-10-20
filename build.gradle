@@ -107,6 +107,28 @@ dependencies {
     // logoFile property puts NeoForge's loading-warning screen in front of every dev launch.
 }
 
+// Dependency verification (gradle/verification-metadata.xml) records what the machine writing it resolves, and Gradle
+// picks Minecraft's natives (LWJGL's) for the host OS through minecraft-dependencies' operating-system variants. These
+// three ask for every OS's natives, so metadata written on Windows covers CI's Linux too. No build task resolves them;
+// only `--write-verification-metadata` does (D-033).
+var nativesScope = configurations.dependencyScope('verificationNatives')
+dependencies {
+    verificationNatives "net.neoforged:minecraft-dependencies:${minecraft_version}"
+}
+['windows', 'osx', 'linux'].each { os ->
+    configurations.resolvable("verificationNatives${os.capitalize()}") {
+        extendsFrom nativesScope.get()
+        attributes {
+            attribute(Usage.USAGE_ATTRIBUTE, objects.named(Usage, Usage.JAVA_RUNTIME))
+            attribute(Category.CATEGORY_ATTRIBUTE, objects.named(Category, Category.LIBRARY))
+            attribute(net.neoforged.minecraftdependencies.MinecraftDistribution.ATTRIBUTE,
+                    objects.named(net.neoforged.minecraftdependencies.MinecraftDistribution, 'client'))
+            attribute(net.neoforged.minecraftdependencies.OperatingSystem.ATTRIBUTE,
+                    objects.named(net.neoforged.minecraftdependencies.OperatingSystem, os))
+        }
+    }
+}
+
 // Expands the properties above into META-INF/neoforge.mods.toml.
 var generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
     var replaceProperties = [

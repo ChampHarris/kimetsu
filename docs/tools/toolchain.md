@@ -17,6 +17,7 @@ How to install the tools in ADR 0002 so Claude can use them. Versions were pinne
 | 9 | Blender Lab MCP (KHR-1 player rig) | M1, R6-02 | 20 min |
 | 10 | Chunky and BlueMap (worldgen), LDLib2 spike | M5, or when Champ approves the spike | 20 min |
 | 11 | Check that Claude can use each tool | after setup | 10 min |
+| 12 | Code quality gates: Error Prone, NullAway, Spotless, dependency verification (nothing to install) | M1 (D-033) | 5 min |
 
 ---
 
@@ -194,3 +195,15 @@ Run `claude mcp list`: `bbmodel`, `mctest` and, once added, `aseprite` and `blen
 | Blender Lab | screenshot the rig | the viewport image |
 | RenderDoc | read a capture you saved | Claude names the passes from the debug labels |
 | Effort check | answer a design request in a new session | the Effort question, four options, the recommended one first (`docs/tools/effort.md`) |
+| Quality gates | run `./gradlew spotlessCheck build` | BUILD SUCCESSFUL; when one fails, it names the file and line, the check, or the artifact |
+
+## 12. Code quality gates (D-033)
+Gradle fetches every tool, so there's nothing to install. `gradle/quality.gradle` sets them up for the mod and `core/`, and CI's build job runs each as its own step.
+- **Formatting:** run `./gradlew spotlessApply` before committing (palantir-java-format; `spotlessCheck` runs inside `check`). For matching formatting in the editor, install IntelliJ's palantir-java-format plugin and enable it for this project. Leave **Build and run using** on Gradle (D-021), so IntelliJ's builds run Error Prone too.
+- **Nullness and bug patterns:** `./gradlew build` runs Error Prone and NullAway on every compile, and any warning fails it. Every package needs a `package-info.java` that marks it `@NullMarked`, as Minecraft's packages are; mark what may be null `@Nullable` (JSpecify).
+- **Dependencies:** every Gradle run checks each artifact it resolves against `gradle/verification-metadata.xml`. After adding or bumping a dependency or a plugin, regenerate the file and read the diff:
+  ```bash
+  ./gradlew --write-verification-metadata sha256 help spotlessCheck
+  ```
+  `help` resolves every configuration, including the three that fetch other operating systems' natives (`build.gradle`); `spotlessCheck` resolves the formatter, which happens only while a task runs. Before committing, check that each new entry is the artifact you meant to add.
+- **Line endings:** Java and Gradle files are LF on every OS (`.gitattributes`, `.editorconfig`). If an editor wrote CRLF, `spotlessApply` fixes it.

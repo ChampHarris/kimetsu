@@ -35,7 +35,9 @@ When sources disagree on a design fact: `docs/gdd/` > `docs/decisions.md` > R6 a
 
 ## Commands
 ```bash
-./gradlew build                       # compile, test, jar
+./gradlew build                       # compile (Error Prone, NullAway), format check, test, jar
+./gradlew spotlessApply               # format Java with palantir-java-format before committing
+./gradlew --write-verification-metadata sha256 help spotlessCheck   # after any dependency or plugin change (D-033)
 ./gradlew :core:test                  # fast rules tests (no Minecraft)
 ./gradlew runGameTestServer           # in-world tests; exit code = failed required tests
 ./gradlew runClient                   # dev client (Lens scenarios run here; MCTest drives it)

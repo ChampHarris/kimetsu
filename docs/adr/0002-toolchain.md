@@ -1,7 +1,7 @@
 # ADR 0002: Toolchain for design, art, testing and debugging
 
 - **Status:** PROPOSED (R7-06, D-017), waiting for Champ
-- **Date:** 2026-10-18. Every version below was checked that day against GitHub, Modrinth, npm and the vendors' pages; MCTest and aseprite-mcp were also read at source level.
+- **Date:** 2026-10-18. Every version below was checked that day against GitHub, Modrinth, npm and the vendors' pages; MCTest and aseprite-mcp were also read at source level. The code quality gates were added on 2026-10-20 (D-033, Champ's decision), their versions checked that day against Maven Central and the Gradle Plugin Portal.
 - **Relates to:** ADR 0001 (platform and libraries). Setup steps: `docs/tools/toolchain.md`.
 
 ## Decision
@@ -9,6 +9,7 @@ One tool per job, each pinned, each something Claude can drive or whose output C
 - **Before M1 (M0, `docs/tools/toolchain.md` steps 1–6):** **IntelliJ IDEA's built-in MCP server** with the Claude Code JetBrains plugin, **JetBrains Runtime 25** (hot reload), **MCTest** (Claude plays the dev client and a dedicated server), the dev-only mods (spark, JEI and WorldEdit, used from M1; Chunky joins the same Gradle block at M5, since its deprecated `logoFile` stops every launch on NeoForge's warning screen), **Aseprite with aseprite-mcp** (pixel art Claude can see), and misode's generators with Spyglass.
 - **During M1 (steps 7–9):** **RenderDoc 1.46** for kfx frame captures, **clumsy** for the two-client latency test (R6-05), and the **official Blender Lab MCP** when the KHR-1 rig work starts (R6-02). Blockbench MCP is already in `.mcp.json`.
 - **At M5:** Chunky to pregenerate and BlueMap to review the Taishō worldgen from above (R6-13).
+- **In every build, from M1 (D-033):** the code quality gates. **Error Prone** with **NullAway** in JSpecify mode, **Spotless** with **palantir-java-format**, and **Gradle dependency verification**, each its own step in CI. See "Code quality gates" below.
 
 The PDFs' other picks are rejected below, each with its reason.
 
@@ -45,9 +46,42 @@ The PDFs' other picks are rejected below, each with its reason.
 | Test arenas | WorldEdit | 7.4.6 | builds and copies GameTest and Lens arenas | M1 |
 | Worldgen review | Chunky and BlueMap | Chunky 1.5.4; BlueMap 5.29 (its standalone CLI on the dev world) | pregenerate, then render a map; BlueMap's low-res tiles are PNGs Claude can read | M5 (R6-13) |
 | Effort per task | The effort check: `effort_prompt.py` and the `max`, `extra` and `high` skills | Claude Code 2.1.304 behaviour, probed 2026-10-19 (`docs/tools/effort.md`) | asks Champ which effort to use (Ultracode, Max, Extra, High) and switches the turn to his pick | M0 (D-024) |
+| Bug patterns and nullness at compile time | Error Prone with NullAway (JSpecify mode) | Error Prone 2.50.0, NullAway 0.14.2, `net.ltgt.errorprone` 5.1.1, JSpecify 1.0.1 | compile errors from `./gradlew build` and IntelliJ's Gradle builds name the file, line and check | M1 (D-033) |
+| Formatting | Spotless with palantir-java-format | Spotless 8.10.4, palantir-java-format 2.102.0 | `./gradlew spotlessApply` formats; `spotlessCheck` runs in `check` and in CI | M1 (D-033) |
+| Dependency integrity | Gradle dependency verification | `gradle/verification-metadata.xml`: SHA-256 for 304 components | strict on every Gradle run; a swapped or missing checksum fails the build and names the artifact | M1 (D-033) |
 | Screen UI library (spike only) | LDLib2 | 26.3.2.41 beta (Modrinth only) | one Corps Record screen as a spike before committing | after Champ approves the spike |
 
 Dev-only mods go in a `localRuntime` configuration: they load in the runs and never reach the jar. The guide has the Gradle block.
+
+## Code quality gates (2026-10-20, D-033)
+Champ asked for them before `core/` slice 2. `gradle/quality.gradle` sets them up once for the mod and `core/`. CI's build job runs three steps (`spotlessCheck`, `build`, `runGameTestServer`), each with `--dependency-verification strict`. The commands are in `docs/tools/toolchain.md` step 12.
+
+- **Policy:**
+  - **NullAway** is an error, with `OnlyNullMarked` and `JSpecifyMode`. Every package is `@NullMarked` in its `package-info.java`, as Minecraft 26.3's 697 packages are, and what may be null is `@Nullable`. NullAway skips test code, which hands null to code on purpose.
+  - **Error Prone**'s default checks run on every compile, tests included, and any warning fails the build (`-Werror`). Under `-Werror` javac stops at the first class that warns, so a full list needs one local compile without it.
+  - **Suppressions** are local, never global, each with its reason on the same line. There are two today: `ArrayRecordComponent` on two test records whose per-tick series are never compared or hashed.
+  - **JSpecify** is the one library `core/` may import, compile-only (`.claude/rules/java.md`).
+- **What they flagged in slice 1, and the fixes:**
+
+  | Check | Where | Fix |
+  |---|---|---|
+  | NullAway: field not initialised | `RecordPush.sent`, null until the first record | `@Nullable`, and on `TickRecord.stateChangedFrom`'s parameter |
+  | OperatorPrecedence | `ClockEstimator.onRecord` and one test | `a \|\| (b && c)` grouped explicitly |
+  | LongDoubleConversion | `TickRecord.arrivalMicros`, ten test asserts | explicit casts; a double holds nanoseconds exactly for 104 days of uptime and to 128 ns decades later |
+  | LongFloatConversion | three `assertEquals(long, long, delta)` calls | They resolved to JUnit's float overload. `ClockEstimatorTest` compared a combat time near 1.1·10¹⁰ µs, where floats are about 1,024 µs apart, so its "within 2 µs" checked to about a millisecond. The new `Asserts.assertNear` compares in long arithmetic, and the test still passes at 2 µs |
+  | ArrayRecordComponent | two test records | suppressed there with the reason (above) |
+
+  The mod's two files (`Kimetsu`, `ScopeGameTests`) had no findings, even checked against Minecraft's `@NullMarked` APIs.
+- **Cost:** with a warm daemon, `:core:compileJava` went from 0.84 to about 2.7 s, and the mod's `compileJava` from 1.4 to about 4.4 s. Most of it is the forked compiler JVM the plugin needs on JDK 16+ and Error Prone's start-up, a fixed cost per compile.
+- **Formatting:** palantir-java-format's default style, with Javadoc left as written. Java and Gradle files are LF on every OS (`.gitattributes`, `.editorconfig`, Spotless `lineEndings 'UNIX'`). Spotless's default follows Git's settings, which on a Windows checkout with `core.autocrlf` would fail every file. The one formatting commit is in `.git-blame-ignore-revs`.
+- **Dependency verification:**
+  - **What it covers:** every artifact Gradle resolves, plugins included, by SHA-256. It also covers every OS's Minecraft natives: three helper configurations in `build.gradle` ask for each OS's variant of `net.neoforged:minecraft-dependencies`, because Gradle otherwise records only the host's. IDE sources and javadoc jars are trusted by pattern, as Gradle recommends.
+  - **What it doesn't:** the Minecraft jars and assets NeoFormRuntime downloads itself (it checks them against Mojang's SHA-1s), and the JDK that foojay fetches. The Gradle wrapper is pinned separately by `distributionSha256Sum`.
+  - **Upkeep:** after any dependency or plugin change, run `./gradlew --write-verification-metadata sha256 help spotlessCheck` and read the diff.
+- **Checked on 2026-10-20:**
+  - each gate fails a bad change (a nullable dereference, a misformatted line, one corrupted checksum);
+  - `./gradlew spotlessCheck build --dependency-verification strict`: `:core:test` 179 tests, 0 failures;
+  - `runGameTestServer`: 3 of 3 required tests pass.
 
 ## Rejected or deferred
 
@@ -71,6 +105,8 @@ Dev-only mods go in a `localRuntime` configuration: they load in the runs and ne
 | MCreator (BleachCraft report) | Reject | A code generator. BleachCraft's own team left it for hand-written Java when it couldn't carry multiplayer combat and custom rendering |
 | Effekseer editor | Reject | It authors for AAA Particles, which stops at 26.1.2 and calls OpenGL directly; kfx effects are data (R6-10) |
 | A custom launcher (BleachCraft's) | Not needed | It pins Java, the loader and the mod set for a public audience; this private build's dev runs pin every version through Gradle |
+| PGP signature verification (`--write-verification-metadata pgp,sha256` with a committed keyring) | Later | Stronger than checksums, and it survives version bumps for trusted signers. But Mojang's, NeoForged's and Modrinth's artifacts are mostly unsigned, so the file would mix both, for about half a day plus key upkeep |
+| Error Prone in-process (the module flags in `org.gradle.jvmargs`) | Later | It would save most of the 2–3 s each compile costs now; only if the dev loop feels slow |
 | Photon2, AAA Particles | Not available | Photon2's newest 26.x build is a 26.2 beta and now needs KilaGraph; AAA Particles stops at 26.1.2. kfx does this (R6-10) |
 
 ## Consequences
@@ -96,4 +132,5 @@ Dev-only mods go in a `localRuntime` configuration: they load in the runs and ne
 - JetBrains Runtime: https://github.com/JetBrains/JetBrainsRuntime · ModDevGradle run options (`jvmArguments`, `systemProperty`, `gameDirectory`): https://github.com/neoforged/ModDevGradle (README at `e9c127d`)
 - Modrinth versions (API, 2026-10-18): spark `HwHxykP9`, WorldEdit `ByRNkO83`, Chunky `EyCqftOK`, BlueMap `kknWg6rw`, JEI `wSzwAzVB`, LDLib2 `CcNvp4yE` · Modrinth Maven: `https://api.modrinth.com/maven`
 - clumsy: https://github.com/jagt/clumsy/releases · misode: https://github.com/misode/misode.github.io · Spyglass: https://github.com/SpyglassMC/vanilla-mcdoc
+- Code quality gates (2026-10-20): https://github.com/tbroyer/gradle-errorprone-plugin (README: JDK 16+ forking, DSL) · https://github.com/google/error-prone/releases/tag/v2.50.0 · https://github.com/uber/NullAway/wiki/Configuration (`OnlyNullMarked`, 0.12.3+) · https://github.com/uber/NullAway/wiki/JSpecify-Support · https://github.com/diffplug/spotless/blob/main/plugin-gradle/README.md · https://github.com/palantir/palantir-java-format (JDK 25 since 2.71.0) · https://docs.gradle.org/current/userguide/dependency_verification.html · versions from `repo1.maven.org` and `plugins.gradle.org` metadata · Minecraft's `@NullMarked` packages: `ref-src/minecraft/**/package-info.java` · MDG's variant attributes: `net.neoforged.minecraftdependencies.OperatingSystem` in moddev-gradle 2.0.148
 - Rejections: https://github.com/Antikythera-Studios/epicfight/commit/d466e6906e273be2cef12f0cc86905b90aefc847.patch · https://yesstevemodel.github.io/en/wiki/intro/ · https://modrinth.com/mod/veil · https://modrinth.com/mod/photon-editor · https://github.com/willibrandon/pixel-plugin/issues · https://www.shadertoy.com/terms · https://developers.figma.com/docs/figma-mcp-server/rate-limits-access/ · https://github.com/ahujasid/mcp-for-blender · https://github.com/PrismarineJS/mineflayer/blob/master/lib/version.js
