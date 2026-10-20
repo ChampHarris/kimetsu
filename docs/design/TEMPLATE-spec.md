@@ -1,7 +1,7 @@
 ---
 id: area-short-name            # e.g. combat-beat-locked-strikes; same as the file name
 title: One-line name of the feature
-status: WIP                    # WIP -> DRAFT -> REVIEW -> APPROVED (only Champ sets APPROVED)
+status: WIP                    # WIP -> DRAFT -> REVIEW -> APPROVED (only Champ approves: when REVIEW is finished, Claude asks him)
 owner: Claude                  # who is driving the spec
 milestone: M1                  # M1..M7 from the GDD build order
 date: 2026-10-18               # last substantive edit

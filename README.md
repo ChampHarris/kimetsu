@@ -12,7 +12,7 @@ Claude agrees with you and reaches for generic ideas when nothing in its context
 | Nudges | `.claude/hooks/doctrine_inject.py`, `effort_prompt.py` | Every design prompt gets the design checklist injected; every code prompt gets "verify the API, show evidence"; real work starts with Claude asking which effort to use (Ultracode, Max, Extra, High) |
 | Specialists | `.claude/agents/*.md` | Eleven subagents with narrow jobs: canon-keeper, prior-art-scout, api-verifier, systems-designer, red-team, numbers-analyst, netcode-reviewer, render-engineer, art-director, test-engineer, dialogue-writer |
 | Procedures | `.claude/skills/*/SKILL.md`, `.claude/workflows/design-forge.js` | `/forge` runs research → options → numbers → attack → spec; `/design-forge` runs independent designers (one adopts the best existing solution when research finds one), a red team per option and a judge |
-| Gates | `.claude/hooks/guard_paths.py`, `post_edit.py`, `spec_gate.py`, `tools/check_spec.py` | Things that must happen are enforced, not requested: no Minecraft imports in `core/`, no raw OpenGL, no edits to the GDD snapshot or decompiled sources, no self-approved specs, no half-finished specs left behind |
+| Gates | `.claude/hooks/guard_paths.py`, `post_edit.py`, `spec_gate.py`, `tools/check_spec.py` | Things that must happen are enforced, not requested: no Minecraft imports in `core/`, no raw OpenGL, no edits to the GDD snapshot or decompiled sources, no self-approved specs, no half-finished specs left behind; a finished spec gets Champ's approval question (`spec_approval.py`) |
 
 ## What's inside
 ```
@@ -26,7 +26,7 @@ CLAUDE.md                     project memory (imports the glossary and taste)
   skills/                     forge, scout, redteam, numbers, verify-api, lens, ref-clip, texture-pass,
                               milestone-check, session-close, port-plan; max, extra, high (effort for a turn)
   workflows/design-forge.js   multi-agent design workflow
-  hooks/                      session_start, doctrine_inject, effort_prompt, guard_paths, post_edit, spec_gate (+ run.sh, validators.json)
+  hooks/                      session_start, doctrine_inject, effort_prompt, guard_paths, post_edit, spec_gate, spec_approval (+ run.sh, validators.json)
 .mcp.json                     headless Blockbench MCP (models, poses, renders) and MCTest (Claude plays the dev client), both pinned
 docs/
   design/round6-revision.md   Round 6: 22 proposals, rulings for the 13 open M1 questions, v0 numbers
@@ -56,7 +56,7 @@ tools/                        check_spec, vanilla_scope, vanilla_coverage, palet
 1. **Prerequisites:** Claude Code (signed in with your claude.ai account), Git (on Windows: Git for Windows, which the hooks need), Python 3.10+ with `pip install pillow`, ffmpeg on PATH, a JDK 25 (Temurin, or JetBrains Runtime 25 for hot reload), Node 22+ (MCTest), and Git LFS (`git lfs install`).
 2. **Put the kit at the root of the mod repository** (a new empty repo is fine; the first session creates the Gradle project around it). Commit it.
 3. **Java language server:** install the `jdtls` binary (Eclipse JDT Language Server), then in Claude Code run `/plugin install jdtls-lsp@claude-plugins-official`. It gives Claude go-to-definition on Minecraft classes.
-4. **Open Claude Code in the repo.** Approve the project MCP servers (`bbmodel`, `mctest`) when asked. Check `/hooks` lists eight hooks (`effort_prompt.py` three times) and `/output-style` shows "Kimetsu Lead".
+4. **Open Claude Code in the repo.** Approve the project MCP servers (`bbmodel`, `mctest`) when asked. Check `/hooks` lists eleven hooks (`effort_prompt.py` and `spec_approval.py` three times each) and `/output-style` shows "Kimetsu Lead".
 5. **Your claude.ai connectors** (Firecrawl, Context7, Tavily, Parallel Search and the others on your account) also work in Claude Code when you're signed in with claude.ai; `/mcp` lists them. They make research faster and better sourced.
    - **Optional, for AI textures:** connect a pixel-art generator (Retro Diffusion or PixelLab; paid per image). The one-line `claude mcp add` commands are in `docs/art/art-bible.md` section 11; keys stay on your machine.
 6. **claude.ai Project:** paste `docs/claude-ai-project-instructions.md` into the Project's instructions so design chats there follow the same doctrine.
@@ -103,7 +103,7 @@ Add `[quick]` anywhere in a message to skip the design checklist for a fast answ
 | Symptom | Fix |
 |---|---|
 | Output style missing | the name is case-sensitive: `"Kimetsu Lead"`; `/output-style` lists what Claude Code found |
-| Hooks don't fire | `/hooks`; check Python 3.10+ is on PATH; run `sh .claude/hooks/run.sh session_start.py < /dev/null`; run `python .claude/hooks/tests/test_guard.py` and `test_effort.py` |
+| Hooks don't fire | `/hooks`; check Python 3.10+ is on PATH; run `sh .claude/hooks/run.sh session_start.py < /dev/null`; run `python .claude/hooks/tests/test_guard.py`, `test_effort.py` and `test_spec_approval.py` |
 | "Plugin is enabled in project settings but isn't installed here" | run the `/plugin install` from step 3 on this machine |
 | `bbmodel` MCP fails | check the pinned tag exists (`git ls-remote --tags https://github.com/jasonjgardner/blockbench-mcp-plugin`), update `.mcp.json` |
 | Claude uses an API that doesn't exist | `python tools/refsrc.py` (ref-src may be missing or stale), then `/verify-api` |

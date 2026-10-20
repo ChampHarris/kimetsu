@@ -6,9 +6,11 @@ Denied outright:
     live GDD), reference/ (local study clips, never shipped), .git/ — through edit tools or the shell
   * Minecraft/loader/library imports inside core/ (the version-proof combat core)
   * raw OpenGL in mod code (crashes or no-ops on the Vulkan backend; use RenderPipelines)
-  * setting a design spec to APPROVED (only Champ approves), through edit tools or the shell
+  * setting a design spec to APPROVED through the shell (only Champ approves)
   * destructive or remote-code shell commands (recursive delete of a project root, force push, curl | sh)
 Asked first (Champ confirms in the permission prompt):
+  * setting a spec to APPROVED with an edit tool, unless Champ picked Approve for that exact revision in the
+    approval question (spec_approval.py records it; the edit may change only the status line)
   * editing an APPROVED spec; editing the gates themselves (.claude/hooks/, .claude/settings.json,
     tools/check_spec.py); history-destroying git commands
 
@@ -19,10 +21,11 @@ from __future__ import annotations
 
 import re
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import emit, project_dir, read_input, read_text, rel_path  # noqa: E402
+from _common import emit, load_state_json, project_dir, read_input, read_text, rel_path, spec_rev  # noqa: E402
 
 PROTECTED = ("ref-src/", "docs/gdd/", "reference/", ".git/")
 GATES = (".claude/hooks/", ".claude/settings.json", "tools/check_spec.py")
@@ -95,6 +98,25 @@ def spec_status(text: str) -> str:
     return m.group(1).upper() if m else ""
 
 
+STATUS_LINE = re.compile(r"^(\s*status\s*:\s*)[\"']?[A-Za-z]+[\"']?", re.M | re.I)
+APPROVAL_TTL = 24 * 3600
+
+
+def champ_approved(root: Path, old: str, new: str) -> bool:
+    """True when spec_approval.py recorded Champ's Approve for this spec at this exact revision, and the edit
+    changes nothing but the status line."""
+    fm = FRONT_MATTER.search(old)
+    m = re.search(r"^\s*id\s*:\s*[\"']?([\w.\-]+)", fm.group(1), re.M) if fm else None
+    if not m:
+        return False
+    rec = load_state_json(root, "spec_approvals.json").get("approvals", {}).get(m.group(1))
+    if not isinstance(rec, dict) or rec.get("rev") != spec_rev(old):
+        return False
+    if time.time() - float(rec.get("at", 0)) > APPROVAL_TTL:
+        return False
+    return STATUS_LINE.sub(r"\1X", old, count=1) == STATUS_LINE.sub(r"\1X", new, count=1)
+
+
 def resulting_text(tool: str, tin: dict, path: Path) -> tuple[str, str]:
     """(old_text, new_text) of the file after the edit, best effort."""
     old = read_text(path)
@@ -161,8 +183,11 @@ def check_write(tool: str, tin: dict, root: Path) -> bool:
         old, new = resulting_text(tool, tin, root / rel)
         old_s, new_s = spec_status(old), spec_status(new)
         if new_s == "APPROVED" and old_s != "APPROVED":
-            decide("deny", "Only Champ approves specs. Set `status: REVIEW` and list what he must decide under "
-                           "'Open Questions for Champ'.")
+            if champ_approved(root, old, new):
+                return False  # Champ picked Approve for this exact revision (spec_approval.py); status line only
+            decide("ask", "Only Champ approves specs. Approving this prompt counts as Champ approving the spec, so "
+                          "decline it unless he picked Approve. The normal path: set `status: REVIEW` with every Open "
+                          "Question answered, and the Stop hook has you ask \"Approve spec <id> (rev ...)?\".")
             return True
         if old_s == "APPROVED":
             decide("ask", "This spec is APPROVED. Changing it reopens it: confirm with Champ, and set "

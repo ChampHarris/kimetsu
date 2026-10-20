@@ -77,3 +77,25 @@ def emit(obj: dict) -> None:
 
 def add_context(event: str, text: str) -> None:
     emit({"hookSpecificOutput": {"hookEventName": event, "additionalContext": text}})
+
+
+def spec_rev(text: str) -> str:
+    """A spec's revision id: the first 8 hex digits of the SHA-256 of its text (line endings ignored). The approval
+    question names it, and the guard only lets an approval through for the exact revision Champ was asked about."""
+    import hashlib
+    return hashlib.sha256(text.replace("\r", "").encode("utf-8")).hexdigest()[:8]
+
+
+def load_state_json(root: Path, name: str) -> dict:
+    try:
+        data = json.loads((state_dir(root) / name).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state_json(root: Path, name: str, data: dict) -> None:
+    p = state_dir(root) / name
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, p)
