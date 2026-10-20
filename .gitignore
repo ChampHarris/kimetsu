@@ -45,3 +45,7 @@ Thumbs.db
 
 # palette_fit previews
 art/previews/
+
+# Other tools' local state
+.omc/
+.codex/
