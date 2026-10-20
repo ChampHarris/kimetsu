@@ -82,6 +82,23 @@ live under the config's `m1_rules` key (defaults in M1_RULES below; `--set m1_ru
      `casual+assist3C` (x0.75 HP only, Perfects earned) against `casual+assist` (level 2).
   8. Recovery Breath refund: `--rb-refund 0.75` (default 1.0); `thread_no_br%` counts Thread attempts that
      failed for lack of Breath (or Winded).
+  9. `--counter N` (Open Question 11b, D-027; needs rule 3): the guard stance answers N blocked hits with a white
+     counter (`counter_attack`'s numbers, the swipe) whose impact lands on the player's next beat, the first at
+     least 8 ticks after the block. The counter resets the count; `counter_scope` "gap" also restarts it each gap,
+     "fight" carries it across gaps; a Posture break resets it. The player reads it coming with probability
+     `counter_read` and answers it as any white strike, or presses the next chip into it and is hit. A guard press
+     inside the blocked Kata's recovery (frames 3 / 2 / 6, so at 13 ticks a beat the last 100 ms before the impact
+     are free) is Water's guard-cancel after a connected swing: 5 Breath (R9-09). The counter commits the tick after
+     the block (sweeps run in step 4, commits in step 2), so even the minimum lead can't make the next beat. The
+     gap's timer keeps running through it, and the string waits one cue beat after the counter's opening if it
+     would come sooner; hits its guard blocks on that cue beat (the string committed) cost it nothing. A counter that
+     lands while a three-beat form is still running hits. The rules the red team's chipguard bot forced, each opt-in
+     under `m1_rules` (`duel_m1_report.py`'s RECOMMENDED turns them all on, with the demon's delay at 3 s):
+     `counter_stake` (blocked-hit Posture is a grey bar that a deflected or Perfected counter keeps and anything else
+     refunds), `counter_opening: "deflect"` (its recovery opens only after a deflect or Perfect),
+     `block_resets_regen_delay: false`, `blocked_hits_credit: false` (a blocked hit takes no beat's credit) and
+     `counter_lead_ticks: 14`. Rejected and kept as knobs: `counter_ends_gap`, `counter_opening: "perfect"/"none"`,
+     `counter_trigger_deflected` (Sekiro's deflected trigger), `counter_scope: "fight"`.
   Also opt-in: `--vitality-damage-taken` (vitality coupling counts damage taken this fight, not current HP, so
   regeneration doesn't restore Posture recovery), `--tick-openings` (every opening holds the Kata that fit its
   ticks, rule 4's count, instead of round(window / beat)), `--guard-rule latest` (the old "latest qualifying
@@ -99,6 +116,10 @@ live under the config's `m1_rules` key (defaults in M1_RULES below; `--set m1_ru
     second is a whiff (`--guard-rule latest` gives the old rule); an early first press locks out the second.
     turtle: holds guard outside its openings: blocks every white strike, held guard drains 6 Breath/s and,
     while Winded, 6 Posture/s instead; dodges red and purple strikes as its profile; never chips or Inhales.
+    chipsafe (rule 9): chips every gap but stops one block short of the guard's counter, so it never faces one
+    when the count restarts each gap; otherwise plays as its profile.
+    chipguard (rule 9, the red team's bot): chips every gap and holds guard through every counter (a block: no read,
+    no timing), paying Water's guard-cancel when its last swing's recovery runs into the tick before the impact.
 
 Run:  python tools/sims/duel_sim.py                    # the Round 6 profiles, 2000 fights each
       python tools/sims/duel_sim.py --set m1_demon.hp=90 --set pulse.perfect_ms=50
@@ -143,7 +164,7 @@ class Skill:
                            # dealt x0.75; "B" = A, and every deflect counts as a Perfect Deflect;
                            # "C" = A with the -25% on HP damage only (Posture damage unchanged)
     feint_tap: float = 0.3 # taps (or dodges) anyway after a demon feint's cue visibly breaks
-    bot: str = ""          # exploit bot: "masher", "doubletap" or "turtle" (see the module docstring)
+    bot: str = ""          # exploit bot: "masher", "doubletap", "turtle", "chipsafe" or "chipguard" (module docstring)
 
 
 PROFILES = {
@@ -178,7 +199,10 @@ def _bot(base: str, bot: str) -> Skill:
 BOT_PROFILES = {s.name: s for s in (
     _bot("expert", "masher"), _bot("average", "masher"), _bot("casual", "masher"),
     _bot("average", "turtle"), _bot("casual", "turtle"), _bot("casual+assist", "turtle"),
-    _bot("casual+assist", "doubletap"), _bot("casual+assist3C", "doubletap"), _bot("average", "doubletap"))}
+    _bot("casual+assist", "doubletap"), _bot("casual+assist3C", "doubletap"), _bot("average", "doubletap"),
+    _bot("average", "chipsafe"), _bot("casual", "chipsafe"), _bot("casual+assist", "chipsafe"),
+    _bot("average", "chipguard"), _bot("casual", "chipguard"), _bot("casual+assist", "chipguard"),
+    _bot("struggling", "chipguard"))}
 ALL_PROFILES = {**PROFILES, **BOT_PROFILES}
 
 # Parameters of the revised rules (PROPOSED; every one an assumption to measure in the grey box).
@@ -206,15 +230,36 @@ M1_RULES = {
     "doubletap_rho": 0.8,                # correlation of the doubletap bot's two press errors (red team's 0.8)
     "block_resets_regen_delay": True,    # a blocked hit restarts the demon's Posture-recovery delay (as v0)
     "assist_dodge_scale": 1.0,           # assist 2/3: rule 2's windows widen by this factor at their early edge
-    "profiles": {                        # rule 3's gap behaviour and rule 2's aims, by skill
+    "counter_after_blocks": 0,           # rule 9 (opt-in, --counter N): the guard counters after N blocked hits
+    "counter_scope": "gap",              # rule 9: "gap" restarts the count each gap; "fight" carries it across gaps
+    "counter_attack": "swipe",           # rule 9: the counter uses this attack's numbers (its cue must be white)
+    "counter_cancel_breath": 5,          # R9-09: a guard press inside a connected swing's recovery costs this
+    "counter_opening": "recovery",       # rule 9: "recovery" (its recovery is an opening), "deflect" (only after a
+                                         # deflect or Perfect; otherwise it recovers into its guard), "perfect" (only a
+                                         # Perfect's stun opens it) or "none"
+    "counter_stake": False,              # rule 9: Posture its guard loses to blocked hits is staked (a grey bar) until
+                                         # its counter: a deflect or Perfect keeps it, anything else refunds it
+    "counter_ends_gap": False,           # rule 9: its next string commits as the counter's recovery ends
+    "blocked_hits_credit": True,         # Rule 2.5 as written: a blocked on-beat hit takes its beat's credit; False:
+                                         # only hits that land (rule 9's answer to farming Rhythm on its guard)
+    "commit_after_block_ticks": 1,       # tick order: the block is swept in step 4, the counter commits in step 2 of
+                                         # the next tick
+    "counter_trigger_deflected": False,  # rule 9: the N-th hit is deflected, not blocked (Sekiro): no Posture to the
+                                         # demon, and the player loses posture.deflect_attacker
+    "counter_lead_ticks": None,          # rule 9: its cue lead (None: counter_attack's lead_ticks)
+    "commit_margin_ticks": 2,            # Rule 7.11: a strike commits at least cue lead + 2 ticks before its impact
+    "counter_commit_delay_ticks": 0,     # rule 9: ticks from the blocked hit's contact to the server's commit (input
+                                         # that arrives after the Kata's active tick: one-way latency past 150 ms)
+    "kata_total_ticks": 11,              # Kata frames 3 / 2 / 6
+    "profiles": {                        # rule 3's gap behaviour, rule 2's aims and rule 9's reads, by skill
         "expert":     {"chip": 0.80, "flank": 0.15, "gap_form": 0.25, "inhale": 0.90,
-                       "step_aim_ms": -200, "jump_aim_ms": -87.5},
+                       "step_aim_ms": -200, "jump_aim_ms": -87.5, "counter_read": 0.95},
         "average":    {"chip": 0.50, "flank": 0.10, "gap_form": 0.15, "inhale": 0.60,
-                       "step_aim_ms": -200, "jump_aim_ms": -87.5},
+                       "step_aim_ms": -200, "jump_aim_ms": -87.5, "counter_read": 0.85},
         "casual":     {"chip": 0.25, "flank": 0.05, "gap_form": 0.05, "inhale": 0.30,
-                       "step_aim_ms": -180, "jump_aim_ms": -67.5},
+                       "step_aim_ms": -180, "jump_aim_ms": -67.5, "counter_read": 0.70},
         "struggling": {"chip": 0.15, "flank": 0.05, "gap_form": 0.00, "inhale": 0.20,
-                       "step_aim_ms": -170, "jump_aim_ms": -57.5},
+                       "step_aim_ms": -170, "jump_aim_ms": -57.5, "counter_read": 0.50},
     },                                   # optional per profile: "dodge_sd_ms" replaces sigma * dodge_mult in rule 2
 }
 
@@ -291,6 +336,14 @@ class Fight:
         self.last_clang = -1e9
         self._open_extra = 0.0
         self._hit_ticks = None
+        self.guard_blocks = 0                     # rule 9: blocks the guard stance has taken toward its counter
+        self.counter_n = int(self.M.get("counter_after_blocks", 0))
+        self._chip_free_at = -1e9                 # rule 9: when the last Kata chip's recovery ends
+        self._last_block_t = -1e9                 # rule 9: when its guard last blocked (the hit's contact)
+        self._counter_due = None                  # rule 9: the beat its committed counter lands on
+        self._stake = 0.0                         # rule 9: Posture staked on the pending counter (the grey bar)
+        self._string_committed = False            # rule 9: the cue beat: its next string has committed
+        self._last_form_beats = 0                 # rule 9: the length of the last gap form (a counter mid-form)
         lo, hi = self.M["tech_window_ms"]
         self.p_tech = p_between(self.M["tech_aim_ms"], sk.sigma * sk.dodge_mult, lo, hi)
 
@@ -428,6 +481,9 @@ class Fight:
     def on_posture_break(self) -> None:
         po, d = self.c["posture"], self.c["m1_demon"]
         self.stats["posture_breaks"] += 1
+        self.guard_blocks = 0                      # rule 9: a broken guard starts its count again
+        self._counter_due = None                   # and a break cancels its committed counter
+        self._stake = 0.0                          # whatever was staked has done its work
         # M1 question 3: does an open Thread beat Cellular Hardening? (config: thread_beats_hardening)
         if d.get("thread_beats_hardening", True) or not self.hardened():
             if self.try_decap(po["thread_after_break_s"] * 1000, "posture"):
@@ -471,10 +527,23 @@ class Fight:
         chance = (d["block_chance_form"] if form else d["block_chance_kata"]) if block_p is None else block_p
         if blockable and self.rng.random() < chance:
             pd = (d["blocked_form_posture"] if form else d["blocked_kata_posture"]) * self.post_scale
+            if self._string_committed:             # rule 9: a committed string's guard blocks for nothing
+                self.stats["blocks_while_committed"] += 1
+                return
+            if self.counter_n and self.guard_blocks + 1 >= self.counter_n and self.M.get("counter_trigger_deflected"):
+                pd = 0.0                           # rule 9 variant: its guard deflects the hit that brings the counter
+                self.posture -= self.c["posture"]["deflect_attacker"]
+                self.p_posture_hit = self.t
+                self.stats["counter_triggers_deflected"] += 1
+            if self.M.get("counter_stake") and self.counter_n:
+                pd = min(pd, max(0.0, self.dpost - 1.0))   # a staked block never breaks it; the deflect that keeps
+                self._stake += pd                  # the stake can. Held as a grey bar until its counter settles it
             self.dpost -= pd
             self.stats["demon_blocks"] += 1
             self.stats["pd_blocked"] += pd
             self._gap_blocks += 1
+            self.guard_blocks += 1
+            self._last_block_t = self.t + atk.get("windup_ticks", self.M["kata_first_active_tick"]) * TICK_MS
             if not self.M["block_resets_regen_delay"]:
                 return
         else:
@@ -582,21 +651,43 @@ class Fight:
                 self.on_zero_hp()
 
     def gap_phase(self, g: int) -> None:
-        """Rule 3: g beats of the demon circling in its guard stance; the player chips, Inhales or waits."""
+        """Rule 3: g beats of the demon circling in its guard stance; the player chips, Inhales or waits.
+        Rule 9 (opt-in): N blocked hits bring the guard's counter on the next beat."""
         sk, rng, rp, pa, br = self.sk, self.rng, self.rp, self.c["player_attacks"], self.c["breath"]
+        if self.M.get("counter_scope", "gap") == "gap":
+            self.guard_blocks = 0
         if sk.bot == "turtle":
             self.guard_held = True
             self.advance(g * self.P)
             return
-        chip = sk.bot == "masher" or rng.random() < rp["chip"]
+        chip = sk.bot in ("masher", "chipsafe", "chipguard") or rng.random() < rp["chip"]
         block_p = 1.0 if sk.bot == "masher" else 1.0 - rp["flank"]
-        kata_step, acc, j = 0, 0.0, 0
+        kata_step, acc, j, g_floor, g_end = 0, 0.0, 0, 0, None
         self._gap_blocks, n_press, g0 = 0, self.M["pressure_blocks_per_beat"], g
         while self.result is None:
             if n_press:                            # pressure: blocked hits bring the next string sooner
                 g = max(2, g0 - self._gap_blocks // n_press)
+            g = max(g, g_floor) if g_end is None else g_end
             if j >= g:
                 break
+            if self.counter_n and self._counter_due is None and self.guard_blocks >= self.counter_n:
+                self._counter_due = self.counter_beat()   # rule 9: it commits its counter
+                g_floor = max(g_floor, j + int(round((self._counter_due - self.t) / self.P)) + 1)
+                continue
+            if self._counter_due is not None and self.t >= self._counter_due - 1e-6:   # rule 9: it lands now
+                t0, late = self.t, self.t > self._counter_due + 1e-6   # late: a long form ran past its beat
+                self._counter_due = None
+                self.counter_strike(late)
+                kata_step = 0
+                if self.result is not None:
+                    break
+                self.advance(math.ceil(self.t / self.P - 1e-9) * self.P - self.t)   # back onto the beat
+                j += int(round((self.t - t0) / self.P))
+                g_floor = j + 1                    # the string waits one cue beat after the counter's opening
+                if self.M.get("counter_ends_gap"):
+                    g_end = j + 1                  # and commits as its recovery ends
+                continue
+            self._string_committed = bool(self.counter_n) and self._counter_due is None and j >= g - 1
             if self.t < self.busy_until:           # still getting up from a knockdown
                 self.advance(self.P)
                 j += 1
@@ -610,18 +701,26 @@ class Fight:
                     self.stats["gap_chips"] += 1
                 self.advance(self.P)
                 j += 1
-            elif chip and j < g - 1:               # never on the cue beat: watch the cue
+            elif chip and j < g - 1 and not (sk.bot == "chipsafe" and self.counter_n
+                                             and self.guard_blocks >= self.counter_n - 1):   # never on the cue beat
                 forms = [(n, f) for n, f in pa["forms"].items() if n != "waterfall_basin"
                          and f["beats"] <= g - 1 - j and self.t >= self.winded_until
                          and self.breath >= f["breath"] + self.M["thread_breath_reserve"]]
                 if forms and self.tier() < self.c["rhythm"]["max_tier"] and rng.random() < rp["gap_form"]:
                     name, f = rng.choice(forms)
-                    if rng.random() < self.p_on:
+                    on = rng.random() < self.p_on
+                    late_credit = on and not self.M.get("blocked_hits_credit", True)
+                    if on and not late_credit:
                         self.on_beat_credit()
-                    else:
+                    elif not on:
                         self.off_beat()
                     self.breath -= f["breath"]
+                    self._chip_free_at = self.t + f["beats"] * self.P   # a form recovers until its last beat ends
+                    self._last_form_beats = f["beats"]
+                    b0 = self.stats["demon_blocks"]
                     self.player_hit(dict(f), form=True, block_p=block_p, name=name)
+                    if late_credit and self.stats["demon_blocks"] == b0:
+                        self.on_beat_credit()          # it landed (a flank hit): the beat's credit
                     self.stats["gap_forms"] += 1
                     self.recovery_breath(f)
                     self.advance(f["beats"] * self.P)
@@ -632,8 +731,15 @@ class Fight:
                         self.stats["stumbles"] += 1
                         chip = False
                     else:
-                        self.on_beat_credit()
+                        late_credit = not self.M.get("blocked_hits_credit", True)
+                        if not late_credit:
+                            self.on_beat_credit()
+                        self._chip_free_at = self.t + self.M.get("kata_total_ticks", 11) * TICK_MS
+                        self._last_form_beats = 0
+                        b0 = self.stats["demon_blocks"]
                         self.player_hit(pa["kata"][kata_step], form=False, block_p=block_p, name="kata")
+                        if late_credit and self.stats["demon_blocks"] == b0:
+                            self.on_beat_credit()      # it landed (a flank hit): the beat's credit
                         kata_step = (kata_step + 1) % 3
                         self.stats["gap_chips"] += 1
                     self.advance(self.P)
@@ -654,6 +760,7 @@ class Fight:
                 chip = False
             if self.result is None and self.dhp <= 0:
                 self.on_zero_hp()
+        self._string_committed = False
 
     # ---- demon offence
     def double_tap(self) -> str:
@@ -680,6 +787,17 @@ class Fight:
             return "block"
         return "hit"
 
+    def white_grade(self, x: float) -> str:
+        """The outcome of a guard press x ms from a white strike's impact (negative = before it)."""
+        sk = self.sk
+        if -self.w_pd <= x <= 0 or (sk.auto_rhythm == "B" and -self.w_def <= x <= 0):
+            return "perfect"
+        if -self.w_def <= x <= 0:
+            return "deflect"
+        if x < -self.w_def and self.rng.random() < sk.block_fallback:
+            return "block"
+        return "hit"
+
     def demon_strike(self) -> tuple[str, dict]:
         d, rng, sk = self.c["m1_demon"], self.rng, self.sk
         names = list(d["attacks"])
@@ -697,13 +815,7 @@ class Fight:
             if sk.bot == "doubletap":
                 return self.double_tap(), a
             x = -sk.aim * self.w_def + rng.gauss(0, sk.sigma)
-            if -self.w_pd <= x <= 0 or (sk.auto_rhythm == "B" and -self.w_def <= x <= 0):
-                return "perfect", a
-            if -self.w_def <= x <= 0:
-                return "deflect", a
-            if x < -self.w_def and rng.random() < sk.block_fallback:
-                return "block", a
-            return "hit", a
+            return self.white_grade(x), a
         if sk.bot == "masher":
             return ("pinned" if a["cue"] == "purple" else "hit"), a
         if rng.random() < sk.misread:
@@ -832,6 +944,77 @@ class Fight:
             self.on_posture_break()
             self.stats["_broke_mid_string"] = 1
         return window
+
+    # ---- the guard's counter (rule 9, opt-in: --counter N)
+    def counter_beat(self) -> float:
+        """The beat its counter lands on: the first one at least max(cue lead + 2, lead) ticks after the commit
+        (Rule 7.11), the commit being the blocked hit's contact plus any input delay."""
+        M = self.M
+        lead = M.get("counter_lead_ticks")
+        if lead is None:
+            lead = self.c["m1_demon"]["attacks"][M.get("counter_attack", "swipe")]["lead_ticks"]
+        commit = self._last_block_t + (M.get("commit_after_block_ticks", 1) + M.get("counter_commit_delay_ticks", 0))             * TICK_MS
+        earliest = commit + (lead + M.get("commit_margin_ticks", 2)) * TICK_MS
+        beat = math.ceil(earliest / self.P - 1e-9) * self.P
+        hit_beat = math.floor(self._last_block_t / self.P + 1e-9) * self.P   # the beat the blocked hit was pressed on
+        self.stats["counter_beats_after_hit"] += round((beat - hit_beat) / self.P)
+        self.stats["counters_committed"] += 1
+        return beat
+
+    def counter_strike(self, late: bool = False) -> None:
+        """The guard stance has blocked N hits: its white counter lands on this beat. A deflect or Perfect keeps the
+        Posture staked on it (counter_stake); anything else refunds it. Its recovery is an opening (counter_opening)."""
+        a = self.c["m1_demon"]["attacks"][self.M.get("counter_attack", "swipe")]
+        self.guard_blocks = 0
+        self.stats["counters"] += 1
+        self.stats["atk_white"] += 1
+        outcome = self.counter_answer(late)
+        self.stats[f"counter_{outcome}"] += 1
+        window = self.resolve(outcome, a)
+        self.stats.pop("_broke_mid_string", None)
+        answered = outcome in ("deflect", "perfect")
+        if self._stake:
+            if answered:
+                self.stats["stake_kept"] += self._stake
+            else:                                  # the grey bar refills
+                self.dpost = min(self.dpost_max, self.dpost + self._stake)
+                self.stats["stake_refunded"] += self._stake
+            self._stake = 0.0
+        mode = self.M.get("counter_opening", "recovery")
+        if self.result is not None or mode == "none" or (mode == "deflect" and not answered):
+            return
+        if mode == "perfect":                     # it recovers into its guard; a Perfect's stun still opens it
+            if outcome == "perfect":
+                self.opening(self.c["m1_demon"]["perfect_deflect_stun_ms"])
+            return
+        self.opening(window, self._hit_ticks)
+
+    def counter_answer(self, late: bool = False) -> str:
+        """Read it coming and answer it as any white strike, or press the next chip into it."""
+        sk, rng = self.sk, self.rng
+        if self.staggered:
+            self.staggered = False
+            return "hit"
+        if late and self._last_form_beats >= 3:    # it landed while a three-beat form was still active
+            self.stats["counter_midform"] += 1
+            return "hit"                           # (in a two-beat form's recovery Water's guard-cancel answers it)
+        if sk.bot == "chipguard":                  # holds guard through it: no read, no timing
+            if self._chip_free_at > self.t - TICK_MS:   # the guard must be up a tick before the impact
+                self.breath = max(0.0, self.breath - self.M.get("counter_cancel_breath", 5))
+                self.stats["counter_cancels"] += 1
+            return "block"
+        if sk.bot == "masher":                     # its guard presses whiff into the lockout
+            return "block" if rng.random() < sk.block_fallback else "hit"
+        if rng.random() >= self.rp.get("counter_read", 1.0):
+            self.stats["counter_unread"] += 1
+            return "hit"
+        if sk.bot == "doubletap":
+            return self.double_tap()
+        x = -sk.aim * self.w_def + rng.gauss(0, sk.sigma)
+        if self.t + x < self._chip_free_at:        # inside the blocked Kata's recovery: Water's guard-cancel
+            self.breath = max(0.0, self.breath - self.M.get("counter_cancel_breath", 5))
+            self.stats["counter_cancels"] += 1
+        return self.white_grade(x)
 
     # ---- demon feints (opt-in: --feint-rate)
     def feint(self):
@@ -981,6 +1164,15 @@ def summarize(fights: list[Fight]) -> dict:
         "techs_per_fight": round(agg["techs"] / n, 2),
         "player_staggers_per_fight": round(agg["player_staggered"] / n, 2),
         "recovery_breaths_per_fight": round(agg["recovery_breaths"] / n, 2),
+        "counters_per_fight": round(agg["counters"] / n, 2),
+        "counter_hit_pct": round(100 * agg["counter_hit"] / max(1, agg["counters"]), 1),
+        "counter_unread_pct": round(100 * agg["counter_unread"] / max(1, agg["counters"]), 1),
+        "counter_deflect_or_better_pct": round(100 * (agg["counter_perfect"] + agg["counter_deflect"])
+                                               / max(1, agg["counters"]), 1),
+        "counter_cancels_per_fight": round(agg["counter_cancels"] / n, 2),
+        "counter_beats_after_hit": round(agg["counter_beats_after_hit"] / max(1, agg["counters_committed"]), 2),
+        "stake_kept_per_fight": round(agg["stake_kept"] / n, 1),
+        "stake_refunded_per_fight": round(agg["stake_refunded"] / n, 1),
         "posture_damage_per_fight": {k[3:]: round(v / n, 1) for k, v in sorted(agg.items()) if k.startswith("pd_")},
     }
 
@@ -1017,6 +1209,8 @@ def build(a) -> tuple[dict, Rules, float]:
         cfg["pulse"]["beat_ticks"] = a.beat_ticks
     if a.rb_refund is not None:
         cfg["m1_rules"]["rb_refund"] = a.rb_refund
+    if a.counter is not None:
+        cfg["m1_rules"]["counter_after_blocks"] = a.counter
     for s in a.set:
         k, _, v = s.partition("=")
         if k == "pulse.water_bpm":
@@ -1062,6 +1256,9 @@ def parser() -> argparse.ArgumentParser:
     g.add_argument("--guard-rule", choices=["first", "latest"], default="first",
                    help="doubletap bot: which of two qualifying guard presses decides")
     g.add_argument("--beat-ticks", type=int, default=None, help="beat length in whole ticks (13 = 92.3 BPM)")
+    g.add_argument("--counter", type=int, default=None, metavar="N",
+                   help="rule 9: the guard stance counters after N blocked hits (needs rule 3; "
+                        "m1_rules.counter_scope=fight carries the count across gaps)")
     ap.add_argument("--json", action="store_true")
     return ap
 
@@ -1099,6 +1296,8 @@ def main(argv=None) -> int:
         cols += [("thread%", "route_thread_pct"), ("noBr%", "thread_no_breath_pct"),
                  ("dodge%", "dodge_pct_of_red_purple"), ("clangs", "clangs_per_fight"),
                  ("chips", "gap_chips_per_fight"), ("winded", "winded_per_fight")]
+    if cfg["m1_rules"].get("counter_after_blocks"):
+        cols += [("counters", "counters_per_fight"), ("ctrHit%", "counter_hit_pct")]
     w = max(15, max(len(n) for n in out) + 1)
     print(f"{'profile':<{w}}" + "".join(f"{c:>10}" for c, _ in cols))
     for name, r in out.items():

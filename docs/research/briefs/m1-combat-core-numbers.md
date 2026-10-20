@@ -181,3 +181,48 @@ A second numbers-analyst pass on `duel_sim.py` after its integration fix. Every 
 - Chipping on that package: a casual player who chips every gap wins 97.3% (37 s), one who never chips 29.5% (108 s). Blocks costing 4 / 10 instead of 8 / 20, or not resetting the demon's recovery delay, or both, leave chip-every-gap at 92 / 93 / 75% against honest play's 50 / 49 / 42%; at 2 / 6 with no reset, 62% against 38%. Bringing the next string a beat sooner per blocked hit (pressure 1 / 2 / 3) leaves chip-every-gap at 93 / 95 / 97% and drops honest play to 49 / 53 / 57%. None of these makes chipping a decision; a counter that punishes it is unsimulated.
 
 **What the sim can't know, to log in the grey box:** every Step and Jump press relative to the impact and whether it cleared (the casual spread alone is worth 15 points: 150 ms gives 63%, 110 ms 79%); hits on the guard per gap and the flank share; opening ticks after each strike (the heavy's 18-tick recovery holds two Kata by the frame data, but the sim's rounding gives one, worth about 10 casual points); neck crossings by attack; Breath at each Thread; Rhythm around Flow forms; the interval between double guard presses.
+
+## The guard counter pass (2026-10-20, D-027 11b)
+Champ adopted Sekiro's deflect-counter for the guard stance (D-027), after a duel-sim pass. `duel_sim.py` gained rule 9 (`--counter N` and the `m1_rules` knobs in its docstring) and the `chipguard` and `chipsafe` bots. `duel_m1_report.py` gained the `counter`, `counter_chip`, `counter_bots` and `counter_read` sections; FIRST, GUARD and RECOMMENDED are their cases. `test_duel_sim.py` has 16 more tests (37 in all). Every row below is 2,000 fights a profile on the package Champ accepted.
+
+**The first version** (one blocked hit commits a swipe two beats later, its recovery always opens, blocked hits keep their Posture and credit) held honest play at 100 / 99.9 / 58.9 / 93.8%, but it lost to two cheap strategies:
+- **The guard-holder** chips every gap, holds guard through each counter and needs no read and no timing: it won 97.5% casual.
+- **Flank chipping** (chipping from the flank of a guard slower than a Water Step) won 98% casual.
+
+**The recommended rules** (the spec's Rule 11.4; every value PROPOSED):
+- the stake (blocked-hit Posture is refunded unless the counter is deflected or Perfected);
+- the counter's recovery opens only on a deflect or Perfect;
+- blocked hits score no credit and don't restart the demon's recovery delay;
+- a 14-tick lead;
+- a guard yaw that out-turns a Step (the sim's flank share goes to 0);
+- in co-op, only the target is staked.
+
+**Each rule earns its place.** Guard-holder against honest play (casual) with the rule removed:
+
+| Rule removed | Guard-holder | Honest |
+|---|---|---|
+| the stake | 93.2% | 67.8% |
+| deflect-only opening | 83.9% | 64.5% |
+| no delay restart | 64.8% | 63.0% |
+| no credit for blocked hits | 53.2% | 61.2% |
+
+Ending the gap at the counter helps the guard-holder (59.4% against 57.8%). A counter after two blocks leaves a safe chip in every gap.
+
+**The retune.** The demon's delay moves to 3 s:
+
+| Delay | Expert / average / casual / assisted |
+|---|---|
+| 2 s | 100 / 99.5 / 41.2 / 89.7% |
+| 2.5 s | casual 52.2%, assisted 92.6% |
+| 3 s | 100 / 99.8 / 59.1 / 93.5% |
+
+At 3 s:
+- **Fights:** median wins are 20 / 33 / 64 / 56 s, and Perfects land on 82 / 53 / 30 / 35% of white strikes.
+- **Bots:** the guard-holder wins 41.0 / 97.2 / 89.7% (casual / average / assisted). Blind chipping and the masher win 0%, the turtle 0.1–0.2%, and the double-tapper 93.7% on assist (level).
+- **Reading decides it:** casual wins run 45.1–75.3% as players read 50–100% of counters (assisted 87.7–98.2%).
+- **Chipping still pays readers:** chipping every gap wins 79% at a 70% read and 97% reading all of them. Average chippers win in 22–23 s.
+
+**What the sim can't know, to log in the grey box:**
+- how often players read the counter (the profiles assume 95 / 85 / 70 / 50%);
+- whether they chip more once they've learned it;
+- how the stake reads without lock-on.

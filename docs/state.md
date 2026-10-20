@@ -3,20 +3,17 @@
 `/session-close` rewrites the `## Now` section at the end of every session. Keep it under 25 lines; history goes below.
 
 ## Now
-- **Date:** 2026-10-20 · **Milestone:** M1. The technical spec is written and Champ answered its open questions; the build starts next.
-- **Decided by Champ today:** D-026 (Open Question 1: R6-03 to R6-09 and the v0 numbers as R9-10 and R9-11 revise them, and R8-01 to R8-04) and D-027 (Open Questions 2 to 11 on Claude's recommendations). D-006 is Decided; D-008, the Nichirin seal, is withdrawn.
-- **Written (`/forge "M1 technical spec"`):**
-  - `docs/design/specs/m1-combat-core.md`: status REVIEW, `check_spec.py` PASS. One `core/` engine that the server runs for everyone and each client runs for itself (Overwatch's model), beats of whole ticks, NPC strikes judged at the impact.
-  - `docs/design/round9-revision.md` (R9-01 to R9-11) and four briefs in `docs/research/briefs/m1-combat-core-*.md`.
-  - The red team found that `duel_sim.py` never let the demon recover Posture between strings, so Round 6's duel table came from a bug. The sim now steps per tick (`test_duel_sim.py`, 21 tests), and the demon is retuned: wins 100 / 99.7 / 57.6 / 95.5% (expert / average / casual / casual on assist), about 40 s for an average fight.
-  - `netcode_sim.py --m1`: 2.5–3.7% of taps judged worse than earned up to 800 ms RTT (all of it frame-rate sampling), and the client predicts the server's verdict at least 99.8% of the time. Also new: `clash_sim.py`, `grab_sim.py` and `duel_m1_report.py`. Tool tests 64/64 OK.
+- **Date:** 2026-10-20 · **Milestone:** M1. The build has started: `core/` slice 1 (the clock, the judge and the meters) is written test-first and green; committed and pushed with today's other work.
+- **Decided by Champ today:** D-026 and D-027 (the M1 spec's Open Questions 1 to 11); D-030 (specs are approved by a question when finished: `docs/tools/spec-approval.md`); D-006 Decided; D-008 withdrawn.
+- **Built (`core/`, plan `lucky-petting-rocket`):** `clock/` (BeatGrid, PulseSchedule, TickSchedule, TickRecord, ClockEstimator, RecordPush), `judge/` (StampCheck with the stall bracket, OnBeat, CreditLedger, DeflectJudge, InputHorizon, the jitter and RTT windows), `meter/` (Breath, Posture, Rhythm, Hunger on fixed-point segments), `data/` rule records. `./gradlew :core:test`: 179 tests, 0 failures; `./gradlew build` passes; mutation checks caught 14 of 16 (both survivors are equivalent).
+- **Found while building, fixed and put in the spec (D-029, PROPOSED; spec table B1–B10):** the spec's client clock was broken: the netcode sim had fed it the exact tick rate, and with the server's real T̄ it was 20 ms off p95 and 1–1.7 s off through a 20 → 15 TPS step. It now estimates the server's wall clock and runs Rule 1.2's conversion: 5.6 / 5.1 / 3.6 ms p95 at 20 / 19 / 15 TPS, 5.6 ms through the step (`ClockEstimatorTest`; designs compared in the new `tools/sims/clock_sim.py`). Also: T̄ is a mean; `/tick rate`, sprint and the single-player pause are handled; frames carry their send time and the absolute epoch; guard presses and Inhale taps go out at once; 40 input frames/s.
+- **Reviews:** a netcode review and a code review (REQUEST CHANGES: 4 high, 4 medium) are both folded in, each finding fixed with a regression test (spec table B6–B14). The tick schedule now reads vanilla's lateness against its own schedule (Rule 1.2), which the mod passes in.
 - **Next, in order:**
-  1. Champ: answer the three open taste questions (D-027: which Flow finishers, whether "Kata" and "Flow" are renamed, the guard stance's look), then set the spec to `APPROVED`. R9-02, R9-04, R9-05 and R9-07 were in no open question and stay PROPOSED until he says.
-  2. A duel-sim pass for the deflect-counter (D-027, 11b), before the demon's brain is built.
-  3. Build in the spec's order: `core/` test-first (the clock, the judge, the state machine), the server, a server-confirmed client, the first gate run in single player (5 testers, 2 of them on assist level 2 or 3), then client prediction (4–6 days) and the two-client test, then travel.
-  4. The vanilla-scope Java parts (R7-01), first the strip-items loot modifier: until it's registered every world load logs "Unknown registry key ... kimetsu:strip_items".
-- **Unverified until the grey box:** the real dodge windows and how often players chip the guard, a tick rate that changes mid-fight, whether MCTest's input reaches the game's input events, whether AzureLib's catch-up can be gradual, and the deflect-counter.
-- **Waiting on Champ:** merging the accepted R6, R8 and R9 items into the live GDD; the R7 decide list (`round7-revision.md`); R8-05 and R8-06; R6-22 for M5; the library review's two additions (D-025); the M2 cold open turns the player with a bite, which canon forbids (R9-07), so its script changes before M2.
+  1. Champ: Open Question 12 (the guard counter, D-028), the three open taste questions (D-027), then approve the spec. R9-02, R9-04, R9-05 and R9-07 stay PROPOSED until he says.
+  2. `core/` slice 2: the state machine and the input buffer (Rule 3), with inputs applied at their stamps and the one-strike barrier (Rules 2.2–2.3), then slice 3 (hits and the scheduler), slice 4 (the demon, the neck, the clash), slice 5 (the mod adapts `core/`).
+  3. The vanilla-scope Java parts (R7-01), first the strip-items loot modifier.
+- **Unverified until the grey box:** the real dodge windows and chipping, how often players read the guard counter (casual target 60%+), whether MCTest's input reaches the game's input events, AzureLib's gradual catch-up, and real tick-start jitter and clock drift (the clock is modelled at 1 ms and 50 ppm).
+- **Waiting on Champ:** merging the accepted R6, R8 and R9 items into the live GDD; the R7 decide list; R8-05 and R8-06; R6-22 for M5; D-025's two library additions; R9-07 (the cold open's bite) before M2.
 - **Decided earlier:** private build (D-010); the R7 goals (D-012 to D-016); platform and animation stack (D-004, D-005); mod identity (D-019); repo location (D-020).
 
 ## History

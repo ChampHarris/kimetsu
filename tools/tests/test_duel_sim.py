@@ -261,6 +261,180 @@ class RulesTests(unittest.TestCase):
         self.assertLess(r["average+turtle"]["win_pct"], r["average"]["win_pct"] - 20)
 
 
+class CounterTests(unittest.TestCase):
+    """Rule 9 (Open Question 11b, D-027): the guard stance answers a blocked hit with a white counter."""
+
+    def countered(self, sk: "ds.Skill | None" = None, n: int = 1, **m) -> "ds.Fight":
+        f = ruled(sk=sk or exact("average"), gap=True, credits=True, hit_opening=True)
+        f.counter_n = n
+        f.M.update(m)
+        f.rp = {**f.rp, "chip": 1.0, "flank": 0.0, "gap_form": 0.0, "counter_read": 1.0}
+        return f
+
+    def landing_times(self, f: "ds.Fight", beats: int = 5) -> list:
+        times, orig = [], f.counter_strike
+
+        def spy(late=False):
+            times.append(f.t)
+            orig(late)
+        f.counter_strike = spy
+        f.gap_phase(beats)
+        return times
+
+    def test_off_by_default(self):
+        f = self.countered(n=0)
+        f.gap_phase(5)
+        self.assertGreater(f.stats["gap_chips"], 0)
+        self.assertEqual(f.stats["counters"], 0)
+
+    def test_when_it_lands(self):
+        # A Kata pressed on the beat is blocked 3 ticks later and the counter commits the tick after (sweeps run in
+        # step 4, commits in step 2); Rule 7.11 then needs cue lead + 2 ticks before the impact.
+        for lead in (8, 10, 14):                                     # 9 ticks are left before the next beat: never
+            f = self.countered(counter_lead_ticks=lead)              # enough, even at the minimum mob lead
+            self.assertEqual(self.landing_times(f)[0], 2 * f.P)
+            self.assertEqual(f.stats["counter_beats_after_hit"], f.stats["counters_committed"] * 2)
+        same = self.countered(counter_commit_delay_ticks=0, commit_after_block_ticks=0, counter_lead_ticks=8)
+        self.assertEqual(self.landing_times(same)[0], same.P)        # only a same-tick commit could make the next beat
+        slow = self.countered(counter_lead_ticks=14, counter_commit_delay_ticks=6)
+        self.assertEqual(self.landing_times(slow)[0], 2 * slow.P)    # lead 14: input up to 6 ticks late keeps the beat
+
+    def test_hits_before_it_lands_are_blocked_and_commit_nothing(self):
+        f = self.countered()
+        self.landing_times(f, beats=3)
+        self.assertEqual(f.stats["counters_committed"], 1)
+        self.assertEqual(f.stats["demon_blocks"], 2)                 # the hit that committed it and one more
+
+    def test_answers(self):
+        self.assertEqual(self.countered(sk=exact("average", aim=0.3)).counter_answer(), "perfect")   # I - 45
+        self.assertEqual(self.countered(sk=exact("average", aim=0.6)).counter_answer(), "deflect")   # I - 90
+        unread = self.countered()
+        unread.rp["counter_read"] = 0.0
+        self.assertEqual(unread.counter_answer(), "hit")             # pressed the next chip into it
+        self.assertEqual(unread.stats["counter_unread"], 1)
+
+    def test_a_press_inside_the_chip_recovery_is_a_guard_cancel(self):
+        for aim, cost in ((0.8, 5.0), (0.4, 0.0)):                   # I - 120 is inside the Kata's recovery
+            f = self.countered(sk=exact("average", aim=aim))
+            f.t = 2 * f.P
+            f._chip_free_at = f.P + 11 * 50                          # a Kata pressed a beat ago ends at I - 100
+            f.breath = 50.0
+            f.counter_answer()
+            self.assertEqual(f.breath, 50.0 - cost)
+
+    def test_its_recovery_is_an_opening(self):
+        f = self.countered()
+        f.rng.random = lambda: 0.99                                  # no Thread attempt, no block roll
+        hp = f.dhp
+        f.t = 2 * f.P
+        f.counter_strike()
+        self.assertLess(f.dhp, hp)                                   # the Kata in its recovery landed
+        none = self.countered(counter_opening="none")
+        none.t = 2 * none.P
+        none.counter_strike()
+        self.assertEqual(none.dhp, hp)
+
+    def test_a_posture_break_cancels_it(self):
+        f = self.countered()
+        f._last_block_t = 150.0
+        f._counter_due = f.counter_beat()
+        f.rng.random = lambda: 0.99                                  # the Thread attempt fails
+        f.on_posture_break()
+        self.assertIsNone(f._counter_due)
+        self.assertEqual(f.guard_blocks, 0)
+
+    def test_chipsafe_bot(self):
+        one = self.countered(sk=exact("casual+chipsafe"))
+        one.gap_phase(5)
+        self.assertEqual((one.stats["gap_chips"], one.stats["counters"]), (0, 0))   # N=1: every chip brings it
+        two = self.countered(sk=exact("casual+chipsafe"), n=2)
+        two.gap_phase(5)
+        self.assertEqual((two.stats["gap_chips"], two.stats["counters"]), (1, 0))   # N=2 per gap: one safe chip
+
+    def test_counter_zero_is_no_counter(self):
+        a = ds.parser().parse_args(["--m1-rules", "--counter", "0"])
+        b = ds.parser().parse_args(["--m1-rules"])
+        ca, ra, fa = ds.build(a)
+        cb, rb, fb = ds.build(b)
+        self.assertEqual(ds.simulate(ca, ["casual"], 150, 3, True, ra, fa), ds.simulate(cb, ["casual"], 150, 3, True, rb, fb))
+
+    def staked(self, sk: "ds.Skill | None" = None, **m) -> "ds.Fight":
+        return self.countered(sk=sk, counter_stake=True, counter_opening="deflect", block_resets_regen_delay=False,
+                              blocked_hits_credit=False, counter_lead_ticks=14, **m)
+
+    def test_a_staked_block_never_breaks_the_guard(self):
+        f = self.staked()
+        f.dpost = 5.0
+        f.player_hit(f.c["player_attacks"]["kata"][0], form=False, block_p=1.0, name="kata")
+        self.assertEqual((f.dpost, f._stake), (1.0, 4.0))                # held at 1 until its counter settles it
+
+    def test_the_stake_is_kept_on_a_deflect_and_refunded_otherwise(self):
+        for aim, outcome in ((0.3, "perfect"), (0.6, "deflect"), (2.0, "block")):   # 2.0: I - 300, an early press
+            f = self.staked(sk=exact("average", aim=aim, block_fallback=1.0))
+            kata = f.c["player_attacks"]["kata"][0]
+            f.player_hit(kata, form=False, block_p=1.0, name="kata")
+            self.assertEqual((f.dpost, f._stake), (292.0, 8.0))          # the grey bar
+            f.t = 2 * f.P
+            f.rng.random = lambda: 0.99                                  # no Thread attempt in the opening
+            f.counter_strike()
+            self.assertEqual(f.stats[f"counter_{outcome}"], 1)
+            self.assertEqual(f._stake, 0.0)
+            if outcome == "block":
+                self.assertEqual(f.dpost, 300.0)                         # refunded, and no opening
+                self.assertEqual(f.dhp, 100.0)
+            else:
+                self.assertLess(f.dpost, 292.0)                          # kept, plus the deflect's own damage
+                self.assertLess(f.dhp, 100.0)                            # and its recovery opened
+
+    def test_blocked_hits_take_no_credit_and_restart_no_delay(self):
+        f = self.staked()
+        f.counter_strike = lambda late=False: setattr(f, "guard_blocks", 0)   # land it without its own scoring
+        f.gap_phase(3)                                                   # chips on beats 0 and 1, the counter on 2
+        self.assertEqual((f.stats["gap_chips"], f.rhythm), (2, 0))       # two on-beat blocked chips, no credit
+        lands = self.staked()
+        lands.rp["flank"] = 1.0                                          # flank hits land: their credits stand
+        lands.gap_phase(3)
+        self.assertGreater(lands.rhythm, 0)
+        g = self.staked()
+        g.player_hit(g.c["player_attacks"]["kata"][0], form=False, block_p=1.0, name="kata")
+        self.assertEqual(g.d_posture_hit, -1e9)                          # the recovery delay never restarted
+
+    def test_a_committed_strings_guard_blocks_for_nothing(self):
+        f = self.staked()
+        f._string_committed = True
+        f.player_hit(f.c["player_attacks"]["kata"][0], form=False, block_p=1.0, name="kata")
+        self.assertEqual((f.dpost, f.guard_blocks, f.stats["blocks_while_committed"]), (300.0, 0, 1))
+
+    def test_chipguard_holds_guard_and_a_counter_mid_form_hits(self):
+        f = self.staked(sk=exact("casual+chipguard"))
+        self.assertEqual(f.counter_answer(), "block")
+        g = self.staked()
+        g._last_form_beats = 3                                           # still in Striking Tide's frames: it hits
+        self.assertEqual(g.counter_answer(late=True), "hit")
+        self.assertEqual(g.stats["counter_midform"], 1)
+        two = self.staked()
+        two._last_form_beats = 2                                         # a two-beat form's recovery: guard-cancel
+        two.t, two._chip_free_at, two.breath = 2 * two.P, 2 * two.P, 50.0
+        self.assertEqual(two.counter_answer(late=True), "perfect")
+        self.assertEqual(two.breath, 45.0)
+
+    def test_recommended_rules_beat_the_exploit_bots(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sims"))
+        import duel_m1_report as rep
+        honest = rep.run_one((rep.RECOMMENDED, "casual", 400, 7))["win_pct"]
+        for bot in ("casual+chipguard", "casual+masher"):
+            self.assertLess(rep.run_one((rep.RECOMMENDED, bot, 400, 7))["win_pct"], honest - 5, bot)
+        blind = rep.run_one((rep.RECOMMENDED + rep._every("chip", 1) + rep._every("counter_read", 0), "casual", 400, 7))
+        self.assertLess(blind["win_pct"], honest - 20)
+
+    def test_blind_chipping_loses_to_honest_play(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sims"))
+        import duel_m1_report as rep
+        honest = rep.run_one((rep.SWIPE, "casual", 400, 7))["win_pct"]
+        blind = rep.run_one((rep.SWIPE + rep._every("chip", 1) + rep._every("counter_read", 0), "casual", 400, 7))["win_pct"]
+        self.assertLess(blind, honest - 5)
+
+
 ROUND6_TABLE = """\
 profile              win%     loss%   TTK p10    median       p90  posture% collapse%   hunger%   HP left       PD%     defl%  hits/min    breaks      flow
 expert              100.0       0.0      43.0      62.0      78.3      84.2      15.8       0.0      18.8      86.6      93.3      1.31      0.86      2.91

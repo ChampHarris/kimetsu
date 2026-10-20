@@ -18,8 +18,13 @@ Sections (`--section`, repeatable; default all):
   assumptions the inputs that decide the answer: gap chipping, dodge windows and spread, assist on dodges
   bots       exploit bots against the honest profile of the same skill
   round6     Round 6's sim claims rerun: R6-06 (vitality coupling), R6-07 (strings), D-008 (the seal), ruling Q3
+  counter    the guard counter (Open Questions 11b and 12, D-027) on the accepted package: the first pass, the
+             recommended rules, the demon's retune and each rule removed in turn
+  counter_chip   chipping with and without the counter: honest, every gap, every gap never or always reading it, never
+  counter_bots   exploit bots against the counter: chipguard (holds guard through it), masher, doubletap, turtle
+  counter_read   honest play against the share of counters a player reads coming (the assumption that decides it)
 Targets (PROPOSED): expert, average and assisted wins >= 90%; unassisted casual >= 50%; the average player's
-median win 60-120 s; >= 75% of wins through a Thread (Posture break or collapse).
+median win 30-90 s (Champ, D-027; 60-120 s before); >= 75% of wins through a Thread (Posture break or collapse).
 
 Run:  python tools/sims/duel_m1_report.py                       # every section, 2000 fights a profile
       python tools/sims/duel_m1_report.py --section candidates --fights 1000
@@ -41,6 +46,41 @@ FOUR = ["expert", "average", "casual", "casual+assist"]
 # The demon values this pass recommends (PROPOSED); every section but `candidates` runs on them.
 CHOSEN = ["--set", "m1_demon.posture_regen_per_s=12", "--set", "m1_demon.posture_regen_delay_s=2"]
 M1 = ["--m1-rules"] + CHOSEN
+# The package Champ accepted on 2026-10-20 (D-026, D-027): regeneration at once with damage-taken vitality, the clang
+# without crit damage, the x2.0 Flow stand-in and assist's wider dodge edge. The counter sections run on it.
+ACCEPTED = M1 + ["--no-seal", "--vitality-damage-taken", "--set", "m1_rules.clang_damage_mult=1.0",
+                 "--set", "player_attacks.flow_bonus=2.0", "--set", "m1_rules.assist_dodge_scale=1.5"]
+
+
+def _r(key, val):
+    return ["--set", f"m1_rules.{key}={val}"]
+
+
+def _every(key, val):
+    """Set one rule-3/rule-9 behaviour for every skill profile."""
+    return [x for p in ("expert", "average", "casual", "struggling")
+            for x in ("--set", f"m1_rules.profiles.{p}.{key}={val}")]
+
+
+def _chipping(label, base):
+    return [(f"{label}: honest", base), (f"{label}: chips every gap", base + _every("chip", 1)),
+            (f"{label}: chips every gap, never reads the counter", base + _every("chip", 1) + _every("counter_read", 0)),
+            (f"{label}: chips every gap, always reads the counter", base + _every("chip", 1) + _every("counter_read", 1)),
+            (f"{label}: never chips", base + _every("chip", 0))]
+
+
+# The guard counter (Open Question 12). FIRST is the first pass: one blocked hit commits a swipe (lead 10) two beats
+# later, its recovery always opens, and blocked hits keep their Posture and take the beat's credit. GUARD is the
+# recommended rule set after the red team's chipguard bot: the stake (blocked-hit Posture refunded unless the counter
+# is deflected or Perfected), an opening only after a deflect or Perfect, blocked hits that restart no recovery delay
+# and take no credit, a 14-tick lead and a guard that turns faster than a Water Step (no solo flank hits).
+# RECOMMENDED adds the retune it needs: the demon's delay 2 s -> 3 s.
+FIRST = ACCEPTED + ["--counter", "1"]
+SWIPE = FIRST                                                             # the name the tests and older notes use
+GUARD = (FIRST + _r("counter_stake", "true") + _r("counter_opening", "deflect")
+         + _r("block_resets_regen_delay", "false") + _r("blocked_hits_credit", "false") + _r("counter_lead_ticks", 14)
+         + _every("flank", 0))                                         # its guard out-turns a Water Step: no solo flank
+RECOMMENDED = GUARD + ["--set", "m1_demon.posture_regen_delay_s=3"]
 
 
 def _regen(rate, delay, extra=()):
@@ -160,13 +200,43 @@ SECTIONS: dict[str, tuple[str, list[str], list[tuple[str, list[str]]]]] = {
         ("--m1-rules (first qualifying press decides)", M1),
         ("--m1-rules, --guard-rule latest (the old rule)", M1 + ["--guard-rule", "latest"]),
     ]),
+    "counter": ("The guard counter (Open Question 12) on the accepted package", FOUR + ["casual+chipguard"], [
+        ("no counter (the accepted package)", ACCEPTED),
+        ("first pass: one blocked hit, its recovery always opens, blocked hits keep their Posture", FIRST),
+        ("recommended rules on the accepted demon (12/s after 2 s)", GUARD),
+        ("recommended rules, 12/s after 2.5 s", GUARD + ["--set", "m1_demon.posture_regen_delay_s=2.5"]),
+        ("recommended: the rules and 12/s after 3 s", RECOMMENDED),
+        ("recommended without the stake (blocked hits keep their Posture)", RECOMMENDED + _r("counter_stake", "false")),
+        ("recommended, but its recovery opens whatever the answer", RECOMMENDED + _r("counter_opening", "recovery")),
+        ("recommended, but blocked hits restart its recovery delay", RECOMMENDED + _r("block_resets_regen_delay", "true")),
+        ("recommended, but blocked on-beat hits take the beat's credit", RECOMMENDED + _r("blocked_hits_credit", "true")),
+        ("recommended, but the counter ends the gap", RECOMMENDED + _r("counter_ends_gap", "true")),
+        ("recommended, but the count of blocks carries two to a counter", RECOMMENDED + ["--counter", "2"]),
+    ]),
+    "counter_chip": ("Chipping the guard with and without the counter",
+                     ["average", "casual", "casual+assist", "struggling"],
+                     _chipping("no counter", ACCEPTED) + _chipping("first pass", FIRST)
+                     + _chipping("recommended", RECOMMENDED)),
+    "counter_bots": ("Exploit bots against the counter",
+                     ["average", "average+chipguard", "average+masher", "average+doubletap", "average+turtle",
+                      "casual", "casual+chipguard", "casual+masher", "casual+turtle", "casual+assist",
+                      "casual+assist+chipguard", "casual+assist+doubletap", "casual+assist3B", "struggling+chipguard"], [
+        ("no counter", ACCEPTED),
+        ("first pass", FIRST),
+        ("recommended", RECOMMENDED),
+    ]),
+    "counter_read": ("Honest play against the share of counters read coming (recommended)", FOUR + ["struggling"], [
+        (f"every profile reads {r:.0%} of counters", RECOMMENDED + _every("counter_read", r))
+        for r in (0.5, 0.6, 0.7, 0.8, 0.9, 1.0)] + [
+        ("profile defaults (expert 95%, average 85%, casual 70%, struggling 50%)", RECOMMENDED),
+    ]),
 }
 
 COLS = [("win%", "win_pct"), ("loss%", "loss_pct"), ("median", "ttk_median_s"), ("p90", "ttk_p90_s"),
         ("thread%", "route_thread_pct"), ("post%", "route_posture_pct"), ("PD%", "perfect_pct_of_white"), ("hits/min", "hits_taken_per_min"),
         ("breaks", "posture_breaks_per_fight"), ("dodge%", "dodge_pct_of_red_purple"),
         ("noBr%", "thread_no_breath_pct"), ("chips", "gap_chips_per_fight"), ("clangs", "clangs_per_fight"),
-        ("throw%", "throw_pct_of_grabs")]
+        ("throw%", "throw_pct_of_grabs"), ("counters", "counters_per_fight"), ("ctrHit%", "counter_hit_pct")]
 
 
 def run_one(job: tuple[list[str], str, int, int]) -> dict:
@@ -183,7 +253,7 @@ def verdict(rows: dict) -> str:
     fails = [f"{p} {rows[p]['win_pct']}" for p, w in need.items() if p in rows and rows[p]["win_pct"] < w]
     if "average" in rows:
         m = rows["average"]["ttk_median_s"] or 0
-        if not 60 <= m <= 120:
+        if not 30 <= m <= 90:                  # D-027 (Open Question 11c)
             fails.append(f"avg median {m}")
     thr = [f"{p} thread {r['route_thread_pct']}" for p, r in rows.items() if r["win_pct"] and r["route_thread_pct"] < 75]
     return "PASS" if not fails and not thr else "fail: " + "; ".join(fails + thr)

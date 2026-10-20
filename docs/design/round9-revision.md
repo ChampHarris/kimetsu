@@ -100,7 +100,7 @@ Found by the canon pass; recorded so they're fixed before those milestones build
   - R6-07's strings cost casual players more than Round 6 said: 63% against 87% with single strikes.
   - D-008's evidence supports some limit on regeneration, but not the seal (R9-03).
   - Ruling Q3's Hardening cost is 10 points, not 29.
-- **Cost.** The average fight lasts about 40 s, not Round 6's 60–100 s; stretching it to 60 s drops casual wins to 22–37%. Chipping the guard stance is free Posture, so the fight's length is the player's choice (the spec's Open Question 11).
+- **Cost.** The average fight lasts about 40 s, not Round 6's 60–100 s; stretching it to 60 s drops casual wins to 22–37%. Chipping the guard stance is free Posture, so the fight's length is the player's choice (the spec's Open Question 11). **Update (2026-10-20, D-028, PROPOSED):** Champ chose the guard counter (D-027). Its review makes the guard pay only when its counter is answered, which needs the demon's Posture-recovery delay at 3 s rather than 2 s; honest play then wins 100 / 99.8 / 59.1 / 93.5% (the spec's Rule 11.4 and Open Question 12).
 - **Decide.** Accept the retune, which restores the fight Round 6 described, with shorter fights.
 
 ## Sources

@@ -51,6 +51,7 @@ python tools/audio_lint.py --loudness
 python tools/townsfolk_names.py --town 40 --region tohoku   # sample a town; --check tests 2,000
 python tools/sims/duel_sim.py         # M1 fight Monte Carlo (v0 numbers in tools/sims/m1_v0.json)
 python tools/sims/pulse_sim.py        # Pulse and deflect timing model
+python tools/sims/clock_sim.py        # client combat clock designs against a real tick schedule
 python tools/sims/night_sim.py --nights 300   # night Director: demons per party size (the R7-03 table)
 python tools/refsrc.py                # Minecraft + NeoForge sources into ref-src/ (--assets, --data, --mcmeta 26.3)
 ```
