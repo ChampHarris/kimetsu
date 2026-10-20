@@ -2,6 +2,10 @@ pluginManagement {
     repositories {
         gradlePluginPortal()
     }
+    // The code quality gates (ADR 0002, D-033), pinned here once; both build files apply them without a version.
+    plugins {
+        id 'com.diffplug.spotless' version '8.10.4'
+    }
 }
 
 plugins {

@@ -27,7 +27,7 @@ public final class CreditLedger {
         }
         if (newest == Long.MIN_VALUE || beat > newest) {
             long from = newest == Long.MIN_VALUE || beat - newest >= SPAN ? beat - SPAN + 1 : newest + 1;
-            for (long b = from; b <= beat; b++) {            // the slots of the beats now in range start empty
+            for (long b = from; b <= beat; b++) { // the slots of the beats now in range start empty
                 taken[Math.floorMod(b, SPAN)] = 0;
             }
             newest = beat;

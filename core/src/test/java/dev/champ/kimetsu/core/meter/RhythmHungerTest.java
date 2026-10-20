@@ -46,7 +46,7 @@ class RhythmHungerTest {
             r.tick(t);
         }
         assertEquals(6, r.points());
-        r.active(230);                                       // a combat input: the idle clock restarts
+        r.active(230); // a combat input: the idle clock restarts
         for (long t = 231; t < 290; t++) {
             r.tick(t);
         }
@@ -68,7 +68,7 @@ class RhythmHungerTest {
         Hunger h = new Hunger(Fixtures.hunger());
         assertTrue(h.hardened());
         h.pay(Fixed.of(75));
-        assertFalse(h.hardened());                           // exactly 25: not above
+        assertFalse(h.hardened()); // exactly 25: not above
         Hunger h2 = new Hunger(Fixtures.hunger());
         h2.pay(Fixed.of(74.999));
         assertTrue(h2.hardened());
@@ -79,7 +79,7 @@ class RhythmHungerTest {
         Hunger h = new Hunger(Fixtures.hunger());
         assertEquals(Fixed.of(5), h.payLeap());
         h.pay(Fixed.of(80));
-        assertEquals(Fixed.of(15), h.payRise());             // 25 asked, 15 left: it still rises
+        assertEquals(Fixed.of(15), h.payRise()); // 25 asked, 15 left: it still rises
         assertEquals(0, h.value());
         assertEquals(0, h.payRise());
     }
@@ -97,7 +97,7 @@ class RhythmHungerTest {
     @Test
     void segmentsClampToTheirRange() {
         Segment s = new Segment(Fixed.of(10), -Fixed.perTick(6), 100, Fixed.of(100));
-        assertEquals(Fixed.of(10), s.at(50));                // before it starts
+        assertEquals(Fixed.of(10), s.at(50)); // before it starts
         assertEquals(Fixed.of(7), s.at(110));
         assertEquals(0, s.at(10_000));
         Segment up = new Segment(Fixed.of(90), Fixed.perTick(12), 0, Fixed.of(100));

@@ -5,8 +5,7 @@ package dev.champ.kimetsu.core.data;
  * the message, instead of surfacing later as a strange verdict.
  */
 final class Check {
-    private Check() {
-    }
+    private Check() {}
 
     static void positive(String field, long value) {
         if (value <= 0) {
@@ -27,7 +26,7 @@ final class Check {
     }
 
     static void atLeast(String field, double value, double min) {
-        if (!(value >= min)) {    // also rejects NaN
+        if (!(value >= min)) { // also rejects NaN
             throw new IllegalArgumentException(field + " must be at least " + min + ", was " + value);
         }
     }

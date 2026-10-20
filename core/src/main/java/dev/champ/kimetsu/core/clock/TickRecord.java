@@ -11,8 +11,14 @@ package dev.champ.kimetsu.core.clock;
  * @param tickLengthNanos  T̄, the typical tick length (50 ms at full speed)
  * @param epoch            counts vanilla's backlog drops (Rule 1.8); stamps from another epoch don't compare
  */
-public record TickRecord(long tick, double startNanos, double tickLengthNanos, boolean frozen, boolean paused,
-                         boolean sprinting, int epoch) {
+public record TickRecord(
+        long tick,
+        double startNanos,
+        double tickLengthNanos,
+        boolean frozen,
+        boolean paused,
+        boolean sprinting,
+        int epoch) {
 
     /**
      * An arrival in combat microseconds: 50·G + (arrival − S_G) × 50/T̄, unclamped, so it keeps in step with wall time
@@ -47,7 +53,10 @@ public record TickRecord(long tick, double startNanos, double tickLengthNanos, b
 
     /** Whether the ticking state or the epoch differs from {@code sent}'s (always true against nothing sent). */
     public boolean stateChangedFrom(TickRecord sent) {
-        return sent == null || epoch != sent.epoch || frozen != sent.frozen || paused != sent.paused
+        return sent == null
+                || epoch != sent.epoch
+                || frozen != sent.frozen
+                || paused != sent.paused
                 || sprinting != sent.sprinting;
     }
 }

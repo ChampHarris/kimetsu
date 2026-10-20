@@ -8,6 +8,9 @@ gradlew text eol=lf
 *.bat text eol=crlf
 # tools/make_ramp.py writes the ramps with LF
 *.gpl text eol=lf
+# Spotless checks Java as LF on every OS (gradle/quality.gradle); a CRLF checkout would fail it on Windows
+*.java text eol=lf
+*.gradle text eol=lf
 
 # Binary game assets (small, kept in git)
 *.png binary

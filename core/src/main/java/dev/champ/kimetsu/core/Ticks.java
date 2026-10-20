@@ -8,8 +8,7 @@ public final class Ticks {
     public static final int PER_SECOND = 20;
     public static final long MILLIS_PER_TICK = 1000L / PER_SECOND;
 
-    private Ticks() {
-    }
+    private Ticks() {}
 
     /** Milliseconds from the start of tick 0 to the start of {@code ticks}. */
     public static long toMillis(long ticks) {

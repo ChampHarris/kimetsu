@@ -41,7 +41,7 @@ public record ClockRules(
         Check.atMost("first_samples", firstSamples, syncSamples);
         Check.positive("slew_ms_per_beat", slewMsPerBeat);
         Check.atLeast("rate_change_slew_ms_per_beat", rateChangeSlewMsPerBeat, slewMsPerBeat);
-        Check.atMost("rate_change_slew_ms_per_beat", rateChangeSlewMsPerBeat, 200);   // well under any beat
+        Check.atMost("rate_change_slew_ms_per_beat", rateChangeSlewMsPerBeat, 200); // well under any beat
         Check.atLeast("rate_samples", rateSamples, 1);
         Check.between("rate_change", rateChange, 0.0001, 0.5);
         Check.atLeast("pushes_per_s", pushesPerS, 0.1);

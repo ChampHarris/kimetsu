@@ -24,8 +24,8 @@ public record RhythmRules(
         Check.positive("max_tier", maxTier);
         multipliers = List.copyOf(multipliers);
         if (multipliers.size() != maxTier + 1) {
-            throw new IllegalArgumentException("multipliers must list " + (maxTier + 1) + " tiers, listed "
-                    + multipliers.size());
+            throw new IllegalArgumentException(
+                    "multipliers must list " + (maxTier + 1) + " tiers, listed " + multipliers.size());
         }
         for (int i = 0; i < multipliers.size(); i++) {
             Check.atLeast("multipliers[" + i + "]", multipliers.get(i), i == 0 ? 0.0 : multipliers.get(i - 1));

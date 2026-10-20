@@ -1,0 +1,13 @@
+// The code quality gates, shared by the mod and core/ (ADR 0002, D-033). Each build file applies the plugins, then this.
+
+// Formatting: palantir-java-format through Spotless. `./gradlew spotlessApply` formats; `spotlessCheck` runs in `check`.
+// LF on every OS: the Java here is LF in the index, and Spotless's default (Git's end-of-line settings) would expect
+// CRLF on a Windows checkout with core.autocrlf, failing every file there and passing on CI. Javadoc isn't reflowed.
+spotless {
+    lineEndings = 'UNIX'
+    java {
+        // Relative to each project: the mod's own src/, never core/ through the mod's second source dir.
+        target 'src/*/java/**/*.java'
+        palantirJavaFormat(palantir_version)
+    }
+}

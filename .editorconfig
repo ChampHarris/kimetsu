@@ -1,0 +1,7 @@
+# Editors write what Spotless and .gitattributes expect (gradle/quality.gradle, ADR 0002).
+root = true
+
+[*.{java,gradle}]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true

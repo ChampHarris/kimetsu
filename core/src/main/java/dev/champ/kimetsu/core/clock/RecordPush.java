@@ -30,7 +30,7 @@ public final class RecordPush {
         }
         lastNanos = nowNanos;
         started = true;
-        if (sent == null) {                  // the join's pong burst carries the first record
+        if (sent == null) { // the join's pong burst carries the first record
             return false;
         }
         if (!record.movedFrom(sent, rules.rateChange())) {

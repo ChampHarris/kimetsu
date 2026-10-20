@@ -77,7 +77,7 @@ public final class ClockEstimator {
         head = (head + 1) % delay.length;
         count = Math.min(count + 1, delay.length);
         theta = lowerHalfOffset();
-        haveOffset = count >= rules.firstSamples();      // one sample is up to its jitter off; the join sends a burst
+        haveOffset = count >= rules.firstSamples(); // one sample is up to its jitter off; the join sends a burst
         onRecord(t3, record, beatMicros);
     }
 
@@ -86,7 +86,7 @@ public final class ClockEstimator {
         if (clientPaused) {
             return;
         }
-        if (awaitingNewer) {                         // the unpause burst is answered before the first tick back
+        if (awaitingNewer) { // the unpause burst is answered before the first tick back
             if (record.epoch() == newestEpoch && record.tick() <= newestTick) {
                 return;
             }
@@ -94,10 +94,10 @@ public final class ClockEstimator {
         }
         if (seen) {
             if (record.epoch() < newestEpoch || record.epoch() == newestEpoch && record.tick() < newestTick) {
-                return;                             // overtaken on the wire by a newer record: its rate is stale
+                return; // overtaken on the wire by a newer record: its rate is stale
             }
             if (record.epoch() != newestEpoch) {
-                snapNext = true;                    // a backlog drop, even if its ClockEpoch hasn't come yet
+                snapNext = true; // a backlog drop, even if its ClockEpoch hasn't come yet
             }
         }
         seen = true;
@@ -108,7 +108,7 @@ public final class ClockEstimator {
             rateChanged = takeRate(record.tickLengthNanos()) || rateChanged;
         }
         if (record.frozen() || record.paused()) {
-            freeze(record);                          // needs neither the offset nor a rate: it's 50·G exactly
+            freeze(record); // needs neither the offset nor a rate: it's 50·G exactly
             return;
         }
         if (!haveOffset || rate <= 0) {
@@ -135,10 +135,10 @@ public final class ClockEstimator {
             e0 = value(at);
             d = line - e0;
             hold = false;
-            if (d > beatMicros) {           // more than a beat behind: snap forward
+            if (d > beatMicros) { // more than a beat behind: snap forward
                 e0 = line;
                 d = 0;
-            } else if (d < -beatMicros) {   // more than a beat ahead: hold still until the line catches up
+            } else if (d < -beatMicros) { // more than a beat ahead: hold still until the line catches up
                 hold = true;
             }
         }
@@ -156,7 +156,7 @@ public final class ClockEstimator {
      */
     public void pause(long now) {
         clientPaused = true;
-        awaitingNewer = seen;                        // after resume, only a record from after the pause counts
+        awaitingNewer = seen; // after resume, only a record from after the pause counts
         if (anchored && !frozen) {
             frozenValue = value(now);
             frozen = true;
@@ -234,7 +234,7 @@ public final class ClockEstimator {
             sum += rates[i];
             n++;
         }
-        if (n < rateCount) {                // a disagreeing older rate never comes back
+        if (n < rateCount) { // a disagreeing older rate never comes back
             System.arraycopy(rates, rateCount - n, rates, 0, n);
             rateCount = n;
         }
@@ -248,7 +248,7 @@ public final class ClockEstimator {
         for (int i = 0; i < count; i++) {
             order[i] = i;
         }
-        for (int i = 1; i < count; i++) {        // insertion sort by delay: at most 16 samples, once a second
+        for (int i = 1; i < count; i++) { // insertion sort by delay: at most 16 samples, once a second
             int k = order[i];
             int j = i - 1;
             while (j >= 0 && delay[order[j]] > delay[k]) {
@@ -261,7 +261,7 @@ public final class ClockEstimator {
         long ref = offset[order[0]];
         long sum = 0;
         for (int i = 0; i < half; i++) {
-            sum += offset[order[i]] - ref;       // differences stay small whatever the clocks' origins
+            sum += offset[order[i]] - ref; // differences stay small whatever the clocks' origins
         }
         return ref + Math.round((double) sum / half);
     }

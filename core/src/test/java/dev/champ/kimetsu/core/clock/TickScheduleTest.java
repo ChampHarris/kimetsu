@@ -7,9 +7,9 @@ import dev.champ.kimetsu.core.Fixtures;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.junit.jupiter.api.Test;
 
 /**
  * Rule 1.2's arrival conversion against the time an arrival should get: game time inside ordinary ticks (the share of
@@ -107,7 +107,8 @@ class TickScheduleTest {
         TickSchedule schedule = new TickSchedule(Fixtures.clock());
         TickRecord[] out = new TickRecord[s.start.length];
         for (int g = 0; g < s.start.length; g++) {
-            out[g] = schedule.onTickStart(new TickInput(g, s.start[g], s.nominal[g], false, false, false, false, false));
+            out[g] =
+                    schedule.onTickStart(new TickInput(g, s.start[g], s.nominal[g], false, false, false, false, false));
         }
         return out;
     }
@@ -123,8 +124,8 @@ class TickScheduleTest {
                 long w = meas + Math.round(f * (next - meas));
                 double conv = rec[g].arrivalMicros(w) / 1000.0;
                 double target = s.kind[g] == 'o' && s.kind[g + 1] == 'o'
-                        ? 50.0 * g + 50.0 * (w - meas) / (next - meas)        // game time
-                        : 50.0 * stall + (w - s.start[stall]) / MS;            // in step with wall time
+                        ? 50.0 * g + 50.0 * (w - meas) / (next - meas) // game time
+                        : 50.0 * stall + (w - s.start[stall]) / MS; // in step with wall time
                 worst = Math.max(worst, Math.abs(conv - target));
             }
         }
@@ -150,7 +151,7 @@ class TickScheduleTest {
             int st = s.stall();
             double worst = worst(s, rec, 50, s.start.length - 1);
             assertTrue(worst <= 10, stallMs + " ms stall seed " + seed + ": " + worst + " ms");
-            for (int g = st + 1; s.kind[g] != 'o'; g++) {        // the stalled tick and the catch-up don't count
+            for (int g = st + 1; s.kind[g] != 'o'; g++) { // the stalled tick and the catch-up don't count
                 assertEquals(rec[st].tickLengthNanos(), rec[g].tickLengthNanos(), 0.0, "T̄ moved at tick " + g);
             }
         }
@@ -184,7 +185,7 @@ class TickScheduleTest {
         }
         long slow = 66_666_667L;
         TickRecord r = schedule.onTickStart(new TickInput(30, t, slow, false, false, false, false, false));
-        assertEquals(slow, r.tickLengthNanos(), 0.0);       // the interval that straddled the change isn't counted
+        assertEquals(slow, r.tickLengthNanos(), 0.0); // the interval that straddled the change isn't counted
         TickRecord next = schedule.onTickStart(new TickInput(31, t + slow, slow, false, false, false, false, false));
         assertEquals(slow, next.tickLengthNanos(), 1.0);
     }
@@ -198,13 +199,13 @@ class TickScheduleTest {
             before = schedule.onTickStart(TickInput.normal(g, t));
             t += NOMINAL;
         }
-        for (int i = 0; i < 40; i++) {                    // game time stands at 30; the server keeps ticking
+        for (int i = 0; i < 40; i++) { // game time stands at 30; the server keeps ticking
             TickRecord frozen = schedule.onTickStart(new TickInput(30, t, NOMINAL, true, false, false, false, false));
             assertEquals(Micros.ofTicks(30), frozen.arrivalMicros(t + 37_000_000L));
             assertEquals(before.tickLengthNanos(), frozen.tickLengthNanos(), 0.0);
             t += NOMINAL;
         }
-        TickRecord resumed = schedule.onTickStart(TickInput.normal(31, t));   // unflagged: detected as a resume
+        TickRecord resumed = schedule.onTickStart(TickInput.normal(31, t)); // unflagged: detected as a resume
         assertEquals(t, resumed.startNanos(), 0.0);
         assertEquals(Micros.ofTicks(31) + 25_000, resumed.arrivalMicros(t + 25_000_000L));
     }
@@ -221,9 +222,10 @@ class TickScheduleTest {
             schedule.onTickStart(new TickInput(g, t, NOMINAL, false, false, false, false, false, t - 40_000_000L, 0));
             t += NOMINAL;
         }
-        long lastEnd = t - NOMINAL + 10_000_000L;                 // tick 29 took 10 ms
+        long lastEnd = t - NOMINAL + 10_000_000L; // tick 29 took 10 ms
         long back = t + 5_000_000_000L;
-        TickRecord r = schedule.onTickStart(new TickInput(30, back, NOMINAL, false, false, false, false, false, lastEnd, 0));
+        TickRecord r =
+                schedule.onTickStart(new TickInput(30, back, NOMINAL, false, false, false, false, false, lastEnd, 0));
         assertEquals(back, r.startNanos(), 0.0);
         assertEquals(Micros.ofTicks(30) + 25_000, r.arrivalMicros(back + 25_000_000L));
         assertEquals(0, r.epoch());
@@ -236,13 +238,14 @@ class TickScheduleTest {
         long t = 0;
         TickRecord last = null;
         for (int g = 0; g < 30; g++) {
-            last = schedule.onTickStart(new TickInput(g, t, NOMINAL, false, false, false, false, false, t - 40_000_000L, 0));
+            last = schedule.onTickStart(
+                    new TickInput(g, t, NOMINAL, false, false, false, false, false, t - 40_000_000L, 0));
             t += NOMINAL;
         }
         long stallStart = t - NOMINAL;
-        long stallEnd = stallStart + 600_000_000L;                // tick 29 ran 600 ms
-        TickRecord r = schedule.onTickStart(
-                new TickInput(30, stallEnd + 100_000L, NOMINAL, false, false, false, false, false, stallEnd, 550_100_000L));
+        long stallEnd = stallStart + 600_000_000L; // tick 29 ran 600 ms
+        TickRecord r = schedule.onTickStart(new TickInput(
+                30, stallEnd + 100_000L, NOMINAL, false, false, false, false, false, stallEnd, 550_100_000L));
         assertEquals(last.startNanos() + last.tickLengthNanos(), r.startNanos(), 1.0);
         assertEquals(Micros.ofTicks(29) + 600_100, r.arrivalMicros(stallEnd + 100_000L), 2_000);
     }
@@ -261,7 +264,7 @@ class TickScheduleTest {
             schedule.onTickStart(TickInput.normal(g, t));
             t += NOMINAL;
         }
-        for (; g < 5030; g++) {                                  // 5,000 sprint ticks in 10 s
+        for (; g < 5030; g++) { // 5,000 sprint ticks in 10 s
             TickRecord r = schedule.onTickStart(new TickInput(g, t, NOMINAL, false, false, true, false, false));
             assertEquals(t, r.startNanos(), 0.0);
             assertEquals(NOMINAL, r.tickLengthNanos(), 0.0);
@@ -280,7 +283,7 @@ class TickScheduleTest {
             schedule.onTickStart(TickInput.normal(g, t));
             t += NOMINAL;
         }
-        t += 3_000_000_000L;                              // a 3 s stall: vanilla drops its backlog
+        t += 3_000_000_000L; // a 3 s stall: vanilla drops its backlog
         TickRecord r = schedule.onTickStart(new TickInput(30, t, NOMINAL, false, false, false, true, false));
         assertEquals(1, r.epoch());
         assertEquals(1, schedule.epoch());

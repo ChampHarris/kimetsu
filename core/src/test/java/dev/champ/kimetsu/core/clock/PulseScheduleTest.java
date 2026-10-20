@@ -21,9 +21,9 @@ class PulseScheduleTest {
     @Test
     void aTempoChangeStartsOnABeatOfTheOldGridAtLeastTwoBeatsAhead() {
         PulseSchedule pulse = new PulseSchedule(13);
-        long now = 100;                                   // between beat 7 (91) and beat 8 (104)
+        long now = 100; // between beat 7 (91) and beat 8 (104)
         long at = pulse.changeTempo(now, 12, 2);
-        assertEquals(130, at);                            // beat 10: the first at or after 100 + 26
+        assertEquals(130, at); // beat 10: the first at or after 100 + 26
         assertEquals(0, at % 13);
         long switchBeat = pulse.nearestBeat(Micros.ofTicks(at));
         assertEquals(10, switchBeat);
@@ -34,8 +34,8 @@ class PulseScheduleTest {
     @Test
     void aChangeAnnouncedBeforeAPendingOneSwitchesAfterIt() {
         PulseSchedule pulse = new PulseSchedule(13);
-        long first = pulse.changeTempo(0, 12, 2);         // tick 26
-        long second = pulse.changeTempo(1, 11, 2);        // asked before the first switch happened
+        long first = pulse.changeTempo(0, 12, 2); // tick 26
+        long second = pulse.changeTempo(1, 11, 2); // asked before the first switch happened
         assertTrue(second > first, second + " should follow " + first);
         assertEquals(0, (second - first) % 12);
     }
@@ -88,6 +88,9 @@ class PulseScheduleTest {
         }
         long beat = pulse.nearestBeat(Micros.ofTicks(at));
         assertEquals(Micros.ofTicks(at), pulse.beatMicros(beat));
-        assertEquals(beat + 1, pulse.nearestBeat(pulse.beatMicros(beat) + pulse.gridAt(Micros.ofTicks(at)).periodMicros()));
+        assertEquals(
+                beat + 1,
+                pulse.nearestBeat(pulse.beatMicros(beat)
+                        + pulse.gridAt(Micros.ofTicks(at)).periodMicros()));
     }
 }

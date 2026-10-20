@@ -22,15 +22,13 @@ class DeflectJudgeTest {
     }
 
     @ParameterizedTest
-    @CsvSource({
-            "-151, NONE", "-150, DEFLECT", "-61, DEFLECT", "-60, PERFECT", "0, PERFECT", "1, NONE"})
+    @CsvSource({"-151, NONE", "-150, DEFLECT", "-61, DEFLECT", "-60, PERFECT", "0, PERFECT", "1, NONE"})
     void theWindowsSitBeforeTheImpact(long pressMs, Answer expected) {
         assertEquals(expected, answer(pressMs, 0));
     }
 
     @ParameterizedTest
-    @CsvSource({
-            "-226, NONE", "-225, DEFLECT", "-91, DEFLECT", "-90, PERFECT", "0, PERFECT"})
+    @CsvSource({"-226, NONE", "-225, DEFLECT", "-91, DEFLECT", "-90, PERFECT", "0, PERFECT"})
     void assistScalesBothWindowsByHalfAgain(long pressMs, Answer expected) {
         assertEquals(expected, answer(pressMs, 2));
     }
@@ -45,8 +43,8 @@ class DeflectJudgeTest {
     void theFirstQualifyingPressDecidesAndASecondIsAWhiff() {
         DeflectJudge judge = new DeflectJudge(Fixtures.timing());
         judge.commit(1, I, true);
-        assertTrue(judge.press(I - 100_000, 0));             // a deflect, not yet a Perfect
-        assertFalse(judge.press(I - 10_000, 0));             // the tap meant to upgrade it: a whiff
+        assertTrue(judge.press(I - 100_000, 0)); // a deflect, not yet a Perfect
+        assertFalse(judge.press(I - 10_000, 0)); // the tap meant to upgrade it: a whiff
         assertEquals(Answer.DEFLECT, judge.resolve(1, true, 0));
         assertTrue(judge.lockedOut(I - 10_000 + 249_999));
         assertFalse(judge.lockedOut(I - 10_000 + 250_000));
@@ -56,9 +54,9 @@ class DeflectJudgeTest {
     void aWhiffLocksDeflectsOutForFiveTicksAndAWhiffInsideExtendsIt() {
         DeflectJudge judge = new DeflectJudge(Fixtures.timing());
         judge.commit(1, I, true);
-        assertFalse(judge.press(I - 400_000, 0));            // nothing inside the 150 ms after it
-        assertFalse(judge.press(I - 200_000, 0));            // inside the lockout: extends it to I + 50 ms
-        assertFalse(judge.press(I - 30_000, 0));             // would have been a Perfect
+        assertFalse(judge.press(I - 400_000, 0)); // nothing inside the 150 ms after it
+        assertFalse(judge.press(I - 200_000, 0)); // inside the lockout: extends it to I + 50 ms
+        assertFalse(judge.press(I - 30_000, 0)); // would have been a Perfect
         assertEquals(Answer.NONE, judge.resolve(1, true, 0));
         assertTrue(judge.lockedOut(I + 219_999));
     }
@@ -84,7 +82,7 @@ class DeflectJudgeTest {
     @Test
     void onlyWhiteStrikesCanBeDeflected() {
         DeflectJudge judge = new DeflectJudge(Fixtures.timing());
-        judge.commit(1, I, false);                           // red: dodge it
+        judge.commit(1, I, false); // red: dodge it
         assertFalse(judge.press(I - 30_000, 0));
         assertEquals(Answer.NONE, judge.resolve(1, true, 0));
     }

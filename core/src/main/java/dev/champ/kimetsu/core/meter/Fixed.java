@@ -10,8 +10,7 @@ import dev.champ.kimetsu.core.Ticks;
 public final class Fixed {
     public static final long ONE = 1000;
 
-    private Fixed() {
-    }
+    private Fixed() {}
 
     public static long of(double units) {
         return Math.round(units * ONE);

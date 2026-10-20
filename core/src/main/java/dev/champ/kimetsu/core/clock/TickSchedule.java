@@ -49,7 +49,7 @@ public final class TickSchedule {
     /** Called at each tick start, before the record is published. */
     public TickRecord onTickStart(TickInput in) {
         boolean nominalChanged = started && in.nominalTickNanos() != nominal;
-        double paceBefore = tickLength;                  // the interval ending now ran at the pace before
+        double paceBefore = tickLength; // the interval ending now ran at the pace before
         if (!started || nominalChanged) {
             nominal = in.nominalTickNanos();
             tickLength = nominal;
@@ -58,12 +58,15 @@ public final class TickSchedule {
         boolean offPace = in.frozen() || in.paused() || in.sprinting();
         boolean known = in.lateNanos() != Long.MIN_VALUE;
         boolean late = known && in.lateNanos() > rules.lateTicks() * nominal;
-        boolean idleGap = started && !late && in.previousEndNanos() != Long.MIN_VALUE
+        boolean idleGap = started
+                && !late
+                && in.previousEndNanos() != Long.MIN_VALUE
                 && in.measuredNanos() - in.previousEndNanos() > rules.ordinaryHigh() * tickLength;
         boolean resumed = in.resumed() || (wasOffPace && !offPace) || idleGap;
         wasOffPace = offPace;
         double predicted = schedule + (nominalChanged ? paceBefore : tickLength);
-        boolean jumped = started && in.backlogDropped()
+        boolean jumped = started
+                && in.backlogDropped()
                 && Math.abs(in.measuredNanos() - predicted) > rules.ordinaryHigh() * tickLength;
         if (!started || resumed || jumped) {
             if (jumped) {
@@ -78,15 +81,15 @@ public final class TickSchedule {
         } else {
             double interval = in.measuredNanos() - lastMeasured;
             boolean consecutive = in.tick() == lastTick + 1 && !nominalChanged;
-            boolean catchUp = (late || wasLate) && interval < nominal;   // behind at either end: shortened
-            boolean inBand = interval >= rules.ordinaryLow() * tickLength
-                    && interval <= rules.ordinaryHigh() * tickLength;
+            boolean catchUp = (late || wasLate) && interval < nominal; // behind at either end: shortened
+            boolean inBand =
+                    interval >= rules.ordinaryLow() * tickLength && interval <= rules.ordinaryHigh() * tickLength;
             if (consecutive && !catchUp && inBand) {
                 runCount = 0;
                 addInterval(interval);
                 schedule = predicted + rules.steerGain() * (in.measuredNanos() - predicted);
             } else if (known && consecutive && !catchUp && joinRun(interval)) {
-                tickLength = takeRun();                  // a new rate: T̄ starts from the run, and steering resumes
+                tickLength = takeRun(); // a new rate: T̄ starts from the run, and steering resumes
                 schedule = predicted + rules.steerGain() * (in.measuredNanos() - predicted);
             } else {
                 if (catchUp || !consecutive) {
@@ -114,7 +117,7 @@ public final class TickSchedule {
                 lo = Math.min(lo, runs[i]);
                 hi = Math.max(hi, runs[i]);
             }
-            if (hi > rules.ordinaryHigh() * lo) {        // it disagrees with the run: a new run starts here
+            if (hi > rules.ordinaryHigh() * lo) { // it disagrees with the run: a new run starts here
                 runCount = 0;
             }
         }
@@ -135,7 +138,7 @@ public final class TickSchedule {
         intervals[head] = interval;
         head = (head + 1) % intervals.length;
         count = Math.min(count + 1, intervals.length);
-        double sum = 0;                              // summed afresh: a running sum would drift over a long session
+        double sum = 0; // summed afresh: a running sum would drift over a long session
         for (int i = 0; i < count; i++) {
             sum += intervals[i];
         }

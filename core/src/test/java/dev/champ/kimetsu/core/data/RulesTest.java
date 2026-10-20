@@ -24,58 +24,70 @@ class RulesTest {
 
     @Test
     void aPerfectWindowWiderThanTheDeflectWindowIsRejectedByName() {
-        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-                () -> new TimingRules(120, 180, 150, 151, 1.5, 1, 5, 3.0, 20, 80, 40, 300, 300, 100, 450, true, 100, 10_000));
+        IllegalArgumentException e = assertThrows(
+                IllegalArgumentException.class,
+                () -> new TimingRules(
+                        120, 180, 150, 151, 1.5, 1, 5, 3.0, 20, 80, 40, 300, 300, 100, 450, true, 100, 10_000));
         assertTrue(e.getMessage().startsWith("perfect_ms"), e.getMessage());
     }
 
     @Test
     void aToleranceCeilingBelowItsFloorIsRejected() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new TimingRules(120, 180, 150, 60, 1.5, 1, 5, 3.0, 20, 19, 40, 300, 300, 100, 450, true, 100, 10_000));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TimingRules(
+                        120, 180, 150, 60, 1.5, 1, 5, 3.0, 20, 19, 40, 300, 300, 100, 450, true, 100, 10_000));
     }
 
     @Test
     void anAssistScaleBelowOneIsRejected() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new TimingRules(120, 180, 150, 60, 0.9, 1, 5, 3.0, 20, 80, 40, 300, 300, 100, 450, true, 100, 10_000));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TimingRules(
+                        120, 180, 150, 60, 0.9, 1, 5, 3.0, 20, 80, 40, 300, 300, 100, 450, true, 100, 10_000));
     }
 
     @Test
     void aRateChangeSlewBelowTheSlewIsRejected() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> new ClockRules(16, 4, 10, 9, 4, 0.01, 4.0, 4, 2, 1000, 5000, 10, 3, 0.2, 0.5, 1.5, 0.5));
     }
 
     @Test
     void theFirstFixCantWaitForMoreSamplesThanItKeeps() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> new ClockRules(16, 17, 10, 40, 4, 0.01, 4.0, 4, 2, 1000, 5000, 10, 3, 0.2, 0.5, 1.5, 0.5));
     }
 
     @Test
     void aNaNIsRejected() {
-        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+        IllegalArgumentException e = assertThrows(
+                IllegalArgumentException.class,
                 () -> new ClockRules(16, 4, 10, 40, 4, Double.NaN, 4.0, 4, 2, 1000, 5000, 10, 3, 0.2, 0.5, 1.5, 0.5));
         assertTrue(e.getMessage().startsWith("rate_change"), e.getMessage());
     }
 
     @Test
     void rhythmNeedsOneMultiplierPerTier() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> new RhythmRules(4, 5, List.of(1.0, 1.1, 1.2), 1, 1, 2, 1, -1, -4, 60, 3));
     }
 
     @Test
     void rhythmMultipliersMayNotFall() {
-        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+        IllegalArgumentException e = assertThrows(
+                IllegalArgumentException.class,
                 () -> new RhythmRules(4, 5, List.of(1.0, 1.1, 1.0, 1.32, 1.45, 1.6), 1, 1, 2, 1, -1, -4, 60, 3));
         assertTrue(e.getMessage().startsWith("multipliers[2]"), e.getMessage());
     }
 
     @Test
     void theMushinSpendMustLeaveMushin() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> new RhythmRules(4, 5, List.of(1.0, 1.1, 1.2, 1.32, 1.45, 1.6), 1, 1, 2, 1, -1, -4, 60, 5));
     }
 

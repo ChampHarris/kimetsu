@@ -2,7 +2,10 @@
 // this classpath, so `./gradlew :core:test` is fast and an engine import here fails the build (the hook also blocks it).
 plugins {
     id 'java'
+    id 'com.diffplug.spotless'
 }
+
+apply from: rootProject.file('gradle/quality.gradle')
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(java_version as int)
 

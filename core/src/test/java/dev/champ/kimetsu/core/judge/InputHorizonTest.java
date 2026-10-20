@@ -19,11 +19,26 @@ class InputHorizonTest {
         TimingRules t = Fixtures.timing();
         assertEquals(395_000, InputHorizon.holdCapMicros(t, 150_000, 20_000));
         assertEquals(450_000, InputHorizon.holdCapMicros(t, 400_000, 80_000));
-        assertEquals(450_000, InputHorizon.holdCapMicros(t, 260_000, 20_000));    // exactly the ceiling
-        TimingRules noExtra = new TimingRules(t.onBeatMs(), t.assistOnBeatMs(), t.deflectMs(), t.perfectMs(),
-                t.assistWindowScale(), t.creditsPerBeat(), t.whiffLockoutTicks(), t.toleranceJitterMultiple(),
-                t.toleranceMinMs(), t.toleranceMaxMs(), t.jitterFrames(), t.stallBracketMs(), 0,
-                t.holdCapMinMs(), t.holdCapMaxMs(), t.halfFrameCorrection(), t.maxFrameMs(), t.rttWindowMs());
+        assertEquals(450_000, InputHorizon.holdCapMicros(t, 260_000, 20_000)); // exactly the ceiling
+        TimingRules noExtra = new TimingRules(
+                t.onBeatMs(),
+                t.assistOnBeatMs(),
+                t.deflectMs(),
+                t.perfectMs(),
+                t.assistWindowScale(),
+                t.creditsPerBeat(),
+                t.whiffLockoutTicks(),
+                t.toleranceJitterMultiple(),
+                t.toleranceMinMs(),
+                t.toleranceMaxMs(),
+                t.jitterFrames(),
+                t.stallBracketMs(),
+                0,
+                t.holdCapMinMs(),
+                t.holdCapMaxMs(),
+                t.halfFrameCorrection(),
+                t.maxFrameMs(),
+                t.rttWindowMs());
         assertEquals(100_000, InputHorizon.holdCapMicros(noExtra, 20_000, 20_000));
     }
 
@@ -31,9 +46,9 @@ class InputHorizonTest {
     void aGuardAnswerIsDecidedByTheFirstFrameJudgedAtOrAfterTheImpact() {
         InputHorizon h = new InputHorizon(Fixtures.timing());
         long cap = 395_000;
-        h.frame(I + FRAME / 2 - 1, FRAME, NO_TICK);           // judged 1 µs before I
+        h.frame(I + FRAME / 2 - 1, FRAME, NO_TICK); // judged 1 µs before I
         assertFalse(h.decided(I, false, I + 50_000, cap));
-        h.frame(I + FRAME / 2, FRAME, NO_TICK);               // judged at I
+        h.frame(I + FRAME / 2, FRAME, NO_TICK); // judged at I
         assertTrue(h.decided(I, false, I + 50_000, cap));
     }
 
@@ -41,18 +56,18 @@ class InputHorizonTest {
     void aPositionAnswerWaitsForAPoseFromAtOrAfterTheImpact() {
         InputHorizon h = new InputHorizon(Fixtures.timing());
         long cap = 395_000;
-        h.frame(I + 30_000, FRAME, NO_TICK);                  // an event frame carries no fresh pose
+        h.frame(I + 30_000, FRAME, NO_TICK); // an event frame carries no fresh pose
         assertFalse(h.decided(I, true, I + 50_000, cap));
-        h.frame(I + 35_000, FRAME, I - 10_000);               // a late tick: sent after I, its pose from before
+        h.frame(I + 35_000, FRAME, I - 10_000); // a late tick: sent after I, its pose from before
         assertFalse(h.decided(I, true, I + 50_000, cap));
-        h.frame(I + 60_000, FRAME, I);                        // the client tick at I
+        h.frame(I + 60_000, FRAME, I); // the client tick at I
         assertTrue(h.decided(I, true, I + 60_000, cap));
     }
 
     @Test
     void aTickTimeLaterThanItsSendStampCountsOnlyAsFarAsTheSend() {
         InputHorizon h = new InputHorizon(Fixtures.timing());
-        h.frame(I - 20_000, FRAME, I + 500_000);              // a fabricated tick time
+        h.frame(I - 20_000, FRAME, I + 500_000); // a fabricated tick time
         assertFalse(h.decided(I, true, I, 395_000));
     }
 

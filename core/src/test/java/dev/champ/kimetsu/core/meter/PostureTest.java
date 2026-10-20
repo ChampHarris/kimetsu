@@ -34,10 +34,10 @@ class PostureTest {
         assertEquals(Fixed.of(200), p.at(60));
         run(p, 61, 80);
         assertEquals(Fixed.of(200) + 20 * 600, p.at(80));
-        p.setDamageTaken(80, 0.5);                           // 25% + 75% x 0.5 = 62.5%
+        p.setDamageTaken(80, 0.5); // 25% + 75% x 0.5 = 62.5%
         run(p, 81, 100);
         assertEquals(Fixed.of(200) + 20 * 600 + 20 * 375, p.at(100));
-        p.setDamageTaken(100, 1.0);                          // the floor: 25%
+        p.setDamageTaken(100, 1.0); // the floor: 25%
         run(p, 101, 120);
         assertEquals(Fixed.of(200) + 20 * 600 + 20 * 375 + 20 * 150, p.at(120));
     }
@@ -57,7 +57,7 @@ class PostureTest {
         Posture p = new Posture(Fixtures.playerPosture(), 0);
         assertTrue(p.damage(0, Fixed.of(120), true));
         assertTrue(p.staggered(0));
-        assertFalse(p.damage(5, Fixed.of(10), true));        // nothing more while staggered
+        assertFalse(p.damage(5, Fixed.of(10), true)); // nothing more while staggered
         run(p, 0, 29);
         assertEquals(0, p.at(29));
         run(p, 30, 30);
@@ -71,7 +71,7 @@ class PostureTest {
         Posture p = new Posture(Fixtures.playerPosture(), 0);
         assertTrue(p.damage(0, Fixed.of(120), true));
         run(p, 0, 29);
-        assertEquals(Fixed.of(50), p.at(30));               // reset, even before tick 30's timers ran
+        assertEquals(Fixed.of(50), p.at(30)); // reset, even before tick 30's timers ran
         assertFalse(p.damage(30, Fixed.of(3), true));
         p.tick(30);
         assertEquals(Fixed.of(47), p.at(31));

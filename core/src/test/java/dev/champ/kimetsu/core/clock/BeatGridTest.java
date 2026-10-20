@@ -25,7 +25,7 @@ class BeatGridTest {
     @Test
     void halfwayBetweenBeatsGoesToTheLaterOne() {
         BeatGrid water = new BeatGrid(0, 13);
-        long half = water.periodMicros() / 2;          // 325 ms
+        long half = water.periodMicros() / 2; // 325 ms
         assertEquals(0, water.nearestIndex(half - 1));
         assertEquals(1, water.nearestIndex(half));
         assertEquals(1, water.nearestIndex(half + 1));

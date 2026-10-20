@@ -11,10 +11,10 @@ import org.junit.jupiter.api.Test;
 class StampCheckTest {
     private static final long RTT = 150_000;
     private static final long ONE_WAY = RTT / 2;
-    private static final long FRAME = 16_667;                 // 60 FPS
+    private static final long FRAME = 16_667; // 60 FPS
     private static final long HALF = FRAME / 2;
-    private static final long S = 2_000_000;                  // the current frame's send stamp
-    private static final long CAP = 395_000;                  // RTT/2 + 20 + 300
+    private static final long S = 2_000_000; // the current frame's send stamp
+    private static final long CAP = 395_000; // RTT/2 + 20 + 300
 
     /** 40 steady frames (no jitter, so the tolerance is its 20 ms floor), then a frame sent at S. */
     private static StampCheck primed(TimingRules rules) {
@@ -39,7 +39,7 @@ class StampCheckTest {
     void theToleranceIsThreeTimesTheJitterInsideItsClamp() {
         StampCheck check = new StampCheck(Fixtures.timing(), 0);
         for (long k = 0; k < 40; k++) {
-            long lag = ONE_WAY + (k % 2 == 0 ? -10_000 : 10_000);     // SD 10.1 ms
+            long lag = ONE_WAY + (k % 2 == 0 ? -10_000 : 10_000); // SD 10.1 ms
             check.frame(k * 50_000, k * 50_000 + lag, RTT, 0);
         }
         assertEquals(30_380, check.toleranceMicros(), 50);
@@ -79,10 +79,25 @@ class StampCheckTest {
     @Test
     void withoutTheHalfFrameCorrectionTheStampStands() {
         TimingRules t = Fixtures.timing();
-        TimingRules raw = new TimingRules(t.onBeatMs(), t.assistOnBeatMs(), t.deflectMs(), t.perfectMs(),
-                t.assistWindowScale(), t.creditsPerBeat(), t.whiffLockoutTicks(), t.toleranceJitterMultiple(),
-                t.toleranceMinMs(), t.toleranceMaxMs(), t.jitterFrames(), t.stallBracketMs(), t.holdCapExtraMs(),
-                t.holdCapMinMs(), t.holdCapMaxMs(), false, t.maxFrameMs(), t.rttWindowMs());
+        TimingRules raw = new TimingRules(
+                t.onBeatMs(),
+                t.assistOnBeatMs(),
+                t.deflectMs(),
+                t.perfectMs(),
+                t.assistWindowScale(),
+                t.creditsPerBeat(),
+                t.whiffLockoutTicks(),
+                t.toleranceJitterMultiple(),
+                t.toleranceMinMs(),
+                t.toleranceMaxMs(),
+                t.jitterFrames(),
+                t.stallBracketMs(),
+                t.holdCapExtraMs(),
+                t.holdCapMinMs(),
+                t.holdCapMaxMs(),
+                false,
+                t.maxFrameMs(),
+                t.rttWindowMs());
         assertEquals(S - 5_000, primed(raw).press(1, S - 5_000, FRAME, CAP));
     }
 
@@ -94,11 +109,11 @@ class StampCheckTest {
     @Test
     void whileFrozenThePinnedArrivalIsTheReference() {
         StampCheck check = new StampCheck(Fixtures.timing(), 0);
-        long g = 2_000_000;                                  // every arrival pins to 50·G while frozen
+        long g = 2_000_000; // every arrival pins to 50·G while frozen
         for (int k = 0; k < 10; k++) {
             check.frame(g, g, 0, 0);
         }
-        assertEquals(g - HALF, check.press(1, g, FRAME, CAP));   // the frozen client stamps 50·G too
+        assertEquals(g - HALF, check.press(1, g, FRAME, CAP)); // the frozen client stamps 50·G too
     }
 
     @Test
@@ -117,7 +132,7 @@ class StampCheckTest {
     @Test
     void theHorizonStampNeverRunsPastTheTolerance() {
         StampCheck check = primed();
-        long counted = check.frame(S + 900_000, S + 50_000 + ONE_WAY, RTT, 0);   // stamped far in the future
+        long counted = check.frame(S + 900_000, S + 50_000 + ONE_WAY, RTT, 0); // stamped far in the future
         assertEquals(S + 50_000 + check.toleranceMicros(), counted);
     }
 
@@ -162,7 +177,7 @@ class StampCheckTest {
         long arrival = S + 50_000 + ONE_WAY + 450_000;
         check.frame(S + 50_000, arrival, RTT, 0);
         assertEquals(StampCheck.HELD, check.press(7, S + 50_000, FRAME, CAP));
-        check.frame(arrival - ONE_WAY, arrival, RTT, 0);           // sent now: passes, anchors the chain
+        check.frame(arrival - ONE_WAY, arrival, RTT, 0); // sent now: passes, anchors the chain
         assertEquals(1, check.releasedCount());
         long ref = arrival - ONE_WAY;
         assertEquals(ref - 300_000 - HALF, check.releasedJudged(0));
@@ -175,7 +190,7 @@ class StampCheckTest {
         check.frame(S + 50_000, arrival, RTT, 0);
         long stamp = S + 45_000;
         assertEquals(StampCheck.HELD, check.press(3, stamp, FRAME, CAP));
-        long waits = 225_000 + CAP;                          // the last strike it could answer, plus its hold cap
+        long waits = 225_000 + CAP; // the last strike it could answer, plus its hold cap
         check.expire(stamp + waits - 1);
         assertEquals(0, check.releasedCount());
         check.expire(stamp + waits);
@@ -189,7 +204,7 @@ class StampCheckTest {
         StampCheck check = primed();
         check.frame(S + 50_000, S + 50_000 + ONE_WAY, RTT, 5);
         assertEquals(S + 40_000 - HALF, check.press(1, S + 40_000, FRAME, CAP));
-        assertEquals(S + 50_000, check.frame(S - 3_000_000, S + 100_000 + ONE_WAY, RTT, 6));   // the floor held
+        assertEquals(S + 50_000, check.frame(S - 3_000_000, S + 100_000 + ONE_WAY, RTT, 6)); // the floor held
         assertTrue(check.press(2, S - 3_000_000, FRAME, CAP) > S, "the press went 3 s back");
     }
 
@@ -207,7 +222,7 @@ class StampCheckTest {
         assertEquals(S - 50_000 - HALF, check.press(1, S - 50_000, FRAME, CAP));
         StampCheck other = new StampCheck(Fixtures.timing(), 0);
         other.frame(S, S + ONE_WAY, RTT, 0);
-        assertEquals(S - 20_000 - HALF, other.press(1, S - 250_000, FRAME, CAP));   // not back-dated 250 ms
+        assertEquals(S - 20_000 - HALF, other.press(1, S - 250_000, FRAME, CAP)); // not back-dated 250 ms
     }
 
     @Test
@@ -221,9 +236,9 @@ class StampCheckTest {
         assertEquals(1, check.releasedCount());
         assertEquals(StampCheck.DROPPED, check.releasedJudged(0));
         check.clearReleased();
-        check.frame(S + 100_000, S + 100_000 + ONE_WAY, RTT, 0);   // sent before the client heard of the epoch
+        check.frame(S + 100_000, S + 100_000 + ONE_WAY, RTT, 0); // sent before the client heard of the epoch
         assertEquals(StampCheck.DROPPED, check.press(2, S + 90_000, FRAME, CAP));
-        long back = S - 3_000_000;                                 // the new timeline is 3 s behind
+        long back = S - 3_000_000; // the new timeline is 3 s behind
         check.frame(back, back + ONE_WAY, RTT, 1);
         assertEquals(back - HALF, check.press(3, back, FRAME, CAP));
     }

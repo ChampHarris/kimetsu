@@ -13,8 +13,7 @@ public final class OnBeat {
     /** {@link #beat} result for an input outside the window. */
     public static final long OFF_BEAT = Long.MIN_VALUE;
 
-    private OnBeat() {
-    }
+    private OnBeat() {}
 
     /** The window's half-width for an assist level, in microseconds. */
     public static long windowMicros(TimingRules rules, int assistLevel) {

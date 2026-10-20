@@ -1,13 +1,11 @@
 package dev.champ.kimetsu;
 
-import org.slf4j.Logger;
-
 import com.mojang.logging.LogUtils;
-
 import dev.champ.kimetsu.gametest.ScopeGameTests;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
+import org.slf4j.Logger;
 
 /**
  * Kimetsu: Breath &amp; Blood. The rules live in {@code dev.champ.kimetsu.core} (plain Java, no Minecraft);

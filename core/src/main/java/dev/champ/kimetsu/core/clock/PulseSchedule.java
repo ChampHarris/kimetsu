@@ -12,8 +12,7 @@ import java.util.List;
 public final class PulseSchedule {
 
     /** A grid in force from {@code fromTick}; its beat {@code k} has the global index {@code globalAtAnchor + k}. */
-    private record Segment(long fromTick, BeatGrid grid, long globalAtAnchor) {
-    }
+    private record Segment(long fromTick, BeatGrid grid, long globalAtAnchor) {}
 
     /** Grids that ended this long ago are dropped: no stamp the judge sees is a minute old. */
     private static final long KEEP_TICKS = 1200;
@@ -56,7 +55,7 @@ public final class PulseSchedule {
         int i = indexAt(micros);
         Segment s = segments.get(i);
         long g = s.globalAtAnchor() + s.grid().nearestIndex(micros);
-        if (i + 1 < segments.size()) {       // the next grid's first beat may be nearer than this grid's next beat
+        if (i + 1 < segments.size()) { // the next grid's first beat may be nearer than this grid's next beat
             Segment n = segments.get(i + 1);
             long candidate = n.globalAtAnchor();
             if (Math.abs(beatMicros(candidate) - micros) < Math.abs(beatMicros(g) - micros)) {

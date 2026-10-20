@@ -22,8 +22,7 @@ class VanillaLoopTest {
     private static final double[] FRACTIONS = {0.0, 0.25, 0.5, 0.75, 0.999};
 
     /** A run of the loop: each tick's Pre and Post times (ns), whether vanilla was behind, and the schedule's records. */
-    private record Run(long[] pre, long[] post, long[] late, boolean[] dropped, TickRecord[] rec) {
-    }
+    private record Run(long[] pre, long[] post, long[] late, boolean[] dropped, TickRecord[] rec) {}
 
     private static Run run(int ticks, IntToDoubleFunction workMs, IntToDoubleFunction packetsMs, long seed) {
         Random rng = new Random(seed);
@@ -51,8 +50,8 @@ class VanillaLoopTest {
             pre[g] = Math.round(p);
             post[g] = Math.round(q);
             late[g] = Math.round(p - thisSched);
-            rec[g] = schedule.onTickStart(new TickInput(g, pre[g], N, false, false, false, dropped[g], false, prevEnd,
-                    late[g]));
+            rec[g] = schedule.onTickStart(
+                    new TickInput(g, pre[g], N, false, false, false, dropped[g], false, prevEnd, late[g]));
             prevEnd = post[g];
             now = q < sched ? sched + Math.abs(rng.nextGaussian()) * MS : q;
         }
@@ -131,14 +130,15 @@ class VanillaLoopTest {
         Random spread = new Random(40);
         double[] work = new double[600];
         for (int g = 0; g < 600; g++) {
-            work[g] = g >= 200 ? ms + 3 * spread.nextGaussian() : 10;    // overloaded ticks vary
+            work[g] = g >= 200 ? ms + 3 * spread.nextGaussian() : 10; // overloaded ticks vary
         }
         Run r = run(600, g -> work[g], g -> 0.2, 4);
         assertEquals(ms, r.rec[230].tickLengthNanos() / MS, 2.0);
         double settled = worst(r, 215, 599, -1, -1);
         assertTrue(settled <= 10, ms + " ms ticks: " + settled + " ms after settling");
         double transition = worst(r, 195, 215, -1, -1);
-        System.out.println(ms + " ms ticks: transition " + Math.round(transition) + " ms, settled " + Math.round(settled * 10) / 10.0 + " ms");
+        System.out.println(ms + " ms ticks: transition " + Math.round(transition) + " ms, settled "
+                + Math.round(settled * 10) / 10.0 + " ms");
         assertTrue(transition <= 3.5 * (ms - 50), ms + " ms ticks: " + transition + " ms while it changed");
         boolean anyDrop = false;
         for (boolean d : r.dropped) {

@@ -17,12 +17,16 @@ import java.util.Arrays;
  * defender's front arc then. Assist levels 2 and 3 scale both windows; level 3 makes every deflect a Perfect.
  */
 public final class DeflectJudge {
-    public enum Answer { PERFECT, DEFLECT, NONE }
+    public enum Answer {
+        PERFECT,
+        DEFLECT,
+        NONE
+    }
 
     private static final long UNCLAIMED = Long.MIN_VALUE;
 
     private final TimingRules rules;
-    private long[] id = new long[8];                  // three demons' strings can hold nine; it grows, never throws
+    private long[] id = new long[8]; // three demons' strings can hold nine; it grows, never throws
     private long[] impact = new long[8];
     private boolean[] white = new boolean[8];
     private long[] claimedAt = new long[8];
@@ -106,12 +110,14 @@ public final class DeflectJudge {
     }
 
     private long deflectWindow(int assistLevel) {
-        return assistLevel >= 2 ? Micros.scaled(rules.deflectMs(), rules.assistWindowScale())
+        return assistLevel >= 2
+                ? Micros.scaled(rules.deflectMs(), rules.assistWindowScale())
                 : Micros.ofMillis(rules.deflectMs());
     }
 
     private long perfectWindow(int assistLevel) {
-        return assistLevel >= 2 ? Micros.scaled(rules.perfectMs(), rules.assistWindowScale())
+        return assistLevel >= 2
+                ? Micros.scaled(rules.perfectMs(), rules.assistWindowScale())
                 : Micros.ofMillis(rules.perfectMs());
     }
 

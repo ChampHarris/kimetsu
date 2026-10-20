@@ -2,7 +2,10 @@ plugins {
     id 'java-library'
     id 'net.neoforged.moddev' version '2.0.148'
     id 'idea'
+    id 'com.diffplug.spotless'
 }
+
+apply from: rootProject.file('gradle/quality.gradle')
 
 tasks.named('wrapper', Wrapper).configure {
     distributionType = Wrapper.DistributionType.BIN
@@ -41,6 +44,7 @@ repositories {
         forRepository { maven { url = 'https://api.modrinth.com/maven' } }
         filter { includeGroup 'maven.modrinth' }
     }
+    mavenCentral()      // the quality tools (gradle/quality.gradle); MDG adds only Mojang's and NeoForged's repositories
 }
 
 neoForge {

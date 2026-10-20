@@ -20,15 +20,39 @@ package dev.champ.kimetsu.core.clock;
  *                          between two (packet handling, a GC pause), leaves the next one late, and the fast ticks that
  *                          follow are catch-up.
  */
-public record TickInput(long tick, long measuredNanos, long nominalTickNanos, boolean frozen, boolean paused,
-                        boolean sprinting, boolean backlogDropped, boolean resumed, long previousEndNanos,
-                        long lateNanos) {
+public record TickInput(
+        long tick,
+        long measuredNanos,
+        long nominalTickNanos,
+        boolean frozen,
+        boolean paused,
+        boolean sprinting,
+        boolean backlogDropped,
+        boolean resumed,
+        long previousEndNanos,
+        long lateNanos) {
 
     /** A tick with no previous end or lateness measured. */
-    public TickInput(long tick, long measuredNanos, long nominalTickNanos, boolean frozen, boolean paused,
-                     boolean sprinting, boolean backlogDropped, boolean resumed) {
-        this(tick, measuredNanos, nominalTickNanos, frozen, paused, sprinting, backlogDropped, resumed,
-                Long.MIN_VALUE, Long.MIN_VALUE);
+    public TickInput(
+            long tick,
+            long measuredNanos,
+            long nominalTickNanos,
+            boolean frozen,
+            boolean paused,
+            boolean sprinting,
+            boolean backlogDropped,
+            boolean resumed) {
+        this(
+                tick,
+                measuredNanos,
+                nominalTickNanos,
+                frozen,
+                paused,
+                sprinting,
+                backlogDropped,
+                resumed,
+                Long.MIN_VALUE,
+                Long.MIN_VALUE);
     }
 
     /** An ordinary tick at full speed. */

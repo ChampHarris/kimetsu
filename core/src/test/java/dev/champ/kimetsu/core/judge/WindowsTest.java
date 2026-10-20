@@ -12,8 +12,8 @@ class WindowsTest {
         JitterWindow w = new JitterWindow(40);
         assertEquals(0, w.sdMicros());
         w.add(1_075_000, 1_000_000);
-        assertEquals(0, w.sdMicros());                      // one frame: no deviation yet
-        w.add(1_135_000, 1_050_000);                        // lags 75 and 85 ms
+        assertEquals(0, w.sdMicros()); // one frame: no deviation yet
+        w.add(1_135_000, 1_050_000); // lags 75 and 85 ms
         assertEquals(7071.07, w.sdMicros(), 0.01);
     }
 
@@ -24,7 +24,7 @@ class WindowsTest {
             w.add(k * 50_000L + (k % 2 == 0 ? 0 : 100_000), k * 50_000L);
         }
         for (int k = 40; k < 80; k++) {
-            w.add(k * 50_000L + 75_000, k * 50_000L);       // steady again: the old spread has rolled out
+            w.add(k * 50_000L + 75_000, k * 50_000L); // steady again: the old spread has rolled out
         }
         assertEquals(40, w.count());
         assertEquals(0, w.sdMicros(), 1e-9);
@@ -47,8 +47,8 @@ class WindowsTest {
         r.add(2_000_000, 120_000);
         r.add(3_000_000, 180_000);
         assertEquals(120_000, r.minMicros(3_000_000));
-        assertEquals(120_000, r.minMicros(12_000_000));     // 2 s + 10 s: still inside
-        assertEquals(180_000, r.minMicros(12_000_001));     // the 120 has aged out
+        assertEquals(120_000, r.minMicros(12_000_000)); // 2 s + 10 s: still inside
+        assertEquals(180_000, r.minMicros(12_000_001)); // the 120 has aged out
     }
 
     @Test

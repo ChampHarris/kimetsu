@@ -30,7 +30,7 @@ class RecordPushTest {
     void aSteadyRateIsNeverPushed() {
         RecordPush push = joined();
         for (long g = 1; g < 400; g++) {
-            assertFalse(push.offer(at(g, TICK + (g % 2 == 0 ? 200_000 : -200_000)), g * TICK));   // ±0.4%
+            assertFalse(push.offer(at(g, TICK + (g % 2 == 0 ? 200_000 : -200_000)), g * TICK)); // ±0.4%
         }
     }
 
@@ -38,14 +38,14 @@ class RecordPushTest {
     void aMoveOfMoreThanOnePercentIsPushedOnce() {
         RecordPush push = joined();
         assertTrue(push.offer(at(1, 50_600_000), TICK));
-        assertFalse(push.offer(at(2, 50_700_000), 2 * TICK));    // within 1% of what the client has now
+        assertFalse(push.offer(at(2, 50_700_000), 2 * TICK)); // within 1% of what the client has now
     }
 
     @Test
     void aWanderingRateIsHeldToFourASecondAfterABurstOfFour() {
         RecordPush push = joined();
         int sent = 0;
-        for (long g = 1; g <= 200; g++) {                         // 10 s, every tick 2% off the last
+        for (long g = 1; g <= 200; g++) { // 10 s, every tick 2% off the last
             double length = TICK * (g % 2 == 0 ? 1.02 : 1.0);
             sent += push.offer(at(g, length), g * TICK) ? 1 : 0;
         }
@@ -57,7 +57,7 @@ class RecordPushTest {
     void aChangeOfStateGoesWhateverTheBucketHolds() {
         RecordPush push = joined();
         for (long g = 1; g <= 4; g++) {
-            push.offer(at(g, TICK * (g % 2 == 0 ? 1.0 : 1.02)), g * TICK);   // spend the burst in four ticks
+            push.offer(at(g, TICK * (g % 2 == 0 ? 1.0 : 1.02)), g * TICK); // spend the burst in four ticks
         }
         assertFalse(push.offer(at(5, TICK * 1.02), 5 * TICK));
         TickRecord frozen = new TickRecord(6, 6.0 * TICK, TICK * 1.02, true, false, false, 0);

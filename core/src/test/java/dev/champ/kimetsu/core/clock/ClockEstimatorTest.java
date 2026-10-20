@@ -16,7 +16,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 
 class ClockEstimatorTest {
     private static final long MS = 1_000_000L;
-    private static final long BEAT = 650_000L;                 // Water's beat in combat µs
+    private static final long BEAT = 650_000L; // Water's beat in combat µs
 
     // ---- exact cases: the server and the client share one wall clock, so combat µs = wall ns / 1000 at 20 TPS ----
 
@@ -59,7 +59,7 @@ class ClockEstimatorTest {
         ClockEstimator est = started(now);
         long later = now + 1000 * MS;
         est.onRecord(later, at20(220, 0), BEAT);
-        est.onRecord(later + MS, at20(219, 400), BEAT);        // older, and it would have pulled the clock 400 ms on
+        est.onRecord(later + MS, at20(219, 400), BEAT); // older, and it would have pulled the clock 400 ms on
         assertEquals((later + 500 * MS) / 1000, est.estimateMicros(later + 500 * MS));
     }
 
@@ -69,7 +69,7 @@ class ClockEstimatorTest {
         ClockEstimator est = started(now);
         long later = now + 1000 * MS;
         TickRecord dropped = new TickRecord(221, 221 * 50.0 * MS + 3000 * MS, 50.0 * MS, false, false, false, 1);
-        est.onRecord(later, dropped, BEAT);                    // the server lost 3 s of ticks against wall time
+        est.onRecord(later, dropped, BEAT); // the server lost 3 s of ticks against wall time
         assertEquals(later / 1000 - 3_000_000, est.estimateMicros(later));
     }
 
@@ -78,13 +78,13 @@ class ClockEstimatorTest {
         long now = 10_000 * MS;
         ClockEstimator est = started(now);
         long later = now + 1000 * MS;
-        est.onRecord(later, at20(219, 100), BEAT);              // the server's clock is 100 ms later than ours
+        est.onRecord(later, at20(219, 100), BEAT); // the server's clock is 100 ms later than ours
         long base = later / 1000;
         assertEquals(base, est.estimateMicros(later));
         assertEquals(base + 650_000 + 10_000, est.estimateMicros(later + 650 * MS));
         assertEquals(base + 3_250_000 + 50_000, est.estimateMicros(later + 3250 * MS));
         assertEquals(base + 6_500_000 + 100_000, est.estimateMicros(later + 6500 * MS));
-        assertEquals(base + 7_000_000 + 100_000, est.estimateMicros(later + 7000 * MS));   // caught up
+        assertEquals(base + 7_000_000 + 100_000, est.estimateMicros(later + 7000 * MS)); // caught up
     }
 
     @Test
@@ -92,7 +92,7 @@ class ClockEstimatorTest {
         long now = 10_000 * MS;
         ClockEstimator est = started(now);
         long later = now + 1000 * MS;
-        est.onRecord(later, at20(219, -100), BEAT);             // the server is 100 ms behind us
+        est.onRecord(later, at20(219, -100), BEAT); // the server is 100 ms behind us
         long base = later / 1000;
         assertEquals(base + 650_000 - 10_000, est.estimateMicros(later + 650 * MS));
         long previous = Long.MIN_VALUE;
@@ -131,7 +131,7 @@ class ClockEstimatorTest {
         ClockEstimator est = started(now);
         long later = now + 1000 * MS;
         est.onRecord(later, at20(219, -5000), BEAT);
-        assertEquals(later / 1000, est.estimateMicros(later));     // held, not stepped back
+        assertEquals(later / 1000, est.estimateMicros(later)); // held, not stepped back
         est.onEpoch();
         long after = later + 100 * MS;
         est.onRecord(after, at20(221, -5000), BEAT);
@@ -145,16 +145,16 @@ class ClockEstimatorTest {
         long at = now + 1000 * MS;
         est.onRecord(at, new TickRecord(219, 219 * 50.0 * MS, 50.0 * MS, true, false, false, 0), BEAT);
         assertTrue(est.frozen());
-        long e = Micros.ofTicks(219);                              // the server's frozen time, exactly
+        long e = Micros.ofTicks(219); // the server's frozen time, exactly
         assertEquals(e, est.estimateMicros(at));
         assertEquals(e, est.estimateMicros(at + 5000 * MS));
         est.stepFrozen(50_000);
         assertEquals(e + 50_000, est.estimateMicros(at + 6000 * MS));
-        long resume = at + 7000 * MS;                              // ticking resumes at tick 221
+        long resume = at + 7000 * MS; // ticking resumes at tick 221
         est.onRecord(resume, new TickRecord(221, resume, 50.0 * MS, false, false, false, 0), BEAT);
         assertFalse(est.frozen());
         long v = est.estimateMicros(resume);
-        assertEquals(e + 50_000, v);                               // ahead of the line: held, never back
+        assertEquals(e + 50_000, v); // ahead of the line: held, never back
         assertTrue(est.estimateMicros(resume + 2000 * MS) > v);
     }
 
@@ -165,14 +165,14 @@ class ClockEstimatorTest {
         long at = now + 1000 * MS;
         long e = est.estimateMicros(at);
         est.pause(at);
-        pong(est, at + 2000 * MS, at20(219, 0));                 // answered on the network thread mid-pause
+        pong(est, at + 2000 * MS, at20(219, 0)); // answered on the network thread mid-pause
         assertTrue(est.frozen());
         assertEquals(e, est.estimateMicros(at + 4000 * MS));
         est.resume();
-        long back = at + 5000 * MS;                              // the server re-anchored at its first tick back
+        long back = at + 5000 * MS; // the server re-anchored at its first tick back
         est.onRecord(back, new TickRecord(220, back, 50.0 * MS, false, false, false, 0), BEAT);
         assertFalse(est.frozen());
-        assertEquals(e, est.estimateMicros(back));                  // it picks up where it stopped
+        assertEquals(e, est.estimateMicros(back)); // it picks up where it stopped
         assertTrue(est.estimateMicros(back + 1000 * MS) > e);
     }
 
@@ -180,13 +180,13 @@ class ClockEstimatorTest {
     @Test
     void afterAPauseTheRecordFromBeforeItIsIgnored() {
         long now = 10_000 * MS;
-        ClockEstimator est = started(now);                    // newest record: tick 200
+        ClockEstimator est = started(now); // newest record: tick 200
         long at = now + 50 * MS;
         long e = est.estimateMicros(at);
         est.pause(at);
         est.resume();
-        long back = at + 10_000 * MS;                         // a 10 s pause
-        pong(est, back, at20(200, 0));                        // still tick 200: it would put the clock 10 s on
+        long back = at + 10_000 * MS; // a 10 s pause
+        pong(est, back, at20(200, 0)); // still tick 200: it would put the clock 10 s on
         assertEquals(e, est.estimateMicros(back));
         est.onRecord(back + 50 * MS, new TickRecord(201, back + 50 * MS, 50.0 * MS, false, false, false, 0), BEAT);
         assertTrue(est.estimateMicros(back + 1000 * MS) < e + 2_000_000, "ran ahead after the pause");
@@ -197,7 +197,7 @@ class ClockEstimatorTest {
         long now = 10_000 * MS;
         ClockEstimator est = started(now);
         long receipt = now + 1000 * MS;
-        long read = est.estimateMicros(receipt + 40 * MS);    // the client read a later time before handling it
+        long read = est.estimateMicros(receipt + 40 * MS); // the client read a later time before handling it
         double slow = 1e9 / 15;
         double start = receipt - (receipt / 1000.0 - 10_000 - Micros.ofTicks(219)) * slow / Micros.PER_TICK;
         est.onRecord(receipt, new TickRecord(219, start, slow, false, false, false, 0), BEAT);
@@ -226,11 +226,11 @@ class ClockEstimatorTest {
         ClockEstimator est = started(now);
         long later = now + 1000 * MS;
         long e0 = est.estimateMicros(later);
-        double slow = 1e9 / 15;                                    // /tick rate 15
+        double slow = 1e9 / 15; // /tick rate 15
         // A record at 15 TPS whose line at `later` is 100 ms behind the estimate.
         double start = later - (e0 - 100_000 - Micros.ofTicks(219)) * slow / Micros.PER_TICK;
         est.onRecord(later, new TickRecord(219, start, slow, false, false, false, 0), BEAT);
-        long beatWall = Math.round(BEAT * slow / Micros.PER_TICK);   // one combat beat at 15 TPS, in ns
+        long beatWall = Math.round(BEAT * slow / Micros.PER_TICK); // one combat beat at 15 TPS, in ns
         long v = est.estimateMicros(later + beatWall);
         assertEquals(e0 + BEAT - 40_000, v, 2);
     }
@@ -238,8 +238,7 @@ class ClockEstimatorTest {
     // ---- the spec's bound: synthetic delays against a real tick schedule ----
 
     /** A downstream message: a pong (answering the ping sent at {@code ping}, which arrived at {@code arrive}) or a push. */
-    private record Event(long send, boolean pong, long ping, long arrive, int tick) {
-    }
+    private record Event(long send, boolean pong, long ping, long arrive, int tick) {}
 
     /**
      * The client's estimate minus the server's own conversion, sampled every 10 ms over 160 s, for one seed. Ticks
@@ -260,11 +259,11 @@ class ClockEstimatorTest {
             double since = ideal - t0;
             boolean overloaded = scenario.equals("load15")
                     || scenario.equals("load") && since >= 60_000 * MS && since < 120_000 * MS;
-            if (overloaded) {                                      // back to back, each tick taking 67 ± 3 ms
+            if (overloaded) { // back to back, each tick taking 67 ± 3 ms
                 last += Math.max(20 * MS, (66.7 + 3 * rng.nextGaussian()) * MS);
                 ideal = last;
                 starts.add(Math.round(last));
-                nominals.add(50 * MS);                             // no /tick rate: vanilla just can't keep up
+                nominals.add(50 * MS); // no /tick rate: vanilla just can't keep up
                 continue;
             }
             double n = switch (scenario) {
@@ -396,8 +395,8 @@ class ClockEstimatorTest {
         double[] e = pooled(scenario, lognormal, false);
         double p95 = p95(e);
         double max = Arrays.stream(e).max().orElseThrow();
-        System.out.println(scenario + (lognormal ? " lognormal" : " normal") + " p95_us=" + Math.round(p95)
-                + " max_us=" + Math.round(max));
+        System.out.println(scenario + (lognormal ? " lognormal" : " normal") + " p95_us=" + Math.round(p95) + " max_us="
+                + Math.round(max));
         assertTrue(p95 <= 12_000, scenario + ": p95 " + p95 + " µs");
         assertTrue(max <= 100_000, scenario + ": max " + max + " µs");
     }

@@ -37,7 +37,7 @@ class BreathTest {
     void heldGuardDrainsSixASecondOnTopOfRegeneration() {
         Breath b = at(50, true);
         b.setGuard(0, true);
-        assertEquals(Fixed.of(48), b.at(20));                // 4/s in, 6/s out
+        assertEquals(Fixed.of(48), b.at(20)); // 4/s in, 6/s out
         b.setGuard(20, false);
         assertEquals(Fixed.of(50), b.at(30));
     }
@@ -46,21 +46,21 @@ class BreathTest {
     void reachingZeroWindsForFortyTicksAndStopsTheDrain() {
         Breath b = at(1, true);
         b.setGuard(0, true);
-        run(b, 0, 10);                                       // -2/s: 1 point lasts 10 ticks
+        run(b, 0, 10); // -2/s: 1 point lasts 10 ticks
         assertEquals(0, b.at(10));
         assertTrue(b.winded(10));
         assertTrue(b.winded(49));
         assertFalse(b.winded(50));
-        assertEquals(Fixed.perTick(4) * 5, b.at(15));        // Winded: regeneration only, no drain
+        assertEquals(Fixed.perTick(4) * 5, b.at(15)); // Winded: regeneration only, no drain
         run(b, 11, 50);
         long atEnd = b.at(50);
-        assertEquals(atEnd - Fixed.perTick(2), b.at(51));    // the drain is back
+        assertEquals(atEnd - Fixed.perTick(2), b.at(51)); // the drain is back
     }
 
     @Test
     void spendingToZeroWinds() {
         Breath b = at(7.5, true);
-        b.spend(0, Fixed.of(7.5));                           // Water's Step
+        b.spend(0, Fixed.of(7.5)); // Water's Step
         assertEquals(0, b.at(0));
         assertTrue(b.winded(0));
     }
@@ -108,7 +108,7 @@ class BreathTest {
         Breath b = at(40, true);
         int v = b.version();
         run(b, 0, 100);
-        assertEquals(v, b.version());                        // regenerating: nothing to send
+        assertEquals(v, b.version()); // regenerating: nothing to send
         b.setGuard(100, true);
         assertEquals(v + 1, b.version());
     }

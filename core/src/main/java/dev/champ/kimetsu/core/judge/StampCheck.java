@@ -28,7 +28,7 @@ public final class StampCheck {
     /** A press stamped after the stall, sent before the client heard of the epoch. */
     public static final long DROPPED = Long.MIN_VALUE + 1;
 
-    private static final int MAX_HELD = 64;          // 16 events a frame through a 4-frame burst
+    private static final int MAX_HELD = 64; // 16 events a frame through a 4-frame burst
 
     private final TimingRules rules;
     private final JitterWindow jitter;
@@ -82,7 +82,7 @@ public final class StampCheck {
      */
     public long frame(long stampMicros, long arrivalMicros, long rttMicros, int clientEpoch) {
         oldEpoch = clientEpoch < epoch;
-        if (!oldEpoch && frameEpoch < epoch) {           // the first frame stamped on the new timeline
+        if (!oldEpoch && frameEpoch < epoch) { // the first frame stamped on the new timeline
             frameEpoch = epoch;
             frameFloor = Long.MIN_VALUE;
             pressFloor = Long.MIN_VALUE;
@@ -91,7 +91,7 @@ public final class StampCheck {
         }
         long s = Math.max(stampMicros, frameFloor);
         frameFloor = s;
-        previousFrame = frame != Long.MIN_VALUE ? frame : s - Micros.PER_TICK;   // a first frame brackets one tick
+        previousFrame = frame != Long.MIN_VALUE ? frame : s - Micros.PER_TICK; // a first frame brackets one tick
         frame = s;
         jitter.add(arrivalMicros, s);
         ref = arrivalMicros - rttMicros / 2;
@@ -133,7 +133,7 @@ public final class StampCheck {
         heldHalf[heldCount] = half;
         heldRef[heldCount] = ref;
         heldTolerance[heldCount] = tolerance;
-        heldDeadline[heldCount] = s + longestAnswer() + holdCapMicros;   // the last strike it could answer
+        heldDeadline[heldCount] = s + longestAnswer() + holdCapMicros; // the last strike it could answer
         heldCount++;
         return HELD;
     }
@@ -221,7 +221,7 @@ public final class StampCheck {
     }
 
     private void release(long token, long judged) {
-        if (outCount == outToken.length) {   // the caller drains after each frame and tick; grow rather than drop
+        if (outCount == outToken.length) { // the caller drains after each frame and tick; grow rather than drop
             outToken = Arrays.copyOf(outToken, outToken.length * 2);
             outJudged = Arrays.copyOf(outJudged, outJudged.length * 2);
         }

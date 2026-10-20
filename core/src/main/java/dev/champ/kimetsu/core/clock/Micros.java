@@ -9,8 +9,7 @@ public final class Micros {
     public static final long PER_MILLI = 1_000L;
     public static final long PER_TICK = 50_000L;
 
-    private Micros() {
-    }
+    private Micros() {}
 
     public static long ofMillis(long millis) {
         return millis * PER_MILLI;
