@@ -10,13 +10,14 @@
   - Two world-load bugs those tests found, fixed: the trim advancements named disabled recipes and stopped the world loading (`vanilla_scope.py` +1 test; pack now 773 files), and NeoForge's own recipe overrides shadowed 36 disables, every sword and netherite among them (`ordering="AFTER"`, D-022).
   - `ref-src/`: 7,301 Minecraft and 1,130 NeoForge sources (`refsrc.py` now extracts both), vanilla assets, 26.3 data. `vanilla_scope.py --check` OK at every milestone; 43 tool tests; guard 30/30.
   - MCTest drives the dev client: title screen (9 mods) and a Build 0 world, screenshots taken.
+  - Effort check (D-024, `docs/tools/effort.md`): real work starts with Claude asking Ultracode, Max, Extra or High; a pick switches the turn through the `max`, `extra` and `high` skills. `test_effort.py` 36/36; the hook facts were probed on Claude Code 2.1.304.
 - **Installed:** JBR 25.0.4.1 (`~/.jdks`), IntelliJ IDEA 2026.2.3 (`%LOCALAPPDATA%\Programs`, not yet opened), JDT.LS 1.62.0 with the `jdtls-lsp` plugin, Spyglass 4.14.0. Later: Aseprite (D-023); RenderDoc, clumsy and Blender at M1.
 - **Next, in order:**
-  1. Open Claude Code in `C:\Users\morga\dev\kimetsu`: the hooks, output style and MCP servers load only there. `/hooks` should list five; approve `bbmodel` and `mctest`.
+  1. Open Claude Code in `C:\Users\morga\dev\kimetsu`: the hooks, output style and MCP servers load only there. `/hooks` should list eight (the effort check adds three); approve `bbmodel` and `mctest`.
   2. IntelliJ (toolchain step 1): open the project, JBR 25 as SDK and Gradle JVM, build and run with Gradle (gotchas: `core/` compiles twice), Settings → Tools → MCP Server → Enable and Auto-Configure for Claude Code, then `/ide`.
   3. Session 2 in `docs/prompts/first-session.md`: `/forge "M1 technical spec"` → `docs/design/specs/m1-combat-core.md` → Champ approves.
   4. `core/` test-first, then the mod glue and the vanilla-scope Java parts (R7-01), first the strip-items loot modifier: until it's registered every world load logs "Unknown registry key ... kimetsu:strip_items".
-- **Waiting on Champ:** R6-03 to R6-07 and the v0 numbers; the R7 decide list (`round7-revision.md`); the key layout (M1 question 2); R6-22 for M5.
+- **Waiting on Champ:** R6-03 to R6-07 and the v0 numbers; the R7 decide list (`round7-revision.md`); the R8 animation standards and the reference camera (`round8-revision.md`); the key layout (M1 question 2); R6-22 for M5; the library review's two additions (D-025, ADR 0001).
 - **Decided:** private build (D-010); the R7 goals (D-012 to D-016); platform and animation stack (D-004, D-005); mod identity (D-019); repo location (D-020).
 
 ## History

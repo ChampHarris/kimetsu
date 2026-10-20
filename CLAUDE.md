@@ -8,7 +8,7 @@ Champ's lore-accurate, skill-first Demon Slayer (Kimetsu no Yaiba) action RPG fo
 | What | Where |
 |---|---|
 | Design (source of truth) | `docs/gdd/`: snapshot of the live claude.ai GDD. Read-only; Champ edits the live doc |
-| Proposed changes | `docs/design/round6-revision.md`, `docs/design/round7-revision.md` (PROPOSED until Champ merges an item; R7 amends R6-14 and R6-15) |
+| Proposed changes | `docs/design/round6-revision.md`, `docs/design/round7-revision.md`, `docs/design/round8-revision.md` (PROPOSED until Champ merges an item; R7 amends R6-14 and R6-15; R8 sets the 3D animation standards) |
 | Specs | `docs/design/specs/`, from `docs/design/TEMPLATE-spec.md` |
 | Decisions and their reasons | `docs/decisions.md` |
 | Where we are, what's next | `docs/state.md` (the session hook shows its `## Now`) |
@@ -69,6 +69,7 @@ On Windows use `gradlew.bat` in cmd or PowerShell, or `./gradlew` in Git Bash; u
 - **Visuals:** `/lens <scenario>` and read the sheet; MCTest for screenshots and tick stepping in the running game; `/ref-clip` for timing references; `/texture-pass` for art batches.
 - **Writing:** the `dialogue-writer` agent writes townsfolk line banks and barks.
 - **Versions:** `/port-plan <version>` before any Minecraft or NeoForge hop. **Milestone gate:** `/milestone-check` (Champ triggers it).
+- **Effort:** real work starts with Claude asking which effort to use (Ultracode, Max, Extra, High), its recommendation first; Champ's pick holds for the session (`docs/tools/effort.md`). `/max`, `/extra` or `/high <task>` picks directly; only Champ turns Ultracode on (`ultracode` in a message, or `/effort ultracode`).
 - **End of session:** `/session-close` updates `docs/state.md`, `docs/decisions.md` and `docs/gotchas.md`.
 - Build order (GDD): M1 combat core → M2 cold open and Slayer slice → M3 demon core → M4 Domain engine and first bosses → M5 living world → M6 paths and endgame powers → M7 story and factions. Don't pull later features forward.
 
@@ -78,6 +79,7 @@ Keep:
 - every file changed this session;
 - Champ's calls and the options he rejected, with why;
 - the commands that verify the work and their last output;
+- the effort level Champ picked, if any;
 - anything still unverified.
 
 Drop file dumps and search results; they can be reread.

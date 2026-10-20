@@ -44,6 +44,7 @@ The PDFs' other picks are rejected below, each with its reason.
 | Recipe viewer in dev | JEI | 31.16.0.84 beta | confirms `#c:hidden_from_recipe_viewers` hides the removed items | M1 |
 | Test arenas | WorldEdit | 7.4.6 | builds and copies GameTest and Lens arenas | M1 |
 | Worldgen review | Chunky and BlueMap | Chunky 1.5.4; BlueMap 5.29 (its standalone CLI on the dev world) | pregenerate, then render a map; BlueMap's low-res tiles are PNGs Claude can read | M5 (R6-13) |
+| Effort per task | The effort check: `effort_prompt.py` and the `max`, `extra` and `high` skills | Claude Code 2.1.304 behaviour, probed 2026-10-19 (`docs/tools/effort.md`) | asks Champ which effort to use (Ultracode, Max, Extra, High) and switches the turn to his pick | M0 (D-024) |
 | Screen UI library (spike only) | LDLib2 | 26.3.2.41 beta (Modrinth only) | one Corps Record screen as a spike before committing | after Champ approves the spike |
 
 Dev-only mods go in a `localRuntime` configuration: they load in the runs and never reach the jar. The guide has the Gradle block.
@@ -67,6 +68,9 @@ Dev-only mods go in a `localRuntime` configuration: they load in the runs and ne
 | mcpfabric (denfry) | Fallback | MCTest's alternative if MCTest stalls; 13 days old |
 | Axiom | Skip | Fabric only, no NeoForge build; WorldEdit covers arenas |
 | EMI | Skip | No 26.x build; JEI covers recipe viewing |
+| MCreator (BleachCraft report) | Reject | A code generator. BleachCraft's own team left it for hand-written Java when it couldn't carry multiplayer combat and custom rendering |
+| Effekseer editor | Reject | It authors for AAA Particles, which stops at 26.1.2 and calls OpenGL directly; kfx effects are data (R6-10) |
+| A custom launcher (BleachCraft's) | Not needed | It pins Java, the loader and the mod set for a public audience; this private build's dev runs pin every version through Gradle |
 | Photon2, AAA Particles | Not available | Photon2's newest 26.x build is a 26.2 beta and now needs KilaGraph; AAA Particles stops at 26.1.2. kfx does this (R6-10) |
 
 ## Consequences

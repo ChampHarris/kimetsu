@@ -28,6 +28,7 @@
       "Bash(python tools/sims/pulse_sim.py*)",
       "Bash(python tools/sims/duel_sim.py*)",
       "Bash(python .claude/hooks/tests/test_guard.py*)",
+      "Bash(python .claude/hooks/tests/test_effort.py*)",
       "Bash(python tools/vanilla_scope.py*)",
       "Bash(python tools/vanilla_style.py*)",
       "Bash(python tools/make_ramp.py*)",
@@ -45,6 +46,7 @@
       "Bash(python3 tools/sims/pulse_sim.py*)",
       "Bash(python3 tools/sims/duel_sim.py*)",
       "Bash(python3 .claude/hooks/tests/test_guard.py*)",
+      "Bash(python3 .claude/hooks/tests/test_effort.py*)",
       "Bash(python3 tools/vanilla_scope.py*)",
       "Bash(python3 tools/vanilla_style.py*)",
       "Bash(python3 tools/make_ramp.py*)",
@@ -62,6 +64,7 @@
       "Bash(py -3 tools/sims/pulse_sim.py*)",
       "Bash(py -3 tools/sims/duel_sim.py*)",
       "Bash(py -3 .claude/hooks/tests/test_guard.py*)",
+      "Bash(py -3 .claude/hooks/tests/test_effort.py*)",
       "Bash(py -3 tools/vanilla_scope.py*)",
       "Bash(py -3 tools/vanilla_style.py*)",
       "Bash(py -3 tools/make_ramp.py*)",
@@ -151,6 +154,11 @@
             "type": "command",
             "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" doctrine_inject.py",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" effort_prompt.py",
+            "timeout": 10
           }
         ]
       }
@@ -165,6 +173,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" effort_prompt.py",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -175,6 +193,16 @@
             "type": "command",
             "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" post_edit.py",
             "timeout": 90
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" effort_prompt.py",
+            "timeout": 10
           }
         ]
       }

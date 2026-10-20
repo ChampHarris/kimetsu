@@ -193,3 +193,4 @@ Run `claude mcp list`: `bbmodel`, `mctest` and, once added, `aseprite` and `blen
 | aseprite-mcp | make the sugi sample and run the blend check | the preview and `vanilla_style.py` output |
 | Blender Lab | screenshot the rig | the viewport image |
 | RenderDoc | read a capture you saved | Claude names the passes from the debug labels |
+| Effort check | answer a design request in a new session | the Effort question, four options, the recommended one first (`docs/tools/effort.md`) |
