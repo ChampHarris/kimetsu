@@ -55,3 +55,5 @@ art/previews/
 # Other tools' local state
 .omc/
 .codex/
+.claude/inbox.md
+.claude/inbox-done.md

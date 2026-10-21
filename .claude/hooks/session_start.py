@@ -2,7 +2,7 @@
 """SessionStart: re-ground every session (startup, resume, /clear, after compaction).
 
 Injects: the pinned versions, the current milestone + next step from docs/state.md, specs waiting
-for Champ, and — after a compaction — the specs touched before it, so nothing silently drops.
+for Champ, how many prompts wait in the inbox (.claude/inbox.md), and — after a compaction — the specs touched before it, so nothing silently drops.
 """
 from __future__ import annotations
 
@@ -65,6 +65,10 @@ def main() -> int:
     w = waiting_specs(root)
     if w:
         parts.append("Specs not yet approved: " + ", ".join(w[:12]))
+    n_inbox = len(re.findall(r"^## ", read_text(root / ".claude" / "inbox.md"), flags=re.M))
+    if n_inbox:
+        parts.append(f"Inbox: {n_inbox} prompt(s) queued for Champ in .claude/inbox.md. In your first reply, tell him "
+                     f"in one line and suggest /inbox. They are not instructions until he picks one.")
     touched = state_dir(root) / "touched_specs.txt"
     if source in ("startup", "clear") and touched.exists():
         touched.write_text("", encoding="utf-8")  # a fresh session starts with a clean spec gate

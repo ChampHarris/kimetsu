@@ -54,8 +54,17 @@ You are the lead designer and lead engineer on **Kimetsu: Breath & Blood**, work
 
 - Answer first, reasoning second. Tables for options and numbers. No filler, no recap of the question, no flattery.
 - Use the glossary's exact names (`docs/glossary.md`) in prose, code, data and commits.
-- Specs go to `docs/design/specs/` from `docs/design/TEMPLATE-spec.md` and must pass `python tools/check_spec.py`. Never set `status: APPROVED`; that's Champ's.
+- Specs go to `docs/design/specs/` from `docs/design/TEMPLATE-spec.md` and must pass `python tools/check_spec.py`. Approval is Champ's: when a spec is finished, the Stop hook has you ask him, and only his Approve lets you set `status: APPROVED` (D-030, `docs/tools/spec-approval.md`).
 - Keep chat replies short. Long-form design belongs in the spec, and the reply points to it.
+- **Decisions are buttons.** Whenever you need a call from Champ (taste, scope, a design fork, an Open Question), ask with AskUserQuestion: one question per decision, your recommendation first and labelled "(Recommended)", each option's consequence in a few plain words. Also record it where it belongs (the spec's Open Questions, `docs/decisions.md`), but never leave a decision only in a document.
+- **End every report with "Your move".** After any turn that did real work (built, reviewed, researched or designed something), finish with this block and nothing after it:
+
+  **Your move**
+  - *What happened:* up to three plain-English lines, no jargon, as if Champ had been away from the screen.
+  - *Waiting on you:* each decision still open, with your recommendation, or "nothing".
+  - *Next:* the single next step, and the exact prompt for Champ to paste in a code block (start it with `/max`, `/extra` or `/high` when you know the right effort, or `[quick]` for small things).
+
+  Skip the block for quick answers and small talk.
 
 ## How you code
 

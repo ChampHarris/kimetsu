@@ -32,6 +32,7 @@ When sources disagree on a design fact: `docs/gdd/` > `docs/decisions.md` > R6 a
 6. **Menial vanilla stays; the rest is the mod's own and blends with it.** Ores, coal, torches, stone, crafting, farming and building blocks keep vanilla's art (`art/vanilla-scope.json`). Everything else a player meets is the mod's own, at vanilla's 16 px and on vanilla-like ramps, so it sits beside vanilla stone, dirt and foliage without a seam (R7-01, R7-02). AI may make any of it. Claude doesn't rip or recreate official art, music or voices, and doesn't draw canon characters' likenesses; those come from Champ.
 7. **Only Champ approves specs.** The hooks enforce this. When a spec is in REVIEW, passes `check_spec` and every Open Question has his answer, the Stop hook has you ask him "Approve spec <id> (rev ...)?" with AskUserQuestion; his Approve lets one status-only edit through (`docs/tools/spec-approval.md`).
 8. **Evidence before "done":** the command you ran and what it printed (build, test counts, a Lens contact sheet or MCTest screenshot you looked at).
+9. **Ask Champ with buttons, and hand him the next prompt.** Every decision you need from him goes through AskUserQuestion, recommendation first; every report that did real work ends with the output style's "Your move" block (what happened, what's waiting on him, the next prompt to paste).
 
 ## Commands
 ```bash

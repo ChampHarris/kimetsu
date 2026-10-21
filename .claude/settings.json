@@ -2,6 +2,11 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "outputStyle": "Kimetsu Lead",
   "effortLevel": "xhigh",
+  "statusLine": {
+    "type": "command",
+    "command": "sh \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/run.sh\" statusline.py",
+    "padding": 0
+  },
   "env": {
     "PYTHONUTF8": "1"
   },
@@ -238,6 +243,11 @@
           {
             "type": "command",
             "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" spec_approval.py",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" commit_nudge.py",
             "timeout": 30
           }
         ]
