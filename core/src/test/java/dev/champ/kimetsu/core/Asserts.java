@@ -23,4 +23,11 @@ public final class Asserts {
                 Math.absExact(Math.subtractExact(actual, expected)) <= tolerance,
                 () -> "expected " + expected + " ± " + tolerance + " but was " + actual);
     }
+
+    /** {@code actual} lies within {@code tolerance} of {@code expected}: geometry's doubles. NaN is never near. */
+    public static void assertNear(double expected, double actual, double tolerance) {
+        assertTrue(
+                Math.abs(actual - expected) <= tolerance,
+                () -> "expected " + expected + " ± " + tolerance + " but was " + actual);
+    }
 }

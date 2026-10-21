@@ -1,32 +1,25 @@
 # State
 
-`/session-close` rewrites the `## Now` section at the end of every session. Keep it under 25 lines; history goes below.
-
-## Now
-- **Date:** 2026-10-20 · **Milestone:** M1. The M1 spec `m1-combat-core` is **APPROVED** (rev 5a694639, D-032). `core/` slices 1 (clock, judge, meters) and 2 (the state machine, the input buffer and the Timeline) are built test-first and green; the quality gates run in every build (D-033). Slices 1 and 2 and the gates are committed and pushed.
-- **Slice 2 (plan `lucky-petting-rocket`):** `core/machine/`:
-  - `Combatant`: Rule 3's twelve states, the chain, forms and the radial, Feint, cancels, Recovery Breath, being hit, Tech and grabs.
-  - `Timeline`: presses at their stamps, the back-dating limit, the barrier with D-034's held sweeps, the watermark, the 16-tick history, taps, and client `rebase` onto `settledThrough`.
-  - `core/data/`: `FrameData`, `Style`, `MachineRules`, `Moveset`.
-  - Decisions: D-034 (Champ), D-035 (Q1–Q5 on the plan's recommendations), D-036 (craft calls), D-037 (the Timeline's contract with slices 3 and 5), D-038 (Champ: Mushin pays when the finisher strikes; a long hold may un-judge an Inhale).
-- **Evidence:** `./gradlew spotlessCheck build runGameTestServer --dependency-verification strict`: exit 0; 432 `core/` tests (240 in `machine/`, including a 130-case state-by-press table, a random-lateness replay property test and a reflection check of every snapshot field); GameTests 3/3. Mutation checks: 12/12 on the first build, and 13/14 on the review fixes (the 14th is equivalent). Traces of five mini-fights are in `core/build/traces/`.
-- **Reviews:** a code review (REQUEST CHANGES: 4 high) and a netcode review (2 high) are folded in, each finding with a regression test:
-  - Reads settle before answering.
-  - `rebase` keeps in-flight presses and the newer snapshot.
-  - A Posture break waits for a knockdown or a grab to end.
-  - Form releases are buffered.
-  - Presses that arrive after a verdict act as they would have on time.
-  - The input horizon waits for stall-held presses (a slice-1 fix).
-  - The strike bookkeeping is guarded.
+`/session-close` rewrites the `## Now
+- **Date:** 2026-10-21 · **Milestone:** M1. The M1 spec `m1-combat-core` is **APPROVED** (rev 5a694639, D-032). `core/` slices 1 and 2 are committed and pushed. Slice 3 (plan `lucky-petting-rocket`, approved 2026-10-21) is split in two: **3a (hits) is built and green, not yet committed**; 3b (strikes) comes next.
+- **Slice 3a:** `core/hit/` and `core/data/`:
+  - `Sat` (box against box, blade triangle against box), `Frame`, `Pose` and `PoseRing` (vanilla's yaw and pitch, a 32-entry history), `Trig` (sine and cosine that allocate nothing), `Facing`, `Combo`, `HitMath`.
+  - `SweepShapes` (boxes and baked arcs, the 70% envelope, the gap check) and `Sweeper` (3 sub-steps a tick, the 20° turn cap, line of sight once per target per tick, the per-swing registry with necks).
+  - `FrameData`'s hit fields (cue, beat lock, hit windows, sweep, displacement) with load checks; `HitRules`, `StrikeRules`, `Arc`, `Moveset.isFinisher`; PROPOSED sizes in `Fixtures`.
+  - Decisions: D-039 (Champ: co-op answers pay once; an answer needs the strike to reach you), D-040 (Champ: keep v0 red leads, measure the dodge windows in the grey box), D-041 (3a's craft calls and errata).
+- **Evidence:** `./gradlew spotlessCheck build runGameTestServer --dependency-verification strict --rerun-tasks`: exit 0; 508 `core/` tests (62 in `hit/`) and 3 hot-path tests; GameTests 3/3. Worst-case sweeps (4 near misses with necks): about 0.8–0.9 µs for a box (24 tests) and 2.1–2.3 µs for a blade arc (48 triangle tests), against the 5 µs budget, 0 bytes allocated. Mutation spot-check 38/38. Code review: 0 critical or high; its 11 medium and 10 low findings are fixed with regression tests, except the flat `FrameData` (kept, D-041) and `SweepBounds` (moved to 3b). A separate verifier passed the fixes; the gaps it found are pinned.
+- **Step 0 (dodge windows):** the proposed reach sizes give a Step about 475 ms and a Jump about 350 ms, against the sim's 200 and 125 ms; casual wins rise from 59.1% to about 89% (D-040, `tools/sims/dodge_windows.py`).
 - **Next, in order:**
-  1. `core/` slice 3: hits and sweeps (including D-034's late sweeps, judged against the target as it stood then), the strike scheduler, the deflect judge wired to the machine (claims only from states that can guard), and a `FeintSettled` for every claimed press. Its plan goes to Champ first. Then slice 4 (the demon, the neck, the clash) and slice 5 (the mod).
-  2. The vanilla-scope Java parts (R7-01).
-- **Handed to slices 3 and 5** (D-037, the reviews):
-  - Slice 3: log strike results first at an impact tick.
-  - Slice 5: the server derives `fallBlocks` from the pose history; snapshots go as deltas against the last acked one, sent when the value changes (not the meters' versions); the client predicts `minActive` or accepts a snap past 250 ms RTT; telemetry for replay depth, floored presses and the barrier's hold time.
-- **Spec erratum to fold in at the next touch:** Performance Budget's "about 1.5 KB per combatant": full snapshots make a player's Timeline about 42 KB (34 copies of about 1.2 KB). That is trivial for a server, but the line is wrong.
-- **Unverified until the grey box:** the real dodge windows and chipping, how often players read the guard counter (casual target 60%+), whether MCTest's input reaches the game's input events, AzureLib's gradual catch-up, and real tick-start jitter and clock drift.
-- **Waiting on Champ:** merging the accepted R6, R8 and R9 items into the live GDD; the R7 decide list; R8-05 and R8-06; R6-22 for M5; D-025's two library additions; R9-07 before M2. His own inbox and status-line changes are uncommitted in the tree.
+  1. Commit and push 3a on Champ's OK. Then `core/` slice 3b (strikes): the strike ledger and its effects in `Combatant`, `Timeline.serverEffect`, the `strike` package (scheduler, per-beat cap, resolver, verdicts), `SweepBounds`, `CombatWorld`, late sweeps, the Pommel, stalls, determinism and client agreement; a code review and a netcode review; commit on Champ's OK.
+  2. Slice 4 (the demon, the neck, the clash), then slice 5 (the mod).
+  3. The vanilla-scope Java parts (R7-01).
+  4. At the next CI touch: move the workflow's actions off Node 20 (`checkout@v4`, `cache@v4`, `setup-python@v5` warn) and pin the runner before `ubuntu-latest` moves to Ubuntu 26.
+- **Handed to 3b and 5** (D-037, D-041, the reviews):
+  - 3b: log strike results first at an impact tick; a Pommel contact never counts as a landed hit or toward a combo.
+  - 5: the server derives `fallBlocks` from the pose history; snapshots go as deltas against the last acked one, sent when the value changes; the client predicts `minActive` or accepts a snap past 250 ms RTT; telemetry for replay depth, floored presses and the barrier's hold time; `FrameData`'s codec groups its 18 fields under DFU's 16-field limit; `StrikeRules.check` runs on every strike a profile can commit; sweep shapes recompile when `combat_rules` reload; the schema's `cost.hunger`, the Step's envelope and `fall_damage` land with their first users (D-041).
+- **Spec errata to fold in at the next touch:** Performance Budget's "about 1.5 KB per combatant" (a player's Timeline holds about 42 KB of snapshots); D-041's errata (the 32-entry pose history, the look yaw, knockback in blocks, displacement phases).
+- **Unverified until the grey box:** the real reach sizes and dodge windows (D-040), chipping, how often players read the guard counter (casual target 60%+), whether MCTest's input reaches the game's input events, AzureLib's gradual catch-up, and real tick-start jitter and clock drift.
+- **Waiting on Champ:** the 3a commit; merging the accepted R6, R8 and R9 items into the live GDD; the R7 decide list; R8-05 and R8-06; R6-22 for M5; D-025's two library additions; R9-07 before M2.
 
 ## History
 - 2026-10-12 to 10-16: GDD Rounds 1–5 on claude.ai (see `docs/gdd/merge-log.md`).

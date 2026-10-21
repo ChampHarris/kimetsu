@@ -26,8 +26,8 @@ final class Check {
     }
 
     static void atLeast(String field, double value, double min) {
-        if (!(value >= min)) { // also rejects NaN
-            throw new IllegalArgumentException(field + " must be at least " + min + ", was " + value);
+        if (!(value >= min) || Double.isInfinite(value)) { // rejects NaN and infinities too
+            throw new IllegalArgumentException(field + " must be at least " + min + " and finite, was " + value);
         }
     }
 

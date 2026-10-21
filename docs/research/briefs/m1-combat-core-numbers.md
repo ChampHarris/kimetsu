@@ -226,3 +226,20 @@ At 3 s:
 - how often players read the counter (the profiles assume 95 / 85 / 70 / 50%);
 - whether they chip more once they've learned it;
 - how the stake reads without lock-on.
+
+
+## Dodge windows from the reach sizes (core/ slice 3, step 0, 2026-10-21)
+`core/` slice 3 proposes a reach box for every M1 attack (`Fixtures`, PROPOSED until the grey box), so the dodge windows the duel sim assumed can now be computed instead of assumed. `tools/sims/dodge_windows.py` does both and reruns the sim on the accepted package (`duel_m1_report.RECOMMENDED`), 2,000 fights a profile.
+
+**What the boxes give.** The strike's box at the impact is its frame-data box moved forward by the windup's lunge, aimed where its direction locked at the cue (Rule 7.13). A Water Step (0.7, 0.6, 0.5, 0.5, 0.4, 0.3 blocks per tick) clears the grab and the low sweep with 2 ticks of dash, and the leap with 3, from the demon's 2.5–3.0 blocks (1–2 ticks at 3.5). So the latest Step that clears is 100–150 ms before the impact, and the earliest is the cue: 600 ms for the leap and the grab, 500 for the low sweep. Vanilla's jump keeps the feet above the low sweep's 0.5-block top from 2 to 9 ticks after take-off: a Jump window of about [I − 450, I − 100]. The sim assumed [I − 300, I − 100] and [I − 150, I − 25]; no real jump produces the second, since the feet need a tick to leave the ground.
+
+| Red strikes | Step window | Jump window | Expert / average / casual / assisted wins | Casual dodges |
+|---|---|---|---|---|
+| The sim's old assumption | 200 ms | 125 ms | 100 / 99.8 / 59.1 / 93.5% | 38% |
+| These sizes, v0 cue leads (12 / 12 / 10 ticks) | about 475 ms | 350 ms | 100 / 100 / 89.0 / 99.5% | 74% |
+| The same, players keep the old aims | about 475 ms | 350 ms | 100 / 99.7 / 70.3 / 93.3% | 50% |
+| These sizes, red leads cut to the 8-tick minimum | about 275 ms | 300 ms | 100 / 100 / 75.8 / 97.8% | 57% |
+
+Aims sit at the windows' centres, with the sim's own offsets for casual (+20 ms) and struggling (+30 ms) players. The late edge differs by strike (the grab and the low sweep 100 ms, the leap 150 ms); bracketing it at 100, 125 and 150 ms moves casual wins only between 88.2 and 89.5%. Median fight length barely moves (casual about 65 s, average 31 s). Every row meets the spec's targets, which are minimums.
+
+**Champ's call (D-040):** keep the v0 leads and measure the real windows in the grey box (Rule 6.2). Red strikes then test reading the cue and choosing the answer; the precision is the deflect's. If casual testers coast through reds, cut the red leads toward 8 ticks then.

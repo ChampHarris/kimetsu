@@ -3,9 +3,11 @@ package dev.champ.kimetsu.core.data;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -21,6 +23,7 @@ public final class Moveset {
     private final List<FrameData> chain;
     private final List<FrameData> radial;
     private final @Nullable FrameData falling;
+    private final Set<String> finishers;
 
     public Moveset(Style style, Collection<FrameData> frameData, String pommelId) {
         this.style = style;
@@ -43,14 +46,21 @@ public final class Moveset {
         this.radial = List.copyOf(r);
         String fallingId = style.fallingForm();
         this.falling = fallingId == null ? null : find(fallingId, style.id() + ": contextual.falling");
+        Set<String> fin = new HashSet<>();
         for (FrameData f : frames.values()) {
             String m = f.mushin();
             if (m != null) {
                 judged(find(m, f.id() + ": mushin"), FrameData.Judge.RELEASE, f.id() + ": mushin");
+                fin.add(m);
             }
         }
+        this.finishers = Set.copyOf(fin);
         for (FrameData f : radial) {
             judged(f, FrameData.Judge.RELEASE, style.id() + ": radial");
+            fromItsFormOnly(f, style.id() + ": radial");
+        }
+        if (falling != null) {
+            fromItsFormOnly(falling, style.id() + ": contextual.falling");
         }
         for (FrameData f : chain) {
             judged(f, FrameData.Judge.PRESS, style.id() + ": light_chain");
@@ -66,6 +76,16 @@ public final class Moveset {
                 field + " names " + f.id() + ", judged at the "
                         + f.judge().name().toLowerCase(Locale.ROOT) + " where it must be at the "
                         + judge.name().toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * A finisher fires only from its form at Mushin: fired from the radial or a fall too, {@link #isFinisher} couldn't
+     * tell its Mushin from a form's own, which takes the stand-in's damage (Rule 5.3).
+     */
+    private void fromItsFormOnly(FrameData f, String field) {
+        Check.that(
+                !finishers.contains(f.id()),
+                field + " names " + f.id() + ", a Mushin finisher, which fires only from its form at Mushin");
     }
 
     public Style style() {
@@ -112,6 +132,14 @@ public final class Moveset {
     public FrameData atMushin(FrameData form) {
         String m = form.mushin();
         return m == null ? form : frame(m);
+    }
+
+    /**
+     * Whether {@code f} is some form's Mushin finisher. A finisher and a form without one both fire at Mushin with no
+     * finisher of their own, so this is what tells the stand-in's ×2.0 damage (Rule 5.3) apart from the finisher's own.
+     */
+    public boolean isFinisher(FrameData f) {
+        return finishers.contains(f.id());
     }
 
     private FrameData find(String id, String field) {

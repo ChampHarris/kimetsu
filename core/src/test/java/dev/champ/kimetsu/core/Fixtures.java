@@ -5,16 +5,24 @@ import dev.champ.kimetsu.core.data.AttackClass;
 import dev.champ.kimetsu.core.data.BreathRules;
 import dev.champ.kimetsu.core.data.ClockRules;
 import dev.champ.kimetsu.core.data.FrameData;
+import dev.champ.kimetsu.core.data.FrameData.BeatLock;
 import dev.champ.kimetsu.core.data.FrameData.Cancel;
+import dev.champ.kimetsu.core.data.FrameData.Cue;
+import dev.champ.kimetsu.core.data.FrameData.Displacement;
+import dev.champ.kimetsu.core.data.FrameData.HitWindow;
 import dev.champ.kimetsu.core.data.FrameData.Into;
+import dev.champ.kimetsu.core.data.FrameData.Sweep;
+import dev.champ.kimetsu.core.data.HitRules;
 import dev.champ.kimetsu.core.data.HungerRules;
 import dev.champ.kimetsu.core.data.MachineRules;
 import dev.champ.kimetsu.core.data.Moveset;
 import dev.champ.kimetsu.core.data.Phase;
 import dev.champ.kimetsu.core.data.PostureRules;
 import dev.champ.kimetsu.core.data.RhythmRules;
+import dev.champ.kimetsu.core.data.StrikeRules;
 import dev.champ.kimetsu.core.data.Style;
 import dev.champ.kimetsu.core.data.TimingRules;
+import java.util.ArrayList;
 import java.util.List;
 import org.jspecify.annotations.Nullable;
 
@@ -136,9 +144,63 @@ public final class Fixtures {
                 16); // State history: 16 ticks
     }
 
+    public static HitRules hits() {
+        return new HitRules(
+                3, // Sub-steps: 3 per tick
+                0.15, 0.25, // Combo scaling: hitstun × max(0.25, 1 − 0.15 (n − 1))
+                30, // Combo scaling: chain breaks after 30 ticks unhit
+                30, // Horizontal pitch clamp: ±30°
+                20, // Swing turn: at most 20° a tick (slice 3)
+                4, // Teleport: a move past 4 blocks a tick sweeps only its end
+                1, // Involved: within reach + 1 block (Rule 2.9)
+                2, // Line of sight: 2 rays per target per tick
+                2.0, // Mushin stand-in: ×2.0
+                0.75, // Assist level 3 damage: ×0.75
+                0.70); // Arc envelope overlap: ≥ 70%
+    }
+
+    public static StrikeRules strikes() {
+        return new StrikeRules(
+                2, // Strikes per target per beat: 2
+                8, // Min cue lead, mobs: 8 ticks
+                2); // Commit margin: the strike commits at least cue lead + 2 ticks before impact
+    }
+
+    // Bodies (blocks): vanilla's player, and the M1 demon at a zombie's size (slice 3, PROPOSED).
+    public static final double PLAYER_HALF_WIDTH = 0.3;
+    public static final double PLAYER_HEIGHT = 1.8;
+    public static final double PLAYER_EYE = 1.62;
+    public static final double DEMON_HALF_WIDTH = 0.3;
+    public static final double DEMON_HEIGHT = 1.95;
+    public static final double DEMON_EYE = 1.74;
+
     // Frame data: the Numbers rows "Light Chain frames" (3 / 2 / 6), "Pommel Strike" (2 / 2 / 8), "Step" (3 blocks over
-    // 6 ticks), "Water's Step cost" (7.5), "Form frames" and "Form costs". A Feint fits the first half of each windup.
+    // 6 ticks), "Water's Step cost" (7.5), "Form frames", "Form costs", "Form damage", "Hitstun dealt", "Light Chain"
+    // and "Demon attacks". A Feint fits the first half of each windup. The reach boxes and blade radius are slice 3's
+    // PROPOSED sizes (x right, y up, z forward from the feet), to be measured again in the grey box.
     private static final List<Cancel> STEP_CANCEL = List.of(new Cancel(Into.STEP, Phase.RECOVERY, 0, -1));
+
+    /** A hit window that stuns. */
+    public static HitWindow hit(int from, int to, double damage, double posture, int hitstun, double knockback) {
+        return new HitWindow(from, to, damage, posture, hitstun, knockback, false, false, false, 0, 0);
+    }
+
+    /** A horizontal one (Water Surface Slash, Striking Tide): it can take a head (Rule 8.1). */
+    public static HitWindow cut(int from, int to, double damage, double posture, int hitstun, double knockback) {
+        return new HitWindow(from, to, damage, posture, hitstun, knockback, false, false, true, 0, 0);
+    }
+
+    public static Sweep box(double cx, double cy, double cz, double hx, double hy, double hz, Sweep.Pitch pitch) {
+        return new Sweep(Sweep.Shape.OBB, new Sweep.Box(cx, cy, cz, hx, hy, hz), pitch, 0, null);
+    }
+
+    public static List<Displacement> forward(Phase phase, int from, int to, double perTick) {
+        return List.of(new Displacement(phase, from, to, perTick, 0, 0));
+    }
+
+    private static final double[] CHAIN_DAMAGE = {2, 2, 3};
+    private static final double[] CHAIN_POSTURE = {3, 3, 10};
+    private static final int[] CHAIN_HITSTUN = {6, 6, 8};
 
     public static FrameData chainHit(int n, boolean continues) {
         List<Cancel> cancels = continues
@@ -157,7 +219,12 @@ public final class Fixtures {
                 Armour.NONE,
                 false,
                 null,
-                null);
+                null,
+                Cue.NONE,
+                null,
+                List.of(hit(0, 1, CHAIN_DAMAGE[n - 1], CHAIN_POSTURE[n - 1], CHAIN_HITSTUN[n - 1], 0)),
+                box(0, 1.2, 1.5, 0.9, 0.6, 1.1, Sweep.Pitch.LOOK), // reach 2.6
+                forward(Phase.ACTIVE, 0, 1, 0.15));
     }
 
     public static FrameData pommel() {
@@ -174,10 +241,20 @@ public final class Fixtures {
                 Armour.NONE,
                 false,
                 null,
-                null);
+                null,
+                Cue.NONE,
+                null,
+                List.of(hit(0, 1, 0, 0, 0, 0)), // its only effect is the interrupt (Rule 5.2)
+                box(0, 1.3, 1.15, 0.45, 0.45, 0.85, Sweep.Pitch.LOOK), // reach 2.0
+                List.of());
     }
 
     public static FrameData step() {
+        double[] dash = {0.7, 0.6, 0.5, 0.5, 0.4, 0.3}; // 3 blocks over 6 ticks, fastest first
+        List<Displacement> moves = new ArrayList<>();
+        for (int i = 0; i < dash.length; i++) {
+            moves.add(new Displacement(Phase.ACTIVE, i, i, dash[i], 0, 0));
+        }
         return new FrameData(
                 "kimetsu:water/step",
                 AttackClass.STEP,
@@ -191,7 +268,12 @@ public final class Fixtures {
                 Armour.NONE,
                 false,
                 null,
-                null);
+                null,
+                Cue.NONE,
+                null,
+                List.of(),
+                null,
+                moves);
     }
 
     /** A Water form: heavy, judged at the release, light super armour in its active frames, a Recovery Breath. */
@@ -203,7 +285,10 @@ public final class Fixtures {
             double cost,
             int feintUntil,
             FrameData.@Nullable Contextual contextual,
-            @Nullable String mushin) {
+            @Nullable String mushin,
+            List<HitWindow> hits,
+            Sweep sweep,
+            List<Displacement> moves) {
         return new FrameData(
                 "kimetsu:water/" + name,
                 AttackClass.HEAVY,
@@ -217,27 +302,111 @@ public final class Fixtures {
                 Armour.LIGHT,
                 true,
                 contextual,
-                mushin);
+                mushin,
+                Cue.NONE,
+                null,
+                hits,
+                sweep,
+                moves);
+    }
+
+    /** Striking Tide's windows: one hit every three active ticks, the last of Turbulent's wall-splatting. */
+    private static List<HitWindow> tide(int count, boolean turbulent) {
+        List<HitWindow> out = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            boolean last = turbulent && i == count - 1;
+            out.add(new HitWindow(3 * i, 3 * i + 2, 2, 6, 4, last ? 2.5 : 0, false, last, true, 0, 0));
+        }
+        return out;
     }
 
     /**
      * Water in M1: the four radial forms (1st up, 2nd right, 4th down, 8th left), Waterfall Basin (the 8th) while
      * falling 2 blocks, and the guard-cancel at 0 / 5 Breath. The spec has no frame timings for the Mushin finishers
-     * yet (an open number for slice 5's data); until then these test finishers reuse their base form's timing.
+     * yet (an open number for slice 5's data): the 1st's reuses its form's timing, and Turbulent runs 18 active ticks
+     * for its 6 hits (slice 3, PROPOSED).
      */
     public static Moveset water() {
+        Sweep first = box(0, 1.35, 1.5, 1.6, 0.35, 1.3, Sweep.Pitch.LOOK_CLAMPED); // reach 2.8, at neck height
+        Sweep tide = box(0, 1.3, 1.4, 1.3, 0.4, 1.1, Sweep.Pitch.LOOK_CLAMPED); // reach 2.5, at neck height
         List<FrameData> frames = List.of(
                 chainHit(1, true),
                 chainHit(2, true),
                 chainHit(3, false),
                 pommel(),
                 step(),
-                form("first_form", 6, 3, 17, 20, 3, null, "kimetsu:water/first_form_mushin"),
-                form("first_form_mushin", 6, 3, 17, 20, 3, null, null),
-                form("second_form", 7, 4, 15, 25, 3, null, null),
-                form("fourth_form", 6, 12, 21, 30, 3, null, "kimetsu:water/fourth_form_mushin"),
-                form("fourth_form_mushin", 6, 12, 21, 30, 3, null, null),
-                form("eighth_form", 8, 3, 15, 25, 4, new FrameData.Contextual(2.0), null));
+                form(
+                        "first_form",
+                        6,
+                        3,
+                        17,
+                        20,
+                        3,
+                        null,
+                        "kimetsu:water/first_form_mushin",
+                        List.of(cut(0, 2, 6, 15, 8, 0.35)),
+                        first,
+                        forward(Phase.ACTIVE, 0, 2, 0.25)),
+                form(
+                        "first_form_mushin",
+                        6,
+                        3,
+                        17,
+                        20,
+                        3,
+                        null,
+                        null,
+                        List.of(cut(0, 2, 6, 22.5, 8, 0.35)), // ×1.5 Posture
+                        box(0, 1.35, 2.25, 1.6, 0.35, 2.05, Sweep.Pitch.LOOK_CLAMPED), // +1.5 on the far face: 4.3
+                        forward(Phase.ACTIVE, 0, 2, 0.25)),
+                form(
+                        "second_form",
+                        7,
+                        4,
+                        15,
+                        25,
+                        3,
+                        null,
+                        null,
+                        List.of(hit(0, 3, 7, 18, 8, 0.35)),
+                        box(0, 1.2, 1.5, 0.5, 1.0, 1.1, Sweep.Pitch.LOOK), // a narrow vertical cut, reach 2.6
+                        forward(Phase.ACTIVE, 0, 3, 0.3)),
+                form(
+                        "fourth_form",
+                        6,
+                        12,
+                        21,
+                        30,
+                        3,
+                        null,
+                        "kimetsu:water/fourth_form_mushin",
+                        tide(4, false),
+                        tide,
+                        forward(Phase.ACTIVE, 0, 11, 0.2)),
+                form(
+                        "fourth_form_mushin",
+                        6,
+                        18,
+                        21,
+                        30,
+                        3,
+                        null,
+                        null, // Turbulent: +2 hits
+                        tide(6, true),
+                        tide,
+                        forward(Phase.ACTIVE, 0, 17, 0.2)),
+                form(
+                        "eighth_form",
+                        8,
+                        3,
+                        15,
+                        25,
+                        4,
+                        new FrameData.Contextual(2.0),
+                        null,
+                        List.of(hit(0, 2, 6, 15, 8, 0)),
+                        box(0, 0.4, 1.0, 0.6, 1.4, 1.0, Sweep.Pitch.LEVEL), // reaches a block below the feet
+                        List.of()));
         Style style = new Style(
                 "kimetsu:water",
                 13, // Water beat: 13 ticks
@@ -251,5 +420,148 @@ public final class Fixtures {
                 "kimetsu:water/eighth_form",
                 new Style.GuardCancel(0, 5)); // Water guard-cancel: free after a miss, 5 Breath after a hit
         return new Moveset(style, frames, "kimetsu:pommel");
+    }
+
+    /**
+     * The M1 demon's strikes (Rule 11.3; Numbers "Demon attacks", "Demon recoveries", "Demon hitstun on you"; block
+     * values v0). Each is beat-locked to its target, winds up for its cue lead when it opens a string (Rule 7.11), and
+     * shrugs off every hit until its impact (Rule 3.9). Its lunge comes in the windup's last ticks, after the hold.
+     */
+    public static FrameData swipe() {
+        return strike(
+                "swipe",
+                AttackClass.LIGHT,
+                10,
+                2,
+                13,
+                new Cue(Cue.Type.WHITE, 10, false),
+                9,
+                false,
+                new HitWindow(0, 1, 1.25, 0, 6, 0, false, false, false, 8, 0),
+                box(0, 1.1, 1.3, 1.1, 0.6, 1.2, Sweep.Pitch.LEVEL),
+                6,
+                9,
+                0.25); // reach 2.5 after a 1-block lunge
+    }
+
+    public static FrameData heavy() {
+        return strike(
+                "heavy",
+                AttackClass.HEAVY,
+                14,
+                3,
+                18,
+                new Cue(Cue.Type.WHITE, 14, false),
+                11,
+                false,
+                new HitWindow(0, 2, 2.5, 0, 10, 2.0, false, true, false, 20, 0),
+                box(0, 1.0, 1.5, 1.0, 0.8, 1.4, Sweep.Pitch.LEVEL),
+                10,
+                13,
+                0.25); // reach 2.9, pushes 2 blocks
+    }
+
+    public static FrameData leap() {
+        return strike(
+                "leap",
+                AttackClass.HEAVY,
+                12,
+                3,
+                22,
+                new Cue(Cue.Type.RED, 12, true),
+                10,
+                false,
+                new HitWindow(0, 2, 3.0, 0, 0, 0, true, false, false, 0, 0),
+                box(0, 0.8, 0.9, 1.25, 0.8, 1.2, Sweep.Pitch.LEVEL),
+                8,
+                11,
+                0.5); // 2.5 wide after a 2-block lunge
+    }
+
+    public static FrameData lowSweep() {
+        return strike(
+                "sweep",
+                AttackClass.LIGHT,
+                10,
+                2,
+                14,
+                new Cue(Cue.Type.RED, 10, false),
+                9,
+                false,
+                new HitWindow(0, 1, 1.5, 0, 8, 0, false, false, false, 0, 0),
+                box(0, 0.25, 1.2, 1.6, 0.25, 1.5, Sweep.Pitch.LEVEL),
+                7,
+                9,
+                0.25); // 3.2 wide, 0.5 high
+    }
+
+    public static FrameData grab() {
+        return strike(
+                "grab",
+                AttackClass.GRAB,
+                12,
+                2,
+                24,
+                new Cue(Cue.Type.PURPLE, 12, false),
+                10,
+                false,
+                new HitWindow(0, 1, 1.0, 0, 0, 0, false, false, false, 0, 15),
+                box(0, 1.0, 1.05, 0.6, 0.7, 0.95, Sweep.Pitch.LEVEL),
+                9,
+                11,
+                0.5); // narrow, reach 2.0
+    }
+
+    /** Its guard counter (Rule 11.4): the swipe's numbers with a 14-tick lead, its guard held until the impact. */
+    public static FrameData guardCounter() {
+        return strike(
+                "guard_counter",
+                AttackClass.LIGHT,
+                14,
+                2,
+                13,
+                new Cue(Cue.Type.WHITE, 14, false),
+                9,
+                true,
+                new HitWindow(0, 1, 1.25, 0, 6, 0, false, false, false, 8, 0),
+                box(0, 1.1, 1.3, 1.1, 0.6, 1.2, Sweep.Pitch.LEVEL),
+                10,
+                13,
+                0.25);
+    }
+
+    private static FrameData strike(
+            String name,
+            AttackClass attackClass,
+            int windup,
+            int active,
+            int recovery,
+            Cue cue,
+            int windupMin,
+            boolean holdGuards,
+            HitWindow hit,
+            Sweep sweep,
+            int lungeFrom,
+            int lungeTo,
+            double lungePerTick) {
+        return new FrameData(
+                "kimetsu:m1_demon/" + name,
+                attackClass,
+                windup,
+                active,
+                recovery,
+                0,
+                FrameData.Judge.PRESS,
+                List.of(),
+                Armour.ALL,
+                Armour.NONE,
+                false,
+                null,
+                null,
+                cue,
+                new BeatLock(BeatLock.Mode.TARGET, windupMin, 1, 3, holdGuards), // Max windup stretch: 1 beat
+                List.of(hit),
+                sweep,
+                forward(Phase.WINDUP, lungeFrom, lungeTo, lungePerTick));
     }
 }

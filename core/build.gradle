@@ -26,5 +26,29 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 tasks.named('test', Test) {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags 'hot-path'
+    }
+}
+
+// The allocation checks on the hot paths (Performance Budget), with escape analysis off: a JIT that scalar-replaces an
+// allocation here might not where the mod calls it. `check` (and so `build`) runs them. `-Pbench` also holds the
+// printed timings to the budget, which shared CI runners are too noisy to do.
+def hotPathTest = tasks.register('hotPathTest', Test) {
+    description = 'Runs the hot-path allocation and timing checks.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'hot-path'
+    }
+    jvmArgs '-XX:-DoEscapeAnalysis'
+    systemProperty 'kimetsu.bench', providers.gradleProperty('bench').isPresent().toString()
+    testLogging {
+        showStandardStreams = true
+    }
+}
+
+tasks.named('check') {
+    dependsOn hotPathTest
 }
