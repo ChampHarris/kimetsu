@@ -26,6 +26,7 @@ public final class PendingStrike {
     private final boolean last;
     private final Scheduler.Slot slot;
     private final long commitTick;
+    private long feintBreakTick = Long.MIN_VALUE;
     private Status status = Status.PENDING;
     private boolean locked;
     private double lockX;
@@ -91,6 +92,22 @@ public final class PendingStrike {
 
     public Scheduler.Slot slot() {
         return slot;
+    }
+
+    /**
+     * The tick a feint's glint breaks, or {@code Long.MIN_VALUE} for a real strike (Rule 11.5). Known only to the server
+     * until then: clients see a real attack until its {@code AttackCancelled}.
+     */
+    public long feintBreakTick() {
+        return feintBreakTick;
+    }
+
+    public boolean isFeint() {
+        return feintBreakTick != Long.MIN_VALUE;
+    }
+
+    public void feint(long breakTick) {
+        feintBreakTick = breakTick;
     }
 
     /** The tick it was committed in (Rule 7.11). */

@@ -76,6 +76,52 @@ class DemonProfileTest {
         rejects(
                 () -> new Strings(List.of(1), 4, 1, 2, Map.of("a", 1), Map.of(), List.of(), "a", 0.1, 0, 1.1, 3.5),
                 "strings.feint_break_ticks");
+        rejects( // only one strike long, a string can't hold a feint and the strike after it
+                () -> new Strings(List.of(1), 4, 1, 2, Map.of("a", 1), Map.of(), List.of(), "a", 0.1, 5, 1.1, 3.5),
+                "strings.feint_chance",
+                "two or more");
+        rejects(
+                () -> new Strings(List.of(90, 10), 4, 1, 2, Map.of("a", 1), Map.of(), List.of(), "a", 0.2, 5, 1.1, 3.5),
+                "strings.feint_chance");
+    }
+
+    @Test
+    void aFeintsGlintMustBreakAfterItsCueShows() {
+        DemonProfile d = Fixtures.demon();
+        Strings s = d.strings();
+        Strings late = new Strings(
+                s.lengthWeights(),
+                s.gapBeats(),
+                s.gapSpread(),
+                s.gapMinBeats(),
+                s.weights(),
+                s.follows(),
+                s.enders(),
+                s.leap(),
+                s.feintChance(),
+                20, // longer than every white attack's cue lead
+                s.lungeStandoff(),
+                s.commitRange());
+        DemonProfile p = new DemonProfile(
+                d.id(),
+                d.body(),
+                d.maxHp(),
+                d.posture(),
+                d.hunger(),
+                d.regen(),
+                d.neck(),
+                d.clang(),
+                d.threadTicks(),
+                d.collapse(),
+                d.outsideFloor(),
+                d.knockdown(),
+                d.knockbackTicks(),
+                d.guard(),
+                late,
+                d.senses(),
+                d.escapeRecoveryTicks(),
+                d.clash());
+        rejects(() -> p.checkAttacks(Fixtures.demonAttacks()), "strings.feint_break_ticks", "cue lead");
     }
 
     @Test

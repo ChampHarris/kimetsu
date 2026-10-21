@@ -19,6 +19,7 @@ package dev.champ.kimetsu.core.data;
  * @param pommelStunTicks how long a Pommel Strike that interrupts a strike stuns its attacker (Rule 5.2: 10 ticks)
  * @param grabHoldBeats how many of the grabbed player's beats a grab holds before the grabber throws (Rule 6.3: 6)
  * @param throwDamage the throw's damage (Rule 6.3: 1.0)
+ * @param clash the micro-clash (Rule 10)
  */
 public record StrikeRules(
         int strikesPerTargetPerBeat,
@@ -31,7 +32,8 @@ public record StrikeRules(
         int perfectRecoveryTicks,
         int pommelStunTicks,
         int grabHoldBeats,
-        double throwDamage) {
+        double throwDamage,
+        ClashRules clash) {
 
     public StrikeRules {
         Check.positive("strikes_per_target_per_beat", strikesPerTargetPerBeat);

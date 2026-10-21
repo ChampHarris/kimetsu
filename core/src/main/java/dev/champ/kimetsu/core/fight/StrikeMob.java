@@ -82,6 +82,23 @@ public interface StrikeMob {
      */
     void cancelled(long strike, long tick);
 
+    /**
+     * It's frozen in a micro-clash from tick {@code tick} (Rule 10.2): its strikes to come are cancelled, its guard is
+     * down, and hits on it don't stun it until {@link #clashEnded}.
+     */
+    default void clashed(long tick) {}
+
+    /** The clash ended at tick {@code tick}: {@code lost}, its Posture breaks then (Rule 10.3). */
+    default void clashEnded(long tick, boolean lost) {}
+
+    /** Its press in a clash, this long after the flash (Rule 10.4: drawn per clash, from its profile). */
+    long clashReactionMicros();
+
+    /** Which of {@code choices} half-beats the flash falls on, 0 for the first (Rule 10.2: at random). */
+    default int clashFlash(int choices) {
+        return 0;
+    }
+
     /** Its grab {@code strike} connected at tick {@code tick}: it holds a player (Rule 6.3). */
     default void holding(long strike, long tick) {}
 

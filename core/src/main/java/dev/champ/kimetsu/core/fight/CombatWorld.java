@@ -1,7 +1,9 @@
 package dev.champ.kimetsu.core.fight;
 
 import dev.champ.kimetsu.core.clock.Micros;
+import dev.champ.kimetsu.core.clock.PulseSchedule;
 import dev.champ.kimetsu.core.data.AttackClass;
+import dev.champ.kimetsu.core.data.ClashRules;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.FrameData.Cue;
 import dev.champ.kimetsu.core.data.FrameData.Displacement;
@@ -29,6 +31,7 @@ import dev.champ.kimetsu.core.hit.Trig;
 import dev.champ.kimetsu.core.machine.Combatant;
 import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.State;
+import dev.champ.kimetsu.core.meter.Fixed;
 import dev.champ.kimetsu.core.strike.BeatCap;
 import dev.champ.kimetsu.core.strike.PendingStrike;
 import dev.champ.kimetsu.core.strike.Scheduler;
@@ -37,6 +40,7 @@ import dev.champ.kimetsu.core.strike.Verdict;
 import dev.champ.kimetsu.core.strike.Verdicts;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
 import org.jspecify.annotations.Nullable;
@@ -74,6 +78,7 @@ import org.jspecify.annotations.Nullable;
  */
 public final class CombatWorld {
     private static final long NONE = Long.MIN_VALUE;
+    private static final long BREAKS_ANY_POSTURE = Fixed.of(10_000); // more than anyone has: a clash's loser breaks
 
     private static final class Mob {
         final StrikeMob body;
@@ -98,6 +103,25 @@ public final class CombatWorld {
     /** A cancel to log on a player's machine when its next tick begins. */
     private record Queued(int fighter, long strike) {}
 
+    /** A micro-clash under way (Rule 10): who, from which impact, when the flash comes and when the mob presses. */
+    private static final class Clash {
+        final long strike;
+        final Mob mob;
+        final Fighter f;
+        final long from;
+        final long flash;
+        final long mobPress;
+
+        Clash(long strike, Mob mob, Fighter f, long from, long flash, long mobPress) {
+            this.strike = strike;
+            this.mob = mob;
+            this.f = f;
+            this.from = from;
+            this.flash = flash;
+            this.mobPress = mobPress;
+        }
+    }
+
     /** A grab's hold on a player (Rule 6.3): from its impact until an escape, an ally's hit, a stop or the throw. */
     private static final class Hold {
         final long strike;
@@ -121,20 +145,25 @@ public final class CombatWorld {
     private final Sight sight;
     private final Ground ground;
     private final Verdicts verdicts;
+    private final TimingRules timing;
     private final RhythmRules rhythm;
     private final BeatCap cap;
     private final double stepBound;
     private final List<Fighter> fighters = new ArrayList<>();
+    private final List<Fighter> players = Collections.unmodifiableList(fighters);
     private final List<Mob> mobs = new ArrayList<>();
     private final List<PendingStrike> book = new ArrayList<>();
     private final List<Queued> queued = new ArrayList<>();
     private final List<Hold> holds = new ArrayList<>();
+    private final List<Clash> clashes = new ArrayList<>();
     private final List<Effect> effects = new ArrayList<>();
     // by identity: an attack's data is loaded once, and hashing a whole record on every active tick would cost more
     private final IdentityHashMap<FrameData, SweepShape> shapes = new IdentityHashMap<>();
     private final Sweeper sweeper = new Sweeper();
     private final Targets targets = new Targets();
     private final Contacts contacts = new Contacts();
+    private final Contacts probe = new Contacts();
+    private final SwingTrack probeTrack = new SwingTrack();
     private final SweepBounds bounds = new SweepBounds();
     private final Verdict verdict = new Verdict();
     private final Pose pose = new Pose();
@@ -175,6 +204,7 @@ public final class CombatWorld {
         this.ground = ground;
         this.swing = new SwingHit(moves.pommel());
         this.verdicts = new Verdicts(hits, strikes, timing, rhythm);
+        this.timing = timing;
         this.rhythm = rhythm;
         this.cap = new BeatCap(strikes.strikesPerTargetPerBeat());
         this.view = new StrikeView(moves.pommel());
@@ -246,6 +276,16 @@ public final class CombatWorld {
     /** The strikes committed and not yet over (decided for everyone, or cancelled), by impact then id. Read only. */
     public List<PendingStrike> pending() {
         return book;
+    }
+
+    /** The players in the fight, in the order they joined. Read only. */
+    public List<Fighter> players() {
+        return players;
+    }
+
+    /** The level's line of sight (a brain's "can it see them", Rule 11.2). */
+    public Sight sight() {
+        return sight;
     }
 
     public @Nullable Fighter fighter(int id) {
@@ -322,6 +362,7 @@ public final class CombatWorld {
         involve(n);
         sweepAll();
         resolve(n);
+        clashes(n);
         holds(n);
         depart(n);
         for (int i = 0; i < fighters.size(); i++) {
@@ -400,6 +441,14 @@ public final class CombatWorld {
      * Only from a brain's {@link Brain#decide}.
      */
     public Scheduler.Plan commit(int mob, int target, List<FrameData> string, long beatAtLeast) {
+        return commit(mob, target, string, beatAtLeast, 0);
+    }
+
+    /**
+     * The same, its first strike a feint (Rule 11.5) when {@code feintBreakTicks} is above 0: its glint breaks that many
+     * ticks before its impact and the rest land as scheduled, a beat on. Nothing marks it until the break.
+     */
+    public Scheduler.Plan commit(int mob, int target, List<FrameData> string, long beatAtLeast, int feintBreakTicks) {
         if (!committing) {
             throw new IllegalStateException("strikes commit in step 2, from a brain");
         }
@@ -424,6 +473,14 @@ public final class CombatWorld {
         for (int k = 0; k < slots.size(); k++) {
             Scheduler.Slot slot = slots.get(k);
             PendingStrike s = new PendingStrike(nextStrike++, mob, target, sid, k == slots.size() - 1, slot, now);
+            if (k == 0 && feintBreakTicks > 0) {
+                long at = slot.impactTick() - feintBreakTicks;
+                if (at < s.cueTick()) { // the profile check keeps a glint breaking after it shows
+                    throw new IllegalArgumentException("a feint breaking " + feintBreakTicks
+                            + " ticks before its impact would break before its cue");
+                }
+                s.feint(at);
+            }
             insert(s);
             mob(mob).body.scheduled(s);
             tell(s, t, now);
@@ -441,6 +498,17 @@ public final class CombatWorld {
         }
         log(t, Effect.TARGETED, now); // Rhythm's idle clock: something targets it (Rule 4.3)
         return p;
+    }
+
+    /** Step 2: a mob's brain targets player {@code fighter} (Rule 4.3's idle clock); only from a brain. */
+    public void targeted(int fighter) {
+        if (!committing) {
+            throw new IllegalStateException("a brain targets in step 2");
+        }
+        Fighter f = fighter(fighter);
+        if (f != null && !f.leaving) {
+            log(f, Effect.TARGETED, now);
+        }
     }
 
     private void insert(PendingStrike s) {
@@ -475,6 +543,10 @@ public final class CombatWorld {
     private void involve(long n) {
         for (int i = 0; i < book.size(); i++) {
             PendingStrike s = book.get(i);
+            if (s.status() == PendingStrike.Status.PENDING && s.isFeint() && s.feintBreakTick() <= n) {
+                drop(s, "feint", n); // its glint breaks; the rest of its string stands (Rule 11.5)
+                continue;
+            }
             if (s.status() != PendingStrike.Status.PENDING || n < s.cueTick() || n > s.impactTick()) {
                 continue;
             }
@@ -587,6 +659,11 @@ public final class CombatWorld {
     private static boolean pommelled(FrameData f) {
         return f.attackClass() == AttackClass.GRAB
                 || (f.cue().type() == Cue.Type.RED && f.cue().charged());
+    }
+
+    /** A white heavy can clash with a form (Rule 10.1, D-041: heavy and white; the leap can't). */
+    private static boolean clashes(FrameData f) {
+        return f.attackClass() == AttackClass.HEAVY && f.cue().type() == Cue.Type.WHITE;
     }
 
     // ------------------------------------------------------------------------------------------------- step 4
@@ -838,7 +915,7 @@ public final class CombatWorld {
                 continue;
             }
             if (!contains(busy, busyCount, s.attacker())) {
-                if (pommelled(s.attack())) {
+                if (pommelled(s.attack()) || clashes(s.attack())) {
                     decideWhole(s, n);
                 } else {
                     decideEach(s, n);
@@ -930,7 +1007,8 @@ public final class CombatWorld {
 
     /**
      * A grab or a charged red, for all its players at once, when every one is ready: any of their Pommels interrupts it
-     * for everyone (Rule 5.2), so none is decided until all could be.
+     * for everyone (Rule 5.2), so none is decided until all could be. A white heavy too: a clash with any of them spends
+     * it for everyone (Rule 10.1).
      */
     private void decideWhole(PendingStrike s, long n) {
         for (int j = 0; j < s.involvedCount(); j++) {
@@ -971,6 +1049,16 @@ public final class CombatWorld {
             sweepAll();
             return;
         }
+        if (clashes(s.attack())) {
+            for (int j = 0; j < s.involvedCount(); j++) {
+                Fighter f = player(s.involved(j));
+                if (clashWith(s, f, tick)) {
+                    clash(s, f, tick);
+                    sweepAll(); // the others' held ticks: nothing waits on the heavy now
+                    return;
+                }
+            }
+        }
         for (int j = 0; j < s.involvedCount(); j++) {
             if (s.status() != PendingStrike.Status.PENDING) {
                 return;
@@ -979,6 +1067,170 @@ public final class CombatWorld {
                 decideFor(s, j, player(s.involved(j)));
             }
         }
+    }
+
+    /**
+     * Whether player {@code f}'s form lands on strike {@code s}'s attacker as the strike lands on it, at the impact
+     * {@code tick} (Rule 10.1), judged from both sides' state then: its form in its active frames, its sweep then
+     * touching the attacker, the strike's sweep touching it, and no clash of its own in the cooldown.
+     */
+    private boolean clashWith(PendingStrike s, Fighter f, long tick) {
+        if (f.lastClash != NONE && tick - f.lastClash < strikes.clash().cooldownTicks()) {
+            return false;
+        }
+        Combatant c = f.timeline().stateAt(tick);
+        FrameData a = c.attack();
+        if (c.state() != State.ATTACK
+                || a == null
+                || a.attackClass() != AttackClass.HEAVY
+                || a.judge() != FrameData.Judge.RELEASE
+                || a.sweep() == null
+                || c.phase(tick) != Phase.ACTIVE) {
+            return false;
+        }
+        verdicts.judge(
+                view,
+                c,
+                f.poses(),
+                f.halfWidth(),
+                f.height(),
+                sight,
+                mob(s.attacker()).body.maxPosture(),
+                verdict);
+        if (!verdict.landed()) {
+            return false; // the strike doesn't reach it: no clash
+        }
+        Mob m = mob(s.attacker());
+        StrikeMob b = m.body;
+        s.attackerAt(tick - 1, pose);
+        s.attackerAt(tick, other);
+        targets.clear();
+        targets.add(
+                b.id(),
+                pose.x() - b.halfWidth(),
+                pose.y(),
+                pose.z() - b.halfWidth(),
+                pose.x() + b.halfWidth(),
+                pose.y() + b.height(),
+                pose.z() + b.halfWidth(),
+                other.x() - b.halfWidth(),
+                other.y(),
+                other.z() - b.halfWidth(),
+                other.x() + b.halfWidth(),
+                other.y() + b.height(),
+                other.z() + b.halfWidth());
+        probe.clear();
+        probeTrack.begin(Long.MIN_VALUE + f.id()); // a scratch registry: the real swing's stays untouched
+        sweeper.sweep(
+                f.id(),
+                c.attackId(),
+                shape(a),
+                (int) (c.frameAt(tick) - a.windup()),
+                tick,
+                f.poses(),
+                targets,
+                probeTrack,
+                sight,
+                hits,
+                probe);
+        return probe.size() > 0;
+    }
+
+    /**
+     * Strike {@code s} and player {@code f}'s form land on each other at {@code impact}: both freeze (Rule 10.2). The
+     * strike is spent and the rest of its string cancelled. ClashStart goes out by the end of this tick and can reach
+     * the client RTT/2 + its stamp tolerance later; presses before then aren't its clash press, and the flash falls on
+     * one of its next half-beats at least the margin after then. The mob presses its reaction after the flash.
+     */
+    private void clash(PendingStrike s, Fighter f, long impact) {
+        Mob m = mob(s.attacker());
+        ClashRules r = strikes.clash();
+        // RTT/2 is capped at the longest hold: a client claiming a huge RTT can't stretch a freeze in which the demon's
+        // guard is down
+        long seen = Micros.ofTicks(now + 1)
+                + Math.min(f.rttMicros() / 2, Micros.ofMillis(timing.holdCapMaxMs()))
+                + Math.clamp(
+                        f.toleranceMicros(),
+                        Micros.ofMillis(timing.toleranceMinMs()),
+                        Micros.ofMillis(timing.toleranceMaxMs()));
+        long flash =
+                halfBeat(f.pulse(), seen + Micros.ofMillis(r.flashMarginMs()), m.body.clashFlash(r.flashHalfBeats()));
+        long reaction = Math.max(
+                Micros.ofMillis(r.falseStartMs()) + 1,
+                Math.min(Micros.ofMillis(r.windowMs()) - 1, m.body.clashReactionMicros()));
+        f.lastClash = impact;
+        log(f, new Effect.ClashStart(seen), impact);
+        drop(s, "clash", impact);
+        for (int i = 0; i < book.size(); i++) {
+            PendingStrike t = book.get(i);
+            if (t.string() == s.string() && t.status() == PendingStrike.Status.PENDING) {
+                drop(t, "clash", impact); // its beats fall inside the freeze
+            }
+        }
+        m.body.clashed(impact);
+        clashes.add(new Clash(s.id(), m, f, impact, flash, flash + reaction));
+        outbox.add(new Outbox.ClashStarted(s.id(), m.body.id(), f.id(), impact, flash));
+    }
+
+    /** The {@code k}th half-beat of {@code pulse} at or after {@code micros}. */
+    private static long halfBeat(PulseSchedule pulse, long micros, int k) {
+        long b = pulse.nearestBeat(micros) - 1;
+        int found = -1;
+        while (true) {
+            long at = pulse.beatMicros(b);
+            long mid = (at + pulse.beatMicros(b + 1)) / 2;
+            if (at >= micros && ++found == k) {
+                return at;
+            }
+            if (mid >= micros && ++found == k) {
+                return mid;
+            }
+            b++;
+        }
+    }
+
+    /**
+     * Step 5, after the strikes: each clash ends once it's known who pressed first (Rule 10.3, 10.5): the player's first
+     * attack press in CLASH (a false start if before the flash or within the false-start time after it), against the
+     * mob's press; within the tie time of each other, a tie. With no press of the player's yet, the mob wins once the
+     * player's input has passed the mob's press, or at its hold cap.
+     */
+    private void clashes(long n) {
+        ClashRules r = strikes.clash();
+        for (int i = 0; i < clashes.size(); i++) {
+            Clash c = clashes.get(i);
+            long press = c.f.timeline().live().clashPress();
+            long falseStart = c.flash + Micros.ofMillis(r.falseStartMs());
+            if (c.f.leaving || c.mob.body.stoppedAt() >= c.from) {
+                endClash(i--, Math.max(c.from, n), Outbox.ClashOutcome.TIE);
+            } else if (press != NONE && press < falseStart) {
+                endClash(i--, Micros.stepOf(Math.max(press, Micros.ofTicks(c.from))), Outbox.ClashOutcome.MOB);
+            } else if (press != NONE && Math.abs(press - c.mobPress) <= Micros.ofMillis(r.tieMs())) {
+                endClash(i--, Micros.stepOf(Math.min(press, c.mobPress)), Outbox.ClashOutcome.TIE);
+            } else if (press != NONE && press < c.mobPress) {
+                endClash(i--, Micros.stepOf(press), Outbox.ClashOutcome.PLAYER);
+            } else if (press != NONE
+                    || c.f.horizon()
+                            .decided(
+                                    c.mobPress,
+                                    true,
+                                    Micros.ofTicks(n),
+                                    c.f.holdCapMicros(),
+                                    c.f.earliestHeldMicros())) {
+                endClash(i--, Micros.stepOf(c.mobPress), Outbox.ClashOutcome.MOB);
+            }
+        }
+    }
+
+    /** Clash {@code i} ends at {@code tick}: both leave CLASH, and the loser's Posture breaks (D-036: after it). */
+    private void endClash(int i, long tick, Outbox.ClashOutcome outcome) {
+        Clash c = clashes.remove(i);
+        log(c.f, new Effect.ClashEnd(), tick);
+        if (outcome == Outbox.ClashOutcome.MOB) {
+            log(c.f, new Effect.PostureDamage(BREAKS_ANY_POSTURE, true), tick); // STAGGER
+        }
+        c.mob.body.clashEnded(tick, outcome == Outbox.ClashOutcome.PLAYER);
+        outbox.add(new Outbox.ClashEnded(c.strike, c.mob.body.id(), c.f.id(), tick, outcome));
     }
 
     private void view(PendingStrike s) {

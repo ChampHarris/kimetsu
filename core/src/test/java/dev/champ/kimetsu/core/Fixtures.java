@@ -3,6 +3,7 @@ package dev.champ.kimetsu.core;
 import dev.champ.kimetsu.core.data.Armour;
 import dev.champ.kimetsu.core.data.AttackClass;
 import dev.champ.kimetsu.core.data.BreathRules;
+import dev.champ.kimetsu.core.data.ClashRules;
 import dev.champ.kimetsu.core.data.ClockRules;
 import dev.champ.kimetsu.core.data.DemonProfile;
 import dev.champ.kimetsu.core.data.FrameData;
@@ -243,7 +244,18 @@ public final class Fixtures {
                 8, // Perfect recovery penalty: +8 ticks
                 10, // Pommel Strike: stun 10 ticks
                 6, // Grab hold: thrown after 6 beats
-                1.0); // ... for 1.0 damage
+                1.0, // ... for 1.0 damage
+                clash());
+    }
+
+    public static ClashRules clash() {
+        return new ClashRules(
+                3, // the flash on one of the next 3 half-beats
+                50, // ... at least RTT/2 + tolerance + 50 ms after ClashStart
+                700, // no press 700 ms after the flash: a tie
+                100, // a press within 100 ms of the flash is a false start
+                15, // reactions within 15 ms tie
+                300); // a player clashes at most once in 15 s
     }
 
     // Bodies (blocks): vanilla's player, and the M1 demon at a zombie's size (slice 3, PROPOSED).

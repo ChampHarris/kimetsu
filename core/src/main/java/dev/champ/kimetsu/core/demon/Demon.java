@@ -47,6 +47,8 @@ public final class Demon implements StrikeMob {
 
     private final int id;
     private final DemonProfile profile;
+    private final Rng rng;
+    private static final long BODY_SALT = 0xD1B5_4A32_D192_ED03L; // the body's draws apart from a brain given its seed
     private final int history;
     private final long born;
     private final DemonBody live;
@@ -95,11 +97,31 @@ public final class Demon implements StrikeMob {
             double y,
             double z,
             double yaw) {
+        this(id, profile, hits, tick, historyTicks, x, y, z, yaw, id);
+    }
+
+    /**
+     * The same, its clash draws (its reaction, which half-beat flashes) seeded with {@code seed}. The mod seeds it, and
+     * its brain, from a server secret it keeps for replays, never from what clients know (its entity id): a client that
+     * could follow the draws would know its feints and flashes. The constructor seeded with its id is the tests'.
+     */
+    public Demon(
+            int id,
+            DemonProfile profile,
+            HitRules hits,
+            long tick,
+            int historyTicks,
+            double x,
+            double y,
+            double z,
+            double yaw,
+            long seed) {
         if (historyTicks < 2) {
             throw new IllegalArgumentException("historyTicks must be at least 2, was " + historyTicks);
         }
         this.id = id;
         this.profile = profile;
+        this.rng = new Rng(seed ^ BODY_SALT);
         this.history = historyTicks;
         this.born = tick;
         this.head = tick - 1;
@@ -455,6 +477,28 @@ public final class Demon implements StrikeMob {
     public void released(long strike, long tick, Release how) {
         int flags = how == Release.ESCAPED || how == Release.FREED ? DemonEvents.F_REELS : 0;
         record(clamp(tick), DemonEvents.RELEASE, strike, strike, 0, 0, 0, 0, 0, flags);
+    }
+
+    @Override
+    public void clashed(long tick) {
+        record(clamp(tick), DemonEvents.CLASH, 0, 0, 0, 0, 0, 0, 0, 0);
+    }
+
+    @Override
+    public void clashEnded(long tick, boolean lost) {
+        record(clamp(tick), DemonEvents.CLASH_END, 0, 0, 0, 0, 0, 0, 0, lost ? DemonEvents.F_LOST : 0);
+    }
+
+    /** Its press, drawn per clash (Rule 10.4, ruling Q12: 380 ± 60 ms). */
+    @Override
+    public long clashReactionMicros() {
+        DemonProfile.Clash c = profile.clash();
+        return Math.round((c.reactionMeanMs() + c.reactionSdMs() * rng.nextGaussian()) * 1000);
+    }
+
+    @Override
+    public int clashFlash(int choices) {
+        return rng.nextInt(choices);
     }
 
     /** The guard counter it asked for couldn't be scheduled at tick {@code tick}: its stake is refunded. */

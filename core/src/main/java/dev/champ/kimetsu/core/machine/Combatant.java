@@ -851,7 +851,7 @@ public final class Combatant {
                 if (movable) {
                     incapacitate(tick);
                     setState(State.CLASH, tick);
-                    enteredAt = Micros.ofTicks(tick);
+                    enteredAt = Math.max(Micros.ofTicks(tick), c.pressesFromMicros());
                     clashPress = NONE;
                 }
             }

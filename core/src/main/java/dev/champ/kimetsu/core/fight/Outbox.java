@@ -82,6 +82,25 @@ public final class Outbox {
     /** The hold ended at {@code tick}, {@code how}; a throw deals {@code damage} (the mod applies it, Rule 12). */
     public record HoldEnded(long strike, int fighter, long tick, Release how, double damage) implements Event {}
 
+    /** How a micro-clash ended (Rule 10.3): the player won, the mob won, or a tie, whose shockwave pushes both apart. */
+    public enum ClashOutcome {
+        PLAYER,
+        MOB,
+        TIE
+    }
+
+    /**
+     * A micro-clash froze {@code fighter} and {@code mob} at {@code tick}, strike {@code strike}'s impact (Rule 10.2): the
+     * white flash comes at {@code flashMicros}, sent now, so every client shows it at the same moment.
+     */
+    public record ClashStarted(long strike, int mob, int fighter, long tick, long flashMicros) implements Event {}
+
+    /**
+     * It ended at {@code tick}: the loser's Posture breaks; a tie's shockwave pushes both apart, the player and the mob
+     * alike, from the point between them (the mod applies both pushes; core sends no {@code Pushed} for it).
+     */
+    public record ClashEnded(long strike, int mob, int fighter, long tick, ClashOutcome outcome) implements Event {}
+
     /** A mob died at {@code tick} (the demon: decapitated by player {@code by}, or −1: killed from outside). */
     public record MobDied(int mob, long tick, int by) implements Event {}
 

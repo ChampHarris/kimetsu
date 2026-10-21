@@ -29,6 +29,9 @@ public final class Fighter {
     private long earliestHeldMicros = Long.MAX_VALUE;
     private double moveBoundBlocksPerTick;
     long sweptThrough; // the last tick whose active windows the loop has looked at
+    long lastClash = Long.MIN_VALUE; // the impact tick of its last micro-clash (Rule 10.1's cooldown)
+    private long rttMicros;
+    private long toleranceMicros;
     boolean leaving; // it leaves the fight in the next tick (CombatWorld.remove)
 
     public Fighter(
@@ -53,6 +56,32 @@ public final class Fighter {
 
     public int id() {
         return id;
+    }
+
+    /**
+     * Its round-trip time as the mod measures it (the mod sets it, with its tolerance, as they change): a clash's flash
+     * falls at least half of it after ClashStart goes out.
+     */
+    public long rttMicros() {
+        return rttMicros;
+    }
+
+    public void rttMicros(long micros) {
+        rttMicros = Math.max(0, micros);
+    }
+
+    /** Its stamp tolerance as its stamp check works it out (Rule 2.10): a clash's flash allows for it too (Rule 10.2). */
+    public long toleranceMicros() {
+        return toleranceMicros;
+    }
+
+    public void toleranceMicros(long micros) {
+        toleranceMicros = Math.max(0, micros);
+    }
+
+    /** It's leaving the fight in the next tick ({@link CombatWorld#remove}): nothing new is committed on it. */
+    public boolean leaving() {
+        return leaving;
     }
 
     public Timeline timeline() {

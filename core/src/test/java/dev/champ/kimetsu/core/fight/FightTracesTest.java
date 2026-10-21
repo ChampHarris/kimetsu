@@ -115,6 +115,10 @@ class FightTracesTest {
             case Outbox.GuardYaw g -> "demon " + g.mob() + " guard " + g.step() * 360 / 256 + "°";
             case Outbox.Targeting g -> "demon " + g.mob() + " targets " + g.fighter();
             case Outbox.SwingDealt d -> String.format(Locale.ROOT, "(%.2f HP, %.2f Posture)", d.damage(), d.posture());
+            case Outbox.ClashStarted c ->
+                "CLASH: strike " + c.strike() + " and " + c.fighter() + "'s form, the flash at "
+                        + c.flashMicros() / 1000 + " ms";
+            case Outbox.ClashEnded c -> "CLASH ENDS @" + c.tick() + ": " + c.outcome();
             case Outbox.Clang c -> "CLANG on demon " + c.mob() + (c.recoils() ? ", it recoils" : "");
             case Outbox.Pushed p -> "demon " + p.mob() + " pushed " + p.distance();
             case AttackCancelled c -> "strike " + c.strike() + " cancelled (" + c.why() + ")";

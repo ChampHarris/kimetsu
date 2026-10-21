@@ -26,6 +26,8 @@ final class DemonEvents {
     static final int OUTSIDE = 12;
     static final int WALL = 13;
     static final int PAID = 14;
+    static final int CLASH = 15;
+    static final int CLASH_END = 16;
 
     static final int F_COUNTER = 1; // SCHEDULED: a guard counter
     static final int F_LEAP = 2; // SCHEDULED: the leap, which pays Hunger
@@ -36,6 +38,7 @@ final class DemonEvents {
     static final int F_REELS = 64; // RELEASE
     static final int F_KILLING = 128; // OUTSIDE
     static final int F_KEPT = 256; // CANCELLED: a stop of its own: a counter's stake is kept
+    static final int F_LOST = 512; // CLASH_END: it lost
 
     private static final Verdict.Kind[] KINDS = Verdict.Kind.values();
 
@@ -65,7 +68,7 @@ final class DemonEvents {
         int rank = switch (k) {
             case SCHEDULED -> 0;
             case CANCELLED -> 1;
-            case INTERRUPTED -> 2;
+            case INTERRUPTED, CLASH, CLASH_END -> 2;
             case PAID, DECIDED -> 3;
             case REFUSED -> 4;
             case HOLD -> 5;
@@ -171,6 +174,8 @@ final class DemonEvents {
             case DIE -> b.die(t);
             case OUTSIDE -> b.outside(t, l1[i], (f & F_KILLING) != 0);
             case WALL -> b.wall(t);
+            case CLASH -> b.clashed(t);
+            case CLASH_END -> b.clashEnded(t, (f & F_LOST) != 0);
             default -> throw new IllegalStateException("unknown demon event " + kind[i]);
         }
     }

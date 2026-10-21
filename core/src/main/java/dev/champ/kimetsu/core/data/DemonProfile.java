@@ -218,6 +218,10 @@ public record DemonProfile(
             }
             Check.between("strings.feint_chance", feintChance, 0.0, 1.0);
             Check.atLeast("strings.feint_break_ticks", feintBreakTicks, 1);
+            Check.that(
+                    feintChance * total <= total - lengthWeights.get(0),
+                    "strings.feint_chance can't exceed the share of strings two or more strikes long: a feint counts in"
+                            + " its string's length");
             Check.atLeast("strings.lunge_standoff", lungeStandoff, 0.0);
             Check.atLeast("strings.commit_range", commitRange, 0.0);
         }
@@ -280,5 +284,14 @@ public record DemonProfile(
                 lock != null && lock.holdGuards(),
                 id + ": counter.attack " + guard.counter().attack() + " must be beat-locked with hold_guards");
         Check.that(loaded.containsKey(strings.leap()), id + " names leap " + strings.leap() + ", which isn't loaded");
+        for (String a : strings.weights().keySet()) {
+            FrameData f = loaded.get(a);
+            Check.that(
+                    f == null
+                            || f.cue().type() != FrameData.Cue.Type.WHITE
+                            || f.cue().lead() > strings.feintBreakTicks(),
+                    id + ": strings.feint_break_ticks must be below " + a
+                            + "'s cue lead, so a feint's glint breaks after it shows");
+        }
     }
 }

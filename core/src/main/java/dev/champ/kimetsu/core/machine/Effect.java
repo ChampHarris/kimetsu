@@ -33,7 +33,16 @@ public sealed interface Effect {
     /** An ally's hit on the grabber freed it. */
     record Released() implements Effect {}
 
-    record ClashStart() implements Effect {}
+    /**
+     * A micro-clash froze it (Rule 10.2). Attack presses stamped at or before {@code pressesFromMicros}, the earliest its
+     * client can have shown the freeze, aren't its clash press: a press made before it could see the clash (a buffered
+     * Chain hit) is no false start.
+     */
+    record ClashStart(long pressesFromMicros) implements Effect {
+        public ClashStart() {
+            this(Long.MIN_VALUE);
+        }
+    }
 
     record ClashEnd() implements Effect {}
 

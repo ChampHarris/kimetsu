@@ -76,6 +76,11 @@ final class BoxDummy implements StrikeMob {
     }
 
     @Override
+    public long clashReactionMicros() {
+        return 380_000; // the M1 demon's mean (ruling Q12)
+    }
+
+    @Override
     public double halfWidth() {
         return Fixtures.DEMON_HALF_WIDTH;
     }

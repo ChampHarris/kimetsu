@@ -9,6 +9,7 @@ import dev.champ.kimetsu.core.data.DemonProfile;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.HungerRules;
 import dev.champ.kimetsu.core.demon.Demon;
+import dev.champ.kimetsu.core.demon.DemonBrain;
 import dev.champ.kimetsu.core.hit.Sight;
 import dev.champ.kimetsu.core.judge.InputHorizon;
 import dev.champ.kimetsu.core.machine.State;
@@ -279,6 +280,16 @@ class FightHotPathTest {
                 n -> {},
                 n -> d.state(n) == State.ATTACK);
         assertTrue(striking > 2_000, "too few quiet ticks mid-strike: " + striking);
+    }
+
+    @Test
+    void aBrainDrivenDemonsQuietTicksAllocateNothing() {
+        // its brain plans, waits out its gaps, feints and strikes on a player who never answers; the ticks that record
+        // nothing (no commit, cue, result, targeting or state change) allocate nothing
+        Demon d = new Demon(10, Fixtures.demon(), Fixtures.hits(), 1, 34, 0, 64, 0, 0, 5);
+        DemonBrain brain = new DemonBrain(d, Fixtures.strikes(), Fixtures.demonAttacks(), 5);
+        int quiet = quietDemonTicks(d, brain, n -> {}, n -> true);
+        assertTrue(quiet > 5_000, "too few quiet ticks: " + quiet);
     }
 
     @Test
