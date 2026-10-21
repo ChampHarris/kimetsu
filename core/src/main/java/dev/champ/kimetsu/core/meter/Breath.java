@@ -17,6 +17,7 @@ public final class Breath {
     private long windedUntil = Long.MIN_VALUE;
     private long grey;
     private long inhaleBeat = Long.MIN_VALUE;
+    private long extraDrain;
     private int version;
 
     /** Full Breath at {@code tick}, out of combat. */
@@ -104,6 +105,50 @@ public final class Breath {
         grey = 0;
     }
 
+    /** A feinted form never fired: its cost comes back and the grey bar goes (D-035). */
+    public void refundForm(long tick) {
+        long refund = grey;
+        grey = 0;
+        if (refund > 0) {
+            set(tick, at(tick) + refund);
+        }
+    }
+
+    /** A drain on top of everything else, per second (a grab's 15/s); 0 ends it. Reaching 0 winds as any drain does. */
+    public void setExtraDrain(long tick, double perS) {
+        long perTick = Fixed.perTick(perS);
+        if (perTick != extraDrain) {
+            extraDrain = perTick;
+            retune(tick);
+        }
+    }
+
+    /** Becomes an exact copy of {@code other} (a state snapshot); the version still moves on, so a sync sees a change. */
+    public void copyFrom(Breath other) {
+        if (!other.rules.equals(rules)) {
+            throw new IllegalArgumentException("a Breath copies only one with the same rules");
+        }
+        seg = other.seg;
+        inCombat = other.inCombat;
+        guardHeld = other.guardHeld;
+        windedUntil = other.windedUntil;
+        grey = other.grey;
+        inhaleBeat = other.inhaleBeat;
+        extraDrain = other.extraDrain;
+        version++;
+    }
+
+    /** The same state as {@code other}, the version aside. */
+    public boolean sameAs(Breath other) {
+        return seg.equals(other.seg)
+                && inCombat == other.inCombat
+                && guardHeld == other.guardHeld
+                && windedUntil == other.windedUntil
+                && grey == other.grey
+                && inhaleBeat == other.inhaleBeat
+                && extraDrain == other.extraDrain;
+    }
+
     public void wind(long tick) {
         windedUntil = tick + rules.windedTicks();
         retune(tick);
@@ -123,7 +168,7 @@ public final class Breath {
     private long rate(long tick) {
         long regen = Fixed.perTick(inCombat ? rules.regenCombatPerS() : rules.regenIdlePerS());
         long drain = guardHeld && !winded(tick) ? Fixed.perTick(rules.heldGuardPerS()) : 0;
-        return regen - drain;
+        return regen - drain - extraDrain;
     }
 
     private void retune(long tick) {

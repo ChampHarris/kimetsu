@@ -36,4 +36,17 @@ final class Check {
             throw new IllegalArgumentException(field + " must be between " + min + " and " + max + ", was " + value);
         }
     }
+
+    static void notBlank(String field, String value) {
+        if (value.isBlank()) {
+            throw new IllegalArgumentException(field + " must not be blank");
+        }
+    }
+
+    /** A rule no bound expresses (a feint outside the windup, a window past its phase's end). */
+    static void that(boolean holds, String message) {
+        if (!holds) {
+            throw new IllegalArgumentException(message);
+        }
+    }
 }

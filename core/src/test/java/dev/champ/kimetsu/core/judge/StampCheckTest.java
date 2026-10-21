@@ -185,6 +185,19 @@ class StampCheckTest {
     }
 
     @Test
+    void theEarliestHeldPressIsReportedUntilItsAnchorComes() {
+        StampCheck check = primed();
+        assertEquals(Long.MAX_VALUE, check.earliestHeldJudged());
+        long arrival = S + 50_000 + ONE_WAY + 200_000;
+        check.frame(S + 50_000, arrival, RTT, 0);
+        assertEquals(StampCheck.HELD, check.press(3, S + 45_000, FRAME, CAP));
+        assertEquals(StampCheck.HELD, check.press(4, S + 48_000, FRAME, CAP));
+        assertEquals(S + 45_000 - HALF, check.earliestHeldJudged());
+        check.frame(arrival - ONE_WAY, arrival, RTT, 0); // the anchor
+        assertEquals(Long.MAX_VALUE, check.earliestHeldJudged());
+    }
+
+    @Test
     void aHeldPressWithNoAnchorByItsHoldCapIsClamped() {
         StampCheck check = primed();
         long arrival = S + 50_000 + ONE_WAY + 200_000;

@@ -192,6 +192,18 @@ public final class StampCheck {
         return heldCount;
     }
 
+    /**
+     * The earliest time a held press can be judged at once its anchor comes (its stamp less half a frame: the bracket
+     * only moves it later), or {@code Long.MAX_VALUE} with none held. The input horizon doesn't pass it.
+     */
+    public long earliestHeldJudged() {
+        long first = Long.MAX_VALUE;
+        for (int i = 0; i < heldCount; i++) {
+            first = Math.min(first, heldStamp[i] - heldHalf[i]);
+        }
+        return first;
+    }
+
     /** The tolerance at the last frame, in microseconds. */
     public long toleranceMicros() {
         return tolerance;

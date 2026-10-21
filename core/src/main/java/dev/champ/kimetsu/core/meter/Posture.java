@@ -47,6 +47,33 @@ public final class Posture {
         return tick < staggerUntil;
     }
 
+    /** The tick the current stagger ends, or {@code Long.MIN_VALUE} if none has run. */
+    public long staggerUntil() {
+        return staggerUntil;
+    }
+
+    /** Becomes an exact copy of {@code other} (a state snapshot); the version still moves on, so a sync sees a change. */
+    public void copyFrom(Posture other) {
+        if (!other.rules.equals(rules)) {
+            throw new IllegalArgumentException("a Posture copies only one with the same rules");
+        }
+        seg = other.seg;
+        regenFrom = other.regenFrom;
+        staggerUntil = other.staggerUntil;
+        vitality = other.vitality;
+        drain = other.drain;
+        version++;
+    }
+
+    /** The same state as {@code other}, the version aside. */
+    public boolean sameAs(Posture other) {
+        return seg.equals(other.seg)
+                && regenFrom == other.regenFrom
+                && staggerUntil == other.staggerUntil
+                && Double.compare(vitality, other.vitality) == 0
+                && drain == other.drain;
+    }
+
     /** Posture damage. Returns true when it breaks Posture (the caller puts the combatant in STAGGER). */
     public boolean damage(long tick, long amount, boolean restartDelay) {
         settle(tick);

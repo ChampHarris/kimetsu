@@ -1,5 +1,7 @@
 package dev.champ.kimetsu.core.judge;
 
+import java.util.Arrays;
+
 /**
  * One player's beat credits (Rule 2.5): a beat's credits go to the first inputs that land or answer in its window, up
  * to the rules' credits per beat (one in M1). Keyed by the Pulse's global beat index, which keeps counting across a
@@ -34,6 +36,19 @@ public final class CreditLedger {
         }
         taken[Math.floorMod(beat, SPAN)]++;
         return true;
+    }
+
+    /** Becomes an exact copy of {@code other} (a state snapshot). */
+    public void copyFrom(CreditLedger other) {
+        if (other.perBeat != perBeat) {
+            throw new IllegalArgumentException("a ledger copies only one with the same credits per beat");
+        }
+        System.arraycopy(other.taken, 0, taken, 0, SPAN);
+        newest = other.newest;
+    }
+
+    public boolean sameAs(CreditLedger other) {
+        return newest == other.newest && Arrays.equals(taken, other.taken);
     }
 
     /** Whether {@code beat} has no credit left. */

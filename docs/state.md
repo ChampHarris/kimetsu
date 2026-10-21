@@ -3,22 +3,30 @@
 `/session-close` rewrites the `## Now` section at the end of every session. Keep it under 25 lines; history goes below.
 
 ## Now
-- **Date:** 2026-10-20 · **Milestone:** M1. The M1 spec `m1-combat-core` is **APPROVED** (rev 5a694639, D-032). The build has started: `core/` slice 1 (the clock, the judge and the meters) is written test-first and green. The code quality gates are in every build (D-033). Everything is committed and pushed.
-- **Decided by Champ today:** D-026 and D-027 (the M1 spec's Open Questions 1 to 11); D-030 (specs are approved by a question when finished: `docs/tools/spec-approval.md`); D-031 (Open Question 12 yes; finishers for the 1st and 4th forms; "Kata" is now the Light Chain and "Flow" Mushin; the guard is raised arms); D-032 (he approved the M1 spec and accepted R9-02, R9-04 and R9-05); D-033 (the code quality gates); D-006 Decided; D-008 withdrawn.
-- **Quality gates (D-033, ADR 0002, `gradle/quality.gradle`):**
-  - What runs: Error Prone and NullAway (JSpecify, every package `@NullMarked`, `-Werror`), Spotless with palantir-java-format, and Gradle dependency verification (SHA-256, every OS's natives). CI's build job runs each as its own step.
-  - What they found in slice 1: a nullable field, two precedence ambiguities and unmarked conversions, among them three long `assertEquals` calls that resolve to the float overload (exact at those values). All are fixed; locally 179 tests and 3 of 3 GameTests pass.
-  - CI went red once: the first verification metadata was written from a warm Gradle cache and missed 15 metadata files. It's now regenerated from an empty Gradle home, and a code review is folded in.
-  - Cost: about 2–3 s more per compile.
-- **Built (`core/`, plan `lucky-petting-rocket`):** `clock/` (BeatGrid, PulseSchedule, TickSchedule, TickRecord, ClockEstimator, RecordPush), `judge/` (StampCheck with the stall bracket, OnBeat, CreditLedger, DeflectJudge, InputHorizon, the jitter and RTT windows), `meter/` (Breath, Posture, Rhythm, Hunger on fixed-point segments), `data/` rule records. `./gradlew :core:test`: 179 tests, 0 failures; `./gradlew build` passes; mutation checks caught 14 of 16 (both survivors are equivalent).
-- **Found while building, fixed and put in the spec (D-029, PROPOSED; spec table B1–B10):** the spec's client clock was broken: the netcode sim had fed it the exact tick rate, and with the server's real T̄ it was 20 ms off p95 and 1–1.7 s off through a 20 → 15 TPS step. It now estimates the server's wall clock and runs Rule 1.2's conversion: 5.6 / 5.1 / 3.6 ms p95 at 20 / 19 / 15 TPS, 5.6 ms through the step (`ClockEstimatorTest`; designs compared in the new `tools/sims/clock_sim.py`). Also: T̄ is a mean; `/tick rate`, sprint and the single-player pause are handled; frames carry their send time and the absolute epoch; guard presses and Inhale taps go out at once; 40 input frames/s.
-- **Reviews:** a netcode review and a code review (REQUEST CHANGES: 4 high, 4 medium) are both folded in, each finding fixed with a regression test (spec table B6–B14). The tick schedule now reads vanilla's lateness against its own schedule (Rule 1.2), which the mod passes in.
+- **Date:** 2026-10-20 · **Milestone:** M1. The M1 spec `m1-combat-core` is **APPROVED** (rev 5a694639, D-032). `core/` slices 1 (clock, judge, meters) and 2 (the state machine, the input buffer and the Timeline) are built test-first and green; the quality gates run in every build (D-033). Slices 1 and 2 and the gates are committed and pushed.
+- **Slice 2 (plan `lucky-petting-rocket`):** `core/machine/`:
+  - `Combatant`: Rule 3's twelve states, the chain, forms and the radial, Feint, cancels, Recovery Breath, being hit, Tech and grabs.
+  - `Timeline`: presses at their stamps, the back-dating limit, the barrier with D-034's held sweeps, the watermark, the 16-tick history, taps, and client `rebase` onto `settledThrough`.
+  - `core/data/`: `FrameData`, `Style`, `MachineRules`, `Moveset`.
+  - Decisions: D-034 (Champ), D-035 (Q1–Q5 on the plan's recommendations), D-036 (craft calls), D-037 (the Timeline's contract with slices 3 and 5), D-038 (Champ: Mushin pays when the finisher strikes; a long hold may un-judge an Inhale).
+- **Evidence:** `./gradlew spotlessCheck build runGameTestServer --dependency-verification strict`: exit 0; 432 `core/` tests (240 in `machine/`, including a 130-case state-by-press table, a random-lateness replay property test and a reflection check of every snapshot field); GameTests 3/3. Mutation checks: 12/12 on the first build, and 13/14 on the review fixes (the 14th is equivalent). Traces of five mini-fights are in `core/build/traces/`.
+- **Reviews:** a code review (REQUEST CHANGES: 4 high) and a netcode review (2 high) are folded in, each finding with a regression test:
+  - Reads settle before answering.
+  - `rebase` keeps in-flight presses and the newer snapshot.
+  - A Posture break waits for a knockdown or a grab to end.
+  - Form releases are buffered.
+  - Presses that arrive after a verdict act as they would have on time.
+  - The input horizon waits for stall-held presses (a slice-1 fix).
+  - The strike bookkeeping is guarded.
 - **Next, in order:**
-  1. `core/` slice 2: the state machine and the input buffer (Rule 3), with inputs applied at their stamps and the one-strike barrier (Rules 2.2–2.3). Its design is worked out; the plan goes to Champ first. Then slice 3 (hits and the scheduler), slice 4 (the demon, the neck, the clash) and slice 5 (the mod adapts `core/`). Each slice gets its own plan.
-  2. The vanilla-scope Java parts (R7-01), first the strip-items loot modifier.
-- **Unverified until the grey box:** the real dodge windows and chipping, how often players read the guard counter (casual target 60%+), whether MCTest's input reaches the game's input events, AzureLib's gradual catch-up, and real tick-start jitter and clock drift (the clock is modelled at 1 ms and 50 ppm).
-- **Waiting on Champ:** merging the accepted R6, R8 and R9 items into the live GDD; the R7 decide list; R8-05 and R8-06; R6-22 for M5; D-025's two library additions; R9-07 (the cold open's bite) before M2.
-- **Decided earlier:** private build (D-010); the R7 goals (D-012 to D-016); platform and animation stack (D-004, D-005); mod identity (D-019); repo location (D-020).
+  1. `core/` slice 3: hits and sweeps (including D-034's late sweeps, judged against the target as it stood then), the strike scheduler, the deflect judge wired to the machine (claims only from states that can guard), and a `FeintSettled` for every claimed press. Its plan goes to Champ first. Then slice 4 (the demon, the neck, the clash) and slice 5 (the mod).
+  2. The vanilla-scope Java parts (R7-01).
+- **Handed to slices 3 and 5** (D-037, the reviews):
+  - Slice 3: log strike results first at an impact tick.
+  - Slice 5: the server derives `fallBlocks` from the pose history; snapshots go as deltas against the last acked one, sent when the value changes (not the meters' versions); the client predicts `minActive` or accepts a snap past 250 ms RTT; telemetry for replay depth, floored presses and the barrier's hold time.
+- **Spec erratum to fold in at the next touch:** Performance Budget's "about 1.5 KB per combatant": full snapshots make a player's Timeline about 42 KB (34 copies of about 1.2 KB). That is trivial for a server, but the line is wrong.
+- **Unverified until the grey box:** the real dodge windows and chipping, how often players read the guard counter (casual target 60%+), whether MCTest's input reaches the game's input events, AzureLib's gradual catch-up, and real tick-start jitter and clock drift.
+- **Waiting on Champ:** merging the accepted R6, R8 and R9 items into the live GDD; the R7 decide list; R8-05 and R8-06; R6-22 for M5; D-025's two library additions; R9-07 before M2. His own inbox and status-line changes are uncommitted in the tree.
 
 ## History
 - 2026-10-12 to 10-16: GDD Rounds 1–5 on claude.ai (see `docs/gdd/merge-log.md`).

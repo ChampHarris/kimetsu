@@ -34,6 +34,12 @@ public final class Rhythm {
         return tier() == rules.maxTier();
     }
 
+    /** Whether it would still be Mushin after {@code delta} points (an off-beat release's −1 comes first). */
+    public boolean mushinAfter(int delta) {
+        int after = Math.clamp(points + delta, 0, rules.maxPoints());
+        return Math.min(rules.maxTier(), after / rules.pointsPerTier()) == rules.maxTier();
+    }
+
     /** Adds Rhythm points (negative to take them), held inside the scale. */
     public void add(int delta) {
         points = Math.clamp(points + delta, 0, rules.maxPoints());
@@ -55,5 +61,18 @@ public final class Rhythm {
     /** A Mushin form fired: Rhythm drops to the Mushin spend's tier. */
     public void spendMushin() {
         points = Math.min(points, rules.mushinSpendToTier() * rules.pointsPerTier());
+    }
+
+    /** Becomes an exact copy of {@code other} (a state snapshot). */
+    public void copyFrom(Rhythm other) {
+        if (!other.rules.equals(rules)) {
+            throw new IllegalArgumentException("a Rhythm copies only one with the same rules");
+        }
+        points = other.points;
+        nextDecay = other.nextDecay;
+    }
+
+    public boolean sameAs(Rhythm other) {
+        return points == other.points && nextDecay == other.nextDecay;
     }
 }

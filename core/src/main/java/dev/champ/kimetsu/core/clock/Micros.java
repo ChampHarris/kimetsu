@@ -34,6 +34,14 @@ public final class Micros {
         return round(millis * factor);
     }
 
+    /**
+     * The engine step an input stamped {@code micros} acts in: the first tick at or after it (Rule 2.1). A press stamped
+     * inside tick t−1's 50 ms is applied in step t, to the state that tick t−1 left.
+     */
+    public static long stepOf(long micros) {
+        return Math.ceilDiv(micros, PER_TICK);
+    }
+
     /** The tick a moment falls in: rounds toward negative infinity, like {@code Ticks.ofMillis}. */
     public static long tickOf(long micros) {
         return Math.floorDiv(micros, PER_TICK);

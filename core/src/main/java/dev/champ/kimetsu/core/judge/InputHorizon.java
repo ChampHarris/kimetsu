@@ -41,9 +41,14 @@ public final class InputHorizon {
         }
     }
 
-    /** Whether a strike with impact {@code impactMicros} is decided at combat time {@code nowMicros}. */
-    public boolean decided(long impactMicros, boolean positionAnswer, long nowMicros, long holdCapMicros) {
-        long known = positionAnswer ? tickHorizon : horizon;
+    /**
+     * Whether a strike with impact {@code impactMicros} is decided at combat time {@code nowMicros}. A press the stamp
+     * check still holds for a stall's anchor ({@link StampCheck#earliestHeldJudged}) bounds what's known: its frame
+     * arrived, but its press hasn't, so the horizon can't pass it until the anchor comes or the hold cap runs out.
+     */
+    public boolean decided(
+            long impactMicros, boolean positionAnswer, long nowMicros, long holdCapMicros, long earliestHeldMicros) {
+        long known = Math.min(positionAnswer ? tickHorizon : horizon, earliestHeldMicros - 1);
         return known >= impactMicros || nowMicros >= impactMicros + holdCapMicros;
     }
 
