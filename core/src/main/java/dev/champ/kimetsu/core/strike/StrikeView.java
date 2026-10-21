@@ -23,6 +23,7 @@ public final class StrikeView {
     private double lockY;
     private double lockZ;
     private double yaw;
+    private double lunge = 1;
     private double eye;
     private final Pose impact = new Pose();
     private final Pose before = new Pose();
@@ -50,7 +51,26 @@ public final class StrikeView {
             double z,
             double eyeHeight,
             double yaw) {
+        return set(id, attack, windupStartTick, windupTicks, cueTick, impactTick, last, x, y, z, eyeHeight, yaw, 1);
+    }
+
+    /** The same, its lunge clipped to {@code lunge} of its displacement at the lock (D-042, {@code StrikeLocked}). */
+    public StrikeView set(
+            long id,
+            FrameData attack,
+            long windupStartTick,
+            int windupTicks,
+            long cueTick,
+            long impactTick,
+            boolean last,
+            double x,
+            double y,
+            double z,
+            double eyeHeight,
+            double yaw,
+            double lunge) {
         this.id = id;
+        this.lunge = lunge;
         this.attack = attack;
         this.windupStartTick = windupStartTick;
         this.windupTicks = windupTicks;
@@ -68,7 +88,7 @@ public final class StrikeView {
 
     /** Where its attacker stands at the end of tick {@code tick} (from the cue, by the strike's displacement). */
     public void attackerAt(long tick, Pose out) {
-        StrikePath.at(attack, windupStartTick, windupTicks, cueTick, lockX, lockY, lockZ, yaw, tick, out);
+        StrikePath.at(attack, windupStartTick, windupTicks, cueTick, lockX, lockY, lockZ, yaw, lunge, tick, out);
     }
 
     /** Where its attacker stands at {@code micros}, between the ends of the ticks around it, into {@code out}. */

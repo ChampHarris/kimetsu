@@ -127,6 +127,7 @@ public final class Combatant {
     private int grabEscapes;
     private long lastEscapeBeat = NONE;
     private boolean escaped;
+    private long escapedAt = NONE;
     private long clashPress = NONE;
 
     private long clearedAt = NONE; // µs of the last effect that emptied the buffer: offence pressed before it is void
@@ -483,6 +484,7 @@ public final class Combatant {
         credit(beat, tick);
         if (++grabEscapes >= rules.grabEscapeInputs()) {
             escaped = true;
+            escapedAt = tick;
             recover(tick);
         }
     }
@@ -837,6 +839,7 @@ public final class Combatant {
                     grabEscapes = 0;
                     lastEscapeBeat = NONE;
                     escaped = false;
+                    escapedAt = NONE;
                 }
             }
             case Effect.Released r -> {
@@ -1216,6 +1219,11 @@ public final class Combatant {
         return escaped;
     }
 
+    /** The tick it broke free of its last grab, or {@code Long.MIN_VALUE}: the grabber's hold ends there. */
+    public long escapedAt() {
+        return escapedAt;
+    }
+
     /** The first attack press during a clash, or {@code Long.MIN_VALUE}: the clash judge's input. */
     public long clashPress() {
         return clashPress;
@@ -1316,6 +1324,7 @@ public final class Combatant {
         grabEscapes = o.grabEscapes;
         lastEscapeBeat = o.lastEscapeBeat;
         escaped = o.escaped;
+        escapedAt = o.escapedAt;
         clashPress = o.clashPress;
         mushinSpent = o.mushinSpent;
         clearedAt = o.clearedAt;
@@ -1376,6 +1385,7 @@ public final class Combatant {
                 && grabEscapes == o.grabEscapes
                 && lastEscapeBeat == o.lastEscapeBeat
                 && escaped == o.escaped
+                && escapedAt == o.escapedAt
                 && clashPress == o.clashPress
                 && mushinSpent == o.mushinSpent
                 && clearedAt == o.clearedAt

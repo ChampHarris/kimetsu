@@ -81,7 +81,7 @@ public final class Posture {
             return false;
         }
         if (restartDelay) {
-            regenFrom = tick + rules.delayTicks();
+            regenFrom = Math.max(regenFrom, tick + rules.delayTicks()); // never shortens a hold (holdRecovery)
         }
         long v = at(tick) - amount;
         if (v <= 0) {
@@ -106,6 +106,18 @@ public final class Posture {
         double v = rules.vitalityFloor() + (1 - rules.vitalityFloor()) * Math.max(0, 1 - share);
         if (v != vitality) {
             vitality = v;
+            retune(tick);
+        }
+    }
+
+    /**
+     * Recovery waits until at least {@code untilTick} (a demon lying collapsed: nothing moves it but death, D-036), as
+     * if the delay ran until then.
+     */
+    public void holdRecovery(long tick, long untilTick) {
+        settle(tick);
+        if (untilTick > regenFrom) {
+            regenFrom = untilTick;
             retune(tick);
         }
     }

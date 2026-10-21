@@ -3,6 +3,7 @@ package dev.champ.kimetsu.core.fight;
 import dev.champ.kimetsu.core.Fixtures;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.hit.Pose;
+import dev.champ.kimetsu.core.strike.Verdict;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -103,14 +104,29 @@ final class BoxDummy implements StrikeMob {
     }
 
     @Override
-    public void hit(long tick, int fighter, FrameData attack, int window, double damage, double posture) {
-        lose(posture, tick);
+    public HitResult hit(SwingHit h) {
+        if (h.neck()) {
+            return HitResult.NO_EFFECT; // a box has no neck
+        }
+        FrameData attack = h.attack();
+        lose(h.posture(), h.tick());
         log.add(String.format(
-                Locale.ROOT, "hit @%d by %d: %s w%d %.2f/%.2f", tick, fighter, attack.id(), window, damage, posture));
+                Locale.ROOT,
+                "hit @%d by %d: %s w%d %.2f/%.2f",
+                h.tick(),
+                h.fighter(),
+                attack.id(),
+                h.window(),
+                h.damage(),
+                h.posture()));
+        return HitResult.LANDED;
     }
 
     @Override
-    public void paid(long strike, long tick, double posture, int recoveryTicks) {
+    public void paid(long strike, long tick, Verdict.Kind best, double posture, int recoveryTicks) {
+        if (posture <= 0 && recoveryTicks <= 0) {
+            return;
+        }
         lose(posture, tick);
         paid += posture;
         recoveryAdded += recoveryTicks;
@@ -142,12 +158,12 @@ final class BoxDummy implements StrikeMob {
     }
 
     @Override
-    public void cancelled(long strike) {
+    public void cancelled(long strike, long tick) {
         log.add("cancelled " + strike);
     }
 
     @Override
-    public long brokenAt() {
+    public long stoppedAt() {
         return brokenAt;
     }
 

@@ -14,6 +14,7 @@ import dev.champ.kimetsu.core.fight.Outbox.PlayerEffect;
 import dev.champ.kimetsu.core.fight.Outbox.StrikeLocked;
 import dev.champ.kimetsu.core.fight.Outbox.StrikeResult;
 import dev.champ.kimetsu.core.fight.Outbox.SwingLanded;
+import dev.champ.kimetsu.core.hit.SwingTrack;
 import dev.champ.kimetsu.core.machine.Combatant;
 import dev.champ.kimetsu.core.machine.Input;
 import dev.champ.kimetsu.core.meter.Fixed;
@@ -46,7 +47,7 @@ class FightTracesTest {
         return sb.append("  this tick").toString();
     }
 
-    private static String machine(Combatant c, long n) {
+    static String machine(Combatant c, long n) {
         FrameData f = c.attack();
         Phase phase = c.phase(n);
         String what = c.state().name().toLowerCase(Locale.ROOT);
@@ -63,7 +64,7 @@ class FightTracesTest {
                 c.rhythm().points());
     }
 
-    private static String describe(Outbox.Event e, long n) {
+    static String describe(Outbox.Event e, long n) {
         return switch (e) {
             case AttackStarted s ->
                 String.format(
@@ -90,11 +91,32 @@ class FightTracesTest {
             case SwingLanded s ->
                 String.format(
                         Locale.ROOT,
-                        "%d's %s lands on %d%s",
+                        "%d's %s %s %d%s%s",
                         s.fighter(),
                         s.attack().replace("kimetsu:", ""),
+                        s.result() == HitResult.LANDED
+                                ? "lands on"
+                                : s.result().name().toLowerCase(Locale.ROOT) + " on",
                         s.mob(),
+                        s.part() == SwingTrack.NECK ? " (neck)" : "",
                         s.tick() == n ? "" : " back at " + s.tick());
+            case Outbox.HoldStarted h -> "demon " + h.mob() + " holds " + h.fighter() + " until " + h.throwTick();
+            case Outbox.HoldEnded h -> "hold on " + h.fighter() + " ends @" + h.tick() + ": " + h.how();
+            case Outbox.MobDied d -> "DEMON " + d.mob() + " DIES (" + d.by() + ")";
+            case Outbox.MobState m ->
+                String.format(
+                        Locale.ROOT,
+                        "demon %d: %s, Posture %.1f, stake %.1f%s",
+                        m.mob(),
+                        m.state(),
+                        m.posture() / (double) Fixed.ONE,
+                        m.stake() / (double) Fixed.ONE,
+                        m.threadUntil() == Long.MIN_VALUE ? "" : ", THREAD until " + m.threadUntil());
+            case Outbox.GuardYaw g -> "demon " + g.mob() + " guard " + g.step() * 360 / 256 + "°";
+            case Outbox.Targeting g -> "demon " + g.mob() + " targets " + g.fighter();
+            case Outbox.SwingDealt d -> String.format(Locale.ROOT, "(%.2f HP, %.2f Posture)", d.damage(), d.posture());
+            case Outbox.Clang c -> "CLANG on demon " + c.mob() + (c.recoils() ? ", it recoils" : "");
+            case Outbox.Pushed p -> "demon " + p.mob() + " pushed " + p.distance();
             case AttackCancelled c -> "strike " + c.strike() + " cancelled (" + c.why() + ")";
             case PlayerEffect pe ->
                 "→" + pe.fighter() + (pe.tick() == n ? "" : " @" + pe.tick()) + " "

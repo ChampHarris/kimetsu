@@ -14,6 +14,7 @@ import dev.champ.kimetsu.core.data.RhythmRules;
 import dev.champ.kimetsu.core.data.StrikeRules;
 import dev.champ.kimetsu.core.data.TimingRules;
 import dev.champ.kimetsu.core.hit.Contacts;
+import dev.champ.kimetsu.core.hit.Ground;
 import dev.champ.kimetsu.core.hit.HitMath;
 import dev.champ.kimetsu.core.hit.Pose;
 import dev.champ.kimetsu.core.hit.PoseRing;
@@ -22,7 +23,9 @@ import dev.champ.kimetsu.core.hit.SweepBounds;
 import dev.champ.kimetsu.core.hit.SweepShape;
 import dev.champ.kimetsu.core.hit.SweepShapes;
 import dev.champ.kimetsu.core.hit.Sweeper;
+import dev.champ.kimetsu.core.hit.SwingTrack;
 import dev.champ.kimetsu.core.hit.Targets;
+import dev.champ.kimetsu.core.hit.Trig;
 import dev.champ.kimetsu.core.machine.Combatant;
 import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.State;
@@ -84,6 +87,7 @@ public final class CombatWorld {
 
         long pathEnd = NONE;
         long frozenAt = Long.MAX_VALUE;
+        boolean dead; // decapitated: it takes no swings and commits nothing, and goes once its strikes are over
 
         Mob(StrikeMob body, Brain brain) {
             this.body = body;
@@ -94,10 +98,28 @@ public final class CombatWorld {
     /** A cancel to log on a player's machine when its next tick begins. */
     private record Queued(int fighter, long strike) {}
 
+    /** A grab's hold on a player (Rule 6.3): from its impact until an escape, an ally's hit, a stop or the throw. */
+    private static final class Hold {
+        final long strike;
+        final Mob mob;
+        final Fighter f;
+        final long from;
+        final long throwTick;
+
+        Hold(long strike, Mob mob, Fighter f, long from, long throwTick) {
+            this.strike = strike;
+            this.mob = mob;
+            this.f = f;
+            this.from = from;
+            this.throwTick = throwTick;
+        }
+    }
+
     private final HitRules hits;
     private final StrikeRules strikes;
     private final Moveset moves;
     private final Sight sight;
+    private final Ground ground;
     private final Verdicts verdicts;
     private final RhythmRules rhythm;
     private final BeatCap cap;
@@ -106,6 +128,7 @@ public final class CombatWorld {
     private final List<Mob> mobs = new ArrayList<>();
     private final List<PendingStrike> book = new ArrayList<>();
     private final List<Queued> queued = new ArrayList<>();
+    private final List<Hold> holds = new ArrayList<>();
     private final List<Effect> effects = new ArrayList<>();
     // by identity: an attack's data is loaded once, and hashing a whole record on every active tick would cost more
     private final IdentityHashMap<FrameData, SweepShape> shapes = new IdentityHashMap<>();
@@ -118,11 +141,14 @@ public final class CombatWorld {
     private final Pose other = new Pose();
     private final Pose at = new Pose();
     private final Outbox outbox = new Outbox();
+    private final SwingHit swing;
     private final StrikeView view;
     private int[] blocked = new int[8];
     private int blockedCount;
     private int[] busy = new int[4];
     private int busyCount;
+    private int[] stopped = new int[4];
+    private int stoppedCount;
     private long nextStrike = 1;
     private long nextString = 1;
     private long now = NONE;
@@ -130,10 +156,24 @@ public final class CombatWorld {
 
     public CombatWorld(
             HitRules hits, StrikeRules strikes, TimingRules timing, RhythmRules rhythm, Moveset moves, Sight sight) {
+        this(hits, strikes, timing, rhythm, moves, sight, Ground.OPEN);
+    }
+
+    /** The same, with the level's blocks stopping lunges ({@code ground}, D-042). */
+    public CombatWorld(
+            HitRules hits,
+            StrikeRules strikes,
+            TimingRules timing,
+            RhythmRules rhythm,
+            Moveset moves,
+            Sight sight,
+            Ground ground) {
         this.hits = hits;
         this.strikes = strikes;
         this.moves = moves;
         this.sight = sight;
+        this.ground = ground;
+        this.swing = new SwingHit(moves.pommel());
         this.verdicts = new Verdicts(hits, strikes, timing, rhythm);
         this.rhythm = rhythm;
         this.cap = new BeatCap(strikes.strikesPerTargetPerBeat());
@@ -159,6 +199,7 @@ public final class CombatWorld {
     /** A mob joins with its brain. Add mobs in id order. */
     public void add(StrikeMob body, Brain brain) {
         mobs.add(new Mob(body, brain));
+        body.joined(this);
     }
 
     /**
@@ -266,18 +307,22 @@ public final class CombatWorld {
         queued.clear();
         for (int i = 0; i < mobs.size(); i++) {
             Mob m = mobs.get(i);
+            m.body.beginTick(n);
             m.body.pose(n, pose);
             m.poses.put(Micros.ofTicks(n), pose.x(), pose.y(), pose.z(), pose.yaw(), pose.pitch());
         }
         committing = true;
         for (int i = 0; i < mobs.size(); i++) {
             Mob m = mobs.get(i);
-            m.brain.decide(n, m.body, this);
+            if (!m.dead) {
+                m.brain.decide(n, m.body, this);
+            }
         }
         committing = false;
         involve(n);
         sweepAll();
         resolve(n);
+        holds(n);
         depart(n);
         for (int i = 0; i < fighters.size(); i++) {
             fighters.get(i).timeline().endTick(n);
@@ -285,6 +330,33 @@ public final class CombatWorld {
         for (int i = 0; i < mobs.size(); i++) {
             mobs.get(i).body.endTick(n);
         }
+        bury();
+    }
+
+    /**
+     * A mob that died otherwise than by a player's cut (the demon: {@code /kill}, the void) is dead to the loop too; a
+     * dead mob goes once none of its strikes is still to be decided.
+     */
+    private void bury() {
+        for (int i = mobs.size() - 1; i >= 0; i--) {
+            Mob m = mobs.get(i);
+            if (!m.dead && m.body.dead()) {
+                m.dead = true;
+                outbox.add(new Outbox.MobDied(m.body.id(), Math.max(m.body.stoppedAt(), now), -1));
+            }
+            if (m.dead && !striking(m.body.id())) {
+                mobs.remove(i);
+            }
+        }
+    }
+
+    private boolean striking(int mob) {
+        for (int i = 0; i < book.size(); i++) {
+            if (book.get(i).attacker() == mob && book.get(i).status() == PendingStrike.Status.PENDING) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -307,7 +379,7 @@ public final class CombatWorld {
             }
             freeze(s, Micros.tickOf(cutoffMicros));
             payAnswered(s);
-            mob(s.attacker()).body.cancelled(s.id());
+            mob(s.attacker()).body.cancelled(s.id(), Math.max(s.commitTick(), Micros.tickOf(cutoffMicros)));
             outbox.add(new Outbox.AttackCancelled(s.id(), now + 1, "epoch"));
         }
         book.clear();
@@ -338,6 +410,10 @@ public final class CombatWorld {
         if (t.leaving) {
             return Scheduler.Plan.refuse("player " + target + " is leaving the fight");
         }
+        Mob attacker = mob(mob);
+        if (attacker.dead || attacker.body.dead()) {
+            return Scheduler.Plan.refuse("mob " + mob + " is dead");
+        }
         Scheduler.Plan p = Scheduler.planUnderCap(now, string, t.pulse(), strikes, beatAtLeast, cap, target);
         if (!p.ok()) {
             return p;
@@ -347,8 +423,9 @@ public final class CombatWorld {
         List<Scheduler.Slot> slots = p.slots();
         for (int k = 0; k < slots.size(); k++) {
             Scheduler.Slot slot = slots.get(k);
-            PendingStrike s = new PendingStrike(nextStrike++, mob, target, sid, k == slots.size() - 1, slot);
+            PendingStrike s = new PendingStrike(nextStrike++, mob, target, sid, k == slots.size() - 1, slot, now);
             insert(s);
+            mob(mob).body.scheduled(s);
             tell(s, t, now);
             outbox.add(new Outbox.AttackStarted(
                     s.id(),
@@ -405,11 +482,12 @@ public final class CombatWorld {
             FrameData f = s.attack();
             if (!s.locked()) {
                 m.poses.at(Micros.ofTicks(n), pose);
-                s.lock(pose.x(), pose.y(), pose.z(), pose.yaw());
+                double lunge = lunge(s, m, n);
+                s.lock(pose.x(), pose.y(), pose.z(), pose.yaw(), lunge);
                 m.path = s;
                 m.pathEnd = s.slot().windupStartTick() + s.slot().windupTicks() + f.active() + f.recovery();
                 m.frozenAt = Long.MAX_VALUE;
-                outbox.add(new Outbox.StrikeLocked(s.id(), pose.yaw(), pose.x(), pose.y(), pose.z()));
+                outbox.add(new Outbox.StrikeLocked(s.id(), pose.yaw(), pose.x(), pose.y(), pose.z(), lunge));
             }
             Sweep sweep = f.sweep();
             if (sweep == null) {
@@ -450,6 +528,46 @@ public final class CombatWorld {
                 }
             }
         }
+    }
+
+    /**
+     * The share of strike {@code s}'s displacement its attacker runs, decided as its cue locks it at tick {@code n} with
+     * the attacker at {@code pose} (D-042): all of it, unless that would carry it within its standoff of where its
+     * target stands now, or into a wall. A string of three swipes no longer walks the demon through its target.
+     */
+    private double lunge(PendingStrike s, Mob m, long n) {
+        s.lock(pose.x(), pose.y(), pose.z(), pose.yaw()); // the whole path first, to measure it
+        s.attackerAt(
+                s.slot().windupStartTick()
+                        + s.slot().windupTicks()
+                        + s.attack().active()
+                        + s.attack().recovery(),
+                at);
+        double dx = at.x() - pose.x();
+        double dz = at.z() - pose.z();
+        double length = Math.sqrt(dx * dx + dz * dz);
+        if (length < 1e-9) {
+            return 1;
+        }
+        double ux = dx / length;
+        double uz = dz / length;
+        double allowed = length;
+        double standoff = m.body.lungeStandoff();
+        Fighter t = fighter(s.target());
+        if (standoff > 0 && t != null && t.poses().size() > 0) {
+            t.poses().at(Micros.ofTicks(n), other); // its newest pose when its frame for n hasn't arrived
+            double tx = other.x() - pose.x();
+            double tz = other.z() - pose.z();
+            double along = tx * ux + tz * uz;
+            double across2 = tx * tx + tz * tz - along * along;
+            if (along > 0 && across2 < standoff * standoff) {
+                allowed = Math.min(allowed, Math.max(0, along - Math.sqrt(standoff * standoff - across2)));
+            }
+        }
+        allowed = Math.min(
+                allowed,
+                ground.clear(pose.x(), pose.y(), pose.z(), m.body.halfWidth(), m.body.height(), ux, uz, length));
+        return Math.max(0, Math.min(1, allowed / length));
     }
 
     /**
@@ -534,10 +652,13 @@ public final class CombatWorld {
         targets.clear();
         for (int i = 0; i < mobs.size(); i++) {
             Mob m = mobs.get(i);
+            if (m.dead) {
+                continue;
+            }
             StrikeMob b = m.body;
             m.poses.at(Micros.ofTicks(t - 1), pose);
             m.poses.at(Micros.ofTicks(t), other);
-            targets.add(
+            int index = targets.add(
                     b.id(),
                     pose.x() - b.halfWidth(),
                     pose.y(),
@@ -551,6 +672,11 @@ public final class CombatWorld {
                     other.x() + b.halfWidth(),
                     other.y() + b.height(),
                     other.z() + b.halfWidth());
+            Sweep.Box neck = b.neck(t);
+            if (neck != null) {
+                Sweep.Box before = b.neck(t - 1);
+                neck(index, before == null ? neck : before, neck);
+            }
         }
         contacts.clear();
         sweeper.sweep(
@@ -568,21 +694,88 @@ public final class CombatWorld {
         if (a.attackClass() == AttackClass.POMMEL) {
             return true; // its only effect is the timed answer (Rule 5.2, D-041): no hit, no combo, no credit
         }
-        for (int i = 0; i < contacts.size(); i++) {
+        boolean connected = false;
+        boolean credited = false;
+        stoppedCount = 0; // the mobs whose guard stopped this swing this tick: their later contacts come to nothing
+        f.poses().at(Micros.ofTicks(t), at);
+        // necks first: a cut whose body contact breaks Posture mustn't also take the head through the Thread it opened
+        for (int k = 0; k < 2 * contacts.size(); k++) {
+            int i = k % contacts.size();
+            if ((k < contacts.size()) != (contacts.part(i) == SwingTrack.NECK)) {
+                continue;
+            }
             Mob m = mob(contacts.target(i));
+            if (m.dead || contains(stopped, stoppedCount, m.body.id())) {
+                continue;
+            }
             int window = contacts.window(i);
             HitWindow w = a.hits().get(window);
             double mult = c.rhythm().multiplier();
             double damage = HitMath.damage(w, mult, HitMath.standIn(a, c.attackMushin(), moves), c.assistLevel(), hits);
             double posture = HitMath.posture(w, mult, c.assistLevel(), hits);
-            m.body.hit(t, f.id(), a, window, damage, posture);
-            log(f, new Effect.Connected(), t);
-            if (c.attackOnBeat()) {
-                log(f, new Effect.Credit(c.attackBeat()), t);
+            swing.set(
+                    t,
+                    f.id(),
+                    c.attackId(),
+                    a,
+                    window,
+                    contacts.part(i),
+                    damage,
+                    posture,
+                    at.x(),
+                    at.z(),
+                    c.attackBeat());
+            HitResult r = m.body.hit(swing);
+            if (r.blocked()) {
+                f.track.consumeSwing(m.body.id()); // a form is blocked whole, once (Rule 11.4)
+                stopped = add(stopped, stoppedCount++, m.body.id());
             }
-            outbox.add(new Outbox.SwingLanded(f.id(), m.body.id(), a.id(), window, t, damage, posture));
+            if (r != HitResult.NO_EFFECT && !connected) {
+                log(f, new Effect.Connected(), t); // a blocked swing touched it too (Water's guard-cancel, R9-09)
+                connected = true;
+            }
+            if (!credited && c.attackOnBeat() && (r.landed() || (r.blocked() && m.body.blocksScore()))) {
+                log(f, new Effect.Credit(c.attackBeat()), t); // a blocked hit scores nothing (Rule 11.4)
+                credited = true;
+            }
+            outbox.add(new Outbox.SwingLanded(f.id(), m.body.id(), a.id(), window, contacts.part(i), t, r));
+            if (r.landed()) {
+                outbox.add(new Outbox.SwingDealt(f.id(), m.body.id(), window, t, damage, posture));
+            }
+            if (r.landed()) {
+                free(m, f, t);
+            }
+            if (r == HitResult.DECAPITATED) {
+                m.dead = true;
+                outbox.add(new Outbox.MobDied(m.body.id(), t, f.id()));
+            }
         }
         return true;
+    }
+
+    /**
+     * Target {@code index}'s neck box from {@code before} at the tick's start to {@code after} at its end, each in its
+     * own frame, placed by its poses then ({@code pose}, {@code other}): x right, y up, z forward from the feet.
+     */
+    private void neck(int index, Sweep.Box before, Sweep.Box after) {
+        double s0 = Trig.sinDeg(pose.yaw());
+        double c0 = Trig.cosDeg(pose.yaw());
+        double s1 = Trig.sinDeg(other.yaw());
+        double c1 = Trig.cosDeg(other.yaw());
+        // forward is (−sin ψ, 0, cos ψ) and right (−cos ψ, 0, −sin ψ), as the hit frame's axes
+        targets.neck(
+                index,
+                pose.x() - c0 * before.cx() - s0 * before.cz(),
+                pose.y() + before.cy(),
+                pose.z() - s0 * before.cx() + c0 * before.cz(),
+                pose.yaw(),
+                other.x() - c1 * after.cx() - s1 * after.cz(),
+                other.y() + after.cy(),
+                other.z() - s1 * after.cx() + c1 * after.cz(),
+                other.yaw(),
+                after.hx(),
+                after.hy(),
+                after.hz());
     }
 
     /** An attack's compiled sweep, compiled once (its arc, when it has one, comes with the animations: slice 5). */
@@ -603,11 +796,14 @@ public final class CombatWorld {
         return e;
     }
 
-    /** A mob whose Posture broke at tick b cancels its strikes landing after b, impact passed or not (Rule 3.9). */
+    /**
+     * A mob that stopped at tick b (its Posture broke; the demon also collapses and dies) cancels its strikes landing
+     * after b, impact passed or not (Rule 3.9).
+     */
     private void breaks() {
         for (int i = 0; i < mobs.size(); i++) {
             Mob m = mobs.get(i);
-            long b = m.body.brokenAt();
+            long b = m.body.stoppedAt();
             if (b == NONE || b == m.handledBreak) {
                 continue;
             }
@@ -615,7 +811,7 @@ public final class CombatWorld {
             for (int j = 0; j < book.size(); j++) {
                 PendingStrike s = book.get(j);
                 if (s.attacker() == m.body.id() && s.status() == PendingStrike.Status.PENDING && s.impactTick() > b) {
-                    drop(s, "posture break", b);
+                    drop(s, m.body.stopReason(), b);
                 }
             }
         }
@@ -799,7 +995,8 @@ public final class CombatWorld {
                 s.lockY(),
                 s.lockZ(),
                 mob(s.attacker()).body.eyeHeight(),
-                s.lockedYaw());
+                s.lockedYaw(),
+                s.lunge());
     }
 
     /**
@@ -807,7 +1004,7 @@ public final class CombatWorld {
      * released, then its held ticks swept late (D-034).
      */
     private void decideFor(PendingStrike s, int j, Fighter f) {
-        // slice 4: a clash with the defender's own heavy attack or form is found here, before the verdict
+        // slice 4b: a clash with the defender's own heavy attack or form is found here, before the verdict
         long tick = s.impactTick();
         verdicts.judge(
                 view,
@@ -824,7 +1021,82 @@ public final class CombatWorld {
         s.answer(verdict.kind(), verdict.attackerPosture(), verdict.attackerRecoveryTicks());
         s.decideFor(j);
         outbox.add(new Outbox.StrikeResult(s.id(), f.id(), verdict.kind(), damage));
+        if (verdict.kind() == Verdict.Kind.GRAB) {
+            hold(s, f, tick);
+        }
+        pay(s); // at once: a Perfect's break reaches this player's held ticks, and needn't wait for a slower ally
+        if (s.allDecided()) {
+            complete(s);
+        }
         sweepAll(); // its held ticks, against the mobs as they stood then
+    }
+
+    /** Strike {@code s}, a grab, connected on {@code f} at {@code tick}: the hold runs to its throw (Rule 6.3). */
+    private void hold(PendingStrike s, Fighter f, long tick) {
+        Mob m = mob(s.attacker());
+        long beat = f.pulse().nearestBeat(s.impactMicros());
+        long throwTick = Micros.stepOf(f.pulse().beatMicros(beat + strikes.grabHoldBeats()));
+        holds.add(new Hold(s.id(), m, f, tick, throwTick));
+        m.body.holding(s.id(), tick);
+        outbox.add(new Outbox.HoldStarted(s.id(), s.attacker(), f.id(), tick, throwTick));
+    }
+
+    /**
+     * Step 5, after the strikes: each hold ends at the first of the player's escape (three on-beat presses, which its
+     * own machine already acted on), the grabber stopping (a Posture break, a collapse, a death), the player leaving,
+     * or the throw at its last beat once the player's input has passed it (1.0 damage and a KNOCKDOWN; no opening).
+     */
+    private void holds(long n) {
+        for (int i = 0; i < holds.size(); i++) {
+            Hold h = holds.get(i);
+            long stop = h.mob.body.stoppedAt();
+            long escaped = h.f.timeline().live().escapedAt();
+            boolean escapes = escaped != NONE && escaped >= h.from && escaped <= h.throwTick;
+            boolean stops = stop != NONE && stop >= h.from && stop <= h.throwTick;
+            if (escapes && (!stops || escaped <= stop)) {
+                end(i--, escaped, Release.ESCAPED);
+            } else if (stops) {
+                log(h.f, new Effect.Released(), stop);
+                end(i--, stop, Release.DROPPED);
+            } else if (h.f.leaving) {
+                end(i--, Math.min(n, h.throwTick), Release.THROWN); // logging out can't dodge the throw (D-043)
+            } else if (n >= h.throwTick
+                    && h.f.horizon()
+                            .decided(
+                                    Micros.ofTicks(h.throwTick),
+                                    true,
+                                    Micros.ofTicks(n),
+                                    h.f.holdCapMicros(),
+                                    h.f.earliestHeldMicros())) {
+                log(h.f, new Effect.Released(), h.throwTick);
+                log(h.f, new Effect.Hit(AttackClass.GRAB, 0), h.throwTick);
+                log(h.f, new Effect.Knockdown(), h.throwTick);
+                end(i--, h.throwTick, Release.THROWN);
+            }
+        }
+    }
+
+    /** A landed hit on {@code m} at {@code t} by {@code by} frees the player its grab holds, if it's someone else. */
+    private void free(Mob m, Fighter by, long t) {
+        for (int i = 0; i < holds.size(); i++) {
+            Hold h = holds.get(i);
+            if (h.mob == m && h.f != by && t >= h.from && t <= h.throwTick) {
+                long escaped = h.f.timeline().live().escapedAt();
+                if (escaped != NONE && escaped >= h.from && escaped <= t) {
+                    end(i--, escaped, Release.ESCAPED);
+                } else {
+                    log(h.f, new Effect.Released(), t);
+                    end(i--, t, Release.FREED);
+                }
+            }
+        }
+    }
+
+    private void end(int i, long tick, Release how) {
+        Hold h = holds.remove(i);
+        h.mob.body.released(h.strike, tick, how);
+        double damage = how == Release.THROWN ? strikes.throwDamage() : 0;
+        outbox.add(new Outbox.HoldEnded(h.strike, h.f.id(), tick, how, damage));
     }
 
     /** Logs the verdict's effects on {@code f} at the impact tick ({@link Verdicts#effects}); returns the HP damage. */
@@ -838,14 +1110,34 @@ public final class CombatWorld {
         return landed ? s.attack().hits().get(0).damage() : 0;
     }
 
-    /** Decided for everyone: the attacker pays once, for the best answer (D-039); a break that causes is at the impact. */
+    /** Decided for everyone: the attacker learns its best answer (a guard counter settles its stake by it). */
     private void complete(PendingStrike s) {
         s.decide();
         cap.remove(s.target(), s.beat());
-        if (s.bestPosture() > 0 || s.bestRecovery() > 0) {
-            mob(s.attacker()).body.paid(s.id(), s.impactTick(), s.bestPosture(), s.bestRecovery());
-            breaks(); // before this pass decides any strike of the breaker's landing after it
+        mob(s.attacker()).body.decided(s.id(), s.impactTick(), s.bestKind());
+        breaks();
+    }
+
+    /**
+     * The attacker pays, as of the impact, what the best answer so far costs beyond what it has paid (D-039 pays the best
+     * answer once; D-045 pays it as soon as it's known). A Perfect's added recovery holds it on the strike's path for as
+     * much longer (Rule 7.13). A break that causes cancels its strikes landing after the impact, before this pass
+     * decides any of them.
+     */
+    private void pay(PendingStrike s) {
+        double posture = s.bestPosture() - s.paidPosture();
+        int recovery = s.bestRecovery() - s.paidRecovery();
+        boolean answered = s.bestKind() == Verdict.Kind.PERFECT || s.bestKind() == Verdict.Kind.DEFLECT;
+        if (posture <= 0 && recovery <= 0 && (!answered || s.paidAnswered())) {
+            return;
         }
+        Mob m = mob(s.attacker());
+        m.body.paid(s.id(), s.impactTick(), s.bestKind(), Math.max(0, posture), Math.max(0, recovery));
+        s.paid(s.bestPosture(), s.bestRecovery(), answered);
+        if (m.path == s && recovery > 0) {
+            m.pathEnd += recovery;
+        }
+        breaks();
     }
 
     /**
@@ -882,7 +1174,7 @@ public final class CombatWorld {
         cap.remove(s.target(), s.beat());
         freeze(s, stopsAt);
         payAnswered(s);
-        mob(s.attacker()).body.cancelled(s.id());
+        mob(s.attacker()).body.cancelled(s.id(), Math.max(s.commitTick(), stopsAt));
         outbox.add(new Outbox.AttackCancelled(s.id(), now, why));
     }
 
@@ -891,8 +1183,8 @@ public final class CombatWorld {
      * would have. A break that causes is handled where breaks are: after the next swept tick or the next payment.
      */
     private void payAnswered(PendingStrike s) {
-        if (s.decidedCount() > 0 && (s.bestPosture() > 0 || s.bestRecovery() > 0)) {
-            mob(s.attacker()).body.paid(s.id(), s.impactTick(), s.bestPosture(), s.bestRecovery());
+        if (s.decidedCount() > 0) {
+            pay(s);
         }
     }
 

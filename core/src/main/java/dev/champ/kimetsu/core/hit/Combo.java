@@ -25,6 +25,12 @@ public final class Combo {
         return count;
     }
 
+    /** Becomes an exact copy of {@code other} (a state snapshot). */
+    public void copyFrom(Combo other) {
+        last = other.last;
+        count = other.count;
+    }
+
     public void reset() {
         last = NONE;
         count = 0;

@@ -690,16 +690,20 @@ class FrameDataTest {
         rejects(() -> rules.check(quick(7)), "kimetsu:test/quick", "cue.lead", "at least 8");
         assertDoesNotThrow(() -> rules.check(quick(8)), "exactly the minimum lead is enough");
         assertDoesNotThrow(() -> rules.check(Fixtures.water().chain(0))); // a player's attack has no cue to hold
-        rejects(() -> new StrikeRules(0, 8, 2, 120, 4, 8, 0.07, 8, 10), "strikes_per_target_per_beat");
-        rejects(() -> new StrikeRules(2, 0, 2, 120, 4, 8, 0.07, 8, 10), "min_cue_lead_ticks");
-        rejects(() -> new StrikeRules(2, 8, -1, 120, 4, 8, 0.07, 8, 10), "commit_margin_ticks");
-        rejects(() -> new StrikeRules(2, 8, 2, 400, 4, 8, 0.07, 8, 10), "guard_arc_deg");
-        rejects(() -> new StrikeRules(2, 8, 2, 240, 4, 8, 0.07, 8, 10), "guard_arc_deg"); // past what Facing tests
-        rejects(() -> new StrikeRules(2, 8, 2, 120, -4, 8, 0.07, 8, 10), "deflect_defender_posture");
-        rejects(() -> new StrikeRules(2, 8, 2, 120, 4, Double.NaN, 0.07, 8, 10), "deflect_attacker_posture");
-        rejects(() -> new StrikeRules(2, 8, 2, 120, 4, 8, 1.5, 8, 10), "perfect_attacker_share");
-        rejects(() -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, -1, 10), "perfect_recovery_ticks");
-        rejects(() -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, -1), "pommel_stun_ticks");
+        rejects(() -> new StrikeRules(0, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0), "strikes_per_target_per_beat");
+        rejects(() -> new StrikeRules(2, 0, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0), "min_cue_lead_ticks");
+        rejects(() -> new StrikeRules(2, 8, -1, 120, 4, 8, 0.07, 8, 10, 6, 1.0), "commit_margin_ticks");
+        rejects(() -> new StrikeRules(2, 8, 2, 400, 4, 8, 0.07, 8, 10, 6, 1.0), "guard_arc_deg");
+        rejects(
+                () -> new StrikeRules(2, 8, 2, 240, 4, 8, 0.07, 8, 10, 6, 1.0),
+                "guard_arc_deg"); // past what Facing tests
+        rejects(() -> new StrikeRules(2, 8, 2, 120, -4, 8, 0.07, 8, 10, 6, 1.0), "deflect_defender_posture");
+        rejects(() -> new StrikeRules(2, 8, 2, 120, 4, Double.NaN, 0.07, 8, 10, 6, 1.0), "deflect_attacker_posture");
+        rejects(() -> new StrikeRules(2, 8, 2, 120, 4, 8, 1.5, 8, 10, 6, 1.0), "perfect_attacker_share");
+        rejects(() -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, -1, 10, 6, 1.0), "perfect_recovery_ticks");
+        rejects(() -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, -1, 6, 1.0), "pommel_stun_ticks");
+        rejects(() -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 0, 1.0), "grab_hold_beats");
+        rejects(() -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, -1), "throw_damage");
     }
 
     @Test

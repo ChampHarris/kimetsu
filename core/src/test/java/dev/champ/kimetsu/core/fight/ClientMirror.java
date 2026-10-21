@@ -148,7 +148,8 @@ final class ClientMirror {
                             l.y(),
                             l.z(),
                             Fixtures.DEMON_EYE,
-                            l.yaw());
+                            l.yaw(),
+                            l.lunge());
             Combatant state = timeline.stateAt(s.impactTick());
             boolean pommelled = f.attackClass() == AttackClass.GRAB
                     || (f.cue().type() == Cue.Type.RED && f.cue().charged());

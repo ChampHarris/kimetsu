@@ -25,22 +25,35 @@ public final class PendingStrike {
     private final long string;
     private final boolean last;
     private final Scheduler.Slot slot;
+    private final long commitTick;
     private Status status = Status.PENDING;
     private boolean locked;
     private double lockX;
     private double lockY;
     private double lockZ;
     private double lockedYaw;
+    private double lunge = 1;
     private int[] involved = new int[4];
     private boolean[] decided = new boolean[4];
     private int count;
     private int decidedCount;
     private int bestRank = -1;
+    private Verdict.Kind bestKind = Verdict.Kind.MISS;
     private double bestPosture;
     private int bestRecovery;
+    private double paidPosture;
+    private int paidRecovery;
+    private boolean paidAnswered;
 
     public PendingStrike(long id, int attacker, int target, long string, boolean last, Scheduler.Slot slot) {
+        this(id, attacker, target, string, last, slot, slot.cueTick());
+    }
+
+    /** The same, committed at tick {@code commitTick}. */
+    public PendingStrike(
+            long id, int attacker, int target, long string, boolean last, Scheduler.Slot slot, long commitTick) {
         this.id = id;
+        this.commitTick = commitTick;
         this.attacker = attacker;
         this.target = target;
         this.string = string;
@@ -78,6 +91,11 @@ public final class PendingStrike {
 
     public Scheduler.Slot slot() {
         return slot;
+    }
+
+    /** The tick it was committed in (Rule 7.11). */
+    public long commitTick() {
+        return commitTick;
     }
 
     public long impactTick() {
@@ -133,11 +151,22 @@ public final class PendingStrike {
 
     /** Its cue fired with the attacker's feet at {@code (x, y, z)}, facing {@code yaw}: its direction is locked. */
     public void lock(double x, double y, double z, double yaw) {
+        lock(x, y, z, yaw, 1);
+    }
+
+    /** The same, running only {@code lunge} of its displacement (D-042: stopped short of its target or a wall). */
+    public void lock(double x, double y, double z, double yaw, double lunge) {
         locked = true;
         lockX = x;
         lockY = y;
         lockZ = z;
         lockedYaw = yaw;
+        this.lunge = lunge;
+    }
+
+    /** The share of its displacement it runs (1 unless clipped at the lock). */
+    public double lunge() {
+        return lunge;
     }
 
     /** Where the strike carries its attacker by the end of tick {@code tick} (it must be locked). */
@@ -151,6 +180,7 @@ public final class PendingStrike {
                 lockY,
                 lockZ,
                 lockedYaw,
+                lunge,
                 tick,
                 out);
     }
@@ -202,14 +232,41 @@ public final class PendingStrike {
         int rank = kind == Verdict.Kind.PERFECT ? 2 : kind == Verdict.Kind.DEFLECT ? 1 : 0;
         if (rank > bestRank || (rank == bestRank && posture > bestPosture)) {
             bestRank = rank;
+            bestKind = kind;
             bestPosture = posture;
             bestRecovery = recoveryTicks;
         }
     }
 
+    /** The best answer so far (a Perfect over a deflect over the first other verdict); {@code MISS} before any. */
+    public Verdict.Kind bestKind() {
+        return bestKind;
+    }
+
     /** The Posture the best answer so far costs the attacker. */
     public double bestPosture() {
         return bestPosture;
+    }
+
+    /** What its attacker has paid so far: the Posture, and the ticks added to its recovery. */
+    public double paidPosture() {
+        return paidPosture;
+    }
+
+    public int paidRecovery() {
+        return paidRecovery;
+    }
+
+    /** Whether its attacker has been told of a deflect or a Perfect on it. */
+    public boolean paidAnswered() {
+        return paidAnswered;
+    }
+
+    /** Its attacker has paid {@code posture} and {@code recovery} in all, and been told whether it was answered. */
+    public void paid(double posture, int recovery, boolean answered) {
+        paidPosture = Math.max(paidPosture, posture);
+        paidRecovery = Math.max(paidRecovery, recovery);
+        paidAnswered |= answered;
     }
 
     /** The ticks the best answer so far adds to the attacker's recovery. */

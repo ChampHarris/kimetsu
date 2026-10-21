@@ -17,6 +17,8 @@ package dev.champ.kimetsu.core.data;
  * @param perfectRecoveryTicks the ticks a Perfect on a string's last strike adds to the attacker's recovery (Rule 2.6,
  *     Rule 11.3: 8)
  * @param pommelStunTicks how long a Pommel Strike that interrupts a strike stuns its attacker (Rule 5.2: 10 ticks)
+ * @param grabHoldBeats how many of the grabbed player's beats a grab holds before the grabber throws (Rule 6.3: 6)
+ * @param throwDamage the throw's damage (Rule 6.3: 1.0)
  */
 public record StrikeRules(
         int strikesPerTargetPerBeat,
@@ -27,7 +29,9 @@ public record StrikeRules(
         double deflectAttackerPosture,
         double perfectAttackerShare,
         int perfectRecoveryTicks,
-        int pommelStunTicks) {
+        int pommelStunTicks,
+        int grabHoldBeats,
+        double throwDamage) {
 
     public StrikeRules {
         Check.positive("strikes_per_target_per_beat", strikesPerTargetPerBeat);
@@ -39,6 +43,8 @@ public record StrikeRules(
         Check.between("perfect_attacker_share", perfectAttackerShare, 0.0, 1.0);
         Check.atLeast("perfect_recovery_ticks", perfectRecoveryTicks, 0);
         Check.atLeast("pommel_stun_ticks", pommelStunTicks, 0);
+        Check.positive("grab_hold_beats", grabHoldBeats);
+        Check.atLeast("throw_damage", throwDamage, 0.0);
     }
 
     /**

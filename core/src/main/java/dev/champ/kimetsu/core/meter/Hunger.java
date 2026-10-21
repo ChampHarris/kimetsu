@@ -23,6 +23,14 @@ public final class Hunger {
         return value;
     }
 
+    /** Becomes an exact copy of {@code other} (a state snapshot). */
+    public void copyFrom(Hunger other) {
+        if (!other.rules.equals(rules)) {
+            throw new IllegalArgumentException("a Hunger copies only one with the same rules");
+        }
+        value = other.value;
+    }
+
     /** Cellular Hardening: strictly above the line. */
     public boolean hardened() {
         return value > Math.round(max * rules.hardeningAbove());

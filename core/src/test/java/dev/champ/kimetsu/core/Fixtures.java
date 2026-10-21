@@ -4,6 +4,7 @@ import dev.champ.kimetsu.core.data.Armour;
 import dev.champ.kimetsu.core.data.AttackClass;
 import dev.champ.kimetsu.core.data.BreathRules;
 import dev.champ.kimetsu.core.data.ClockRules;
+import dev.champ.kimetsu.core.data.DemonProfile;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.FrameData.BeatLock;
 import dev.champ.kimetsu.core.data.FrameData.Cancel;
@@ -24,6 +25,7 @@ import dev.champ.kimetsu.core.data.Style;
 import dev.champ.kimetsu.core.data.TimingRules;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -125,6 +127,77 @@ public final class Fixtures {
                 0.25); // Cellular Hardening above 25%
     }
 
+    // The M1 demon's combatant profile (Rules 8, 11; Numbers "Demon", "Guard stance", "Guard counter", "Strings",
+    // "Demon feints"; slice 4's PROPOSED sizes and gap calls, D-044 and D-045).
+    public static final String SWIPE_ID = "kimetsu:m1_demon/swipe";
+    public static final String HEAVY_ID = "kimetsu:m1_demon/heavy";
+    public static final String LEAP_ID = "kimetsu:m1_demon/leap";
+    public static final String SWEEP_ID = "kimetsu:m1_demon/sweep";
+    public static final String GRAB_ID = "kimetsu:m1_demon/grab";
+    public static final String COUNTER_ID = "kimetsu:m1_demon/guard_counter";
+
+    public static DemonProfile demon() {
+        List<String> all = List.of(SWIPE_ID, HEAVY_ID, LEAP_ID, SWEEP_ID, GRAB_ID);
+        List<String> notHeavy = List.of(SWIPE_ID, LEAP_ID, SWEEP_ID, GRAB_ID);
+        return new DemonProfile(
+                "kimetsu:m1_demon",
+                new DemonProfile.Body(DEMON_HALF_WIDTH, DEMON_HEIGHT, DEMON_EYE),
+                100, // HP 100
+                demonPosture(),
+                hunger(),
+                new DemonProfile.Regen(1.0, 0, DemonProfile.PauseOn.NICHIRIN), // 1 HP/s, no pause (R9-03)
+                new DemonProfile.Neck(
+                        new Sweep.Box(0, 1.5, 0, 0.18, 0.18, 0.18), // a 0.36-block box at 1.5 up (slice 3)
+                        new Sweep.Box(0, 0.95, 0.15, 0.18, 0.18, 0.18)), // kneeling (PROPOSED)
+                new DemonProfile.Clang(1.0, 6, 40), // ×1.0, a 6-tick recoil, at most once per 2 s
+                30, // Thread: 1.5 s
+                new DemonProfile.Collapse(100, 0.5, 0.25), // 5 s at 0.5 HP, rises at 25%
+                0.25, // outside damage never below 25% HP
+                new DemonProfile.Knockdown(20, 8, 2.0, 10), // a wall splat: 2.0 and a knockdown, within 10 ticks
+                4, // a push runs over 4 ticks (PROPOSED)
+                new DemonProfile.Guard(
+                        120, // arc 120°
+                        15, // turns 15° a tick
+                        8, // a blocked Chain hit: 8 Posture
+                        20, // a blocked form: 20
+                        false, // blocks score nothing
+                        false, // ... and don't restart the recovery delay
+                        new DemonProfile.Counter(1, COUNTER_ID, true, DemonProfile.Opens.ANSWERED)),
+                new DemonProfile.Strings(
+                        List.of(45, 35, 20), // 1, 2, 3 strikes
+                        4, // a new string 4 ± 1 beats after the last ends
+                        1,
+                        2,
+                        Map.of(SWIPE_ID, 52, HEAVY_ID, 18, LEAP_ID, 11, SWEEP_ID, 9, GRAB_ID, 10),
+                        Map.of(SWIPE_ID, all, HEAVY_ID, notHeavy, LEAP_ID, all, SWEEP_ID, all, GRAB_ID, all),
+                        List.of(LEAP_ID, GRAB_ID), // they end a string
+                        LEAP_ID,
+                        0.08, // 8% of strings open with a feint
+                        5, // ... its cue breaking 250 ms before its impact
+                        1.1, // lunges stop 1.1 blocks from the target (PROPOSED)
+                        3.5), // it commits with its target within 3.5 blocks
+                new DemonProfile.Senses(24, 200, 20), // 24 blocks; idle after 10 s; targeted every 1 s
+                12, // reels 12 ticks after a grab escape (the sim's half recovery)
+                new DemonProfile.Clash(380, 60)); // ruling Q12
+    }
+
+    /** The M1 demon's attacks by id. */
+    public static Map<String, FrameData> demonAttacks() {
+        return Map.of(
+                SWIPE_ID,
+                swipe(),
+                HEAVY_ID,
+                heavy(),
+                LEAP_ID,
+                leap(),
+                SWEEP_ID,
+                lowSweep(),
+                GRAB_ID,
+                grab(),
+                COUNTER_ID,
+                guardCounter());
+    }
+
     public static MachineRules machine() {
         return new MachineRules(
                 3, // Input buffer: 3 ticks
@@ -168,7 +241,9 @@ public final class Fixtures {
                 4, 8, // Deflect Posture: −4 defender, −8 attacker
                 0.07, // Perfect Posture damage: 7% of attacker's max × Rhythm multiplier
                 8, // Perfect recovery penalty: +8 ticks
-                10); // Pommel Strike: stun 10 ticks
+                10, // Pommel Strike: stun 10 ticks
+                6, // Grab hold: thrown after 6 beats
+                1.0); // ... for 1.0 damage
     }
 
     // Bodies (blocks): vanilla's player, and the M1 demon at a zombie's size (slice 3, PROPOSED).

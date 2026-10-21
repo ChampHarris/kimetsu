@@ -49,6 +49,25 @@ public final class StrikePath {
             double yaw,
             long tick,
             Pose out) {
+        at(f, windupStartTick, windupTicks, cueTick, x, y, z, yaw, 1, tick, out);
+    }
+
+    /**
+     * The same with its displacement scaled by {@code lunge} (0 to 1): the share of its lunge it runs, clipped at the
+     * lock so it stops short of its target or a wall (D-042). The whole path scales, so its timing keeps its shape.
+     */
+    public static void at(
+            FrameData f,
+            long windupStartTick,
+            int windupTicks,
+            long cueTick,
+            double x,
+            double y,
+            double z,
+            double yaw,
+            double lunge,
+            long tick,
+            Pose out) {
         double forward = 0;
         double right = 0;
         double up = 0;
@@ -83,6 +102,9 @@ public final class StrikePath {
                 }
             }
         }
+        forward *= lunge;
+        right *= lunge;
+        up *= lunge;
         double sy = Trig.sinDeg(yaw);
         double cy = Trig.cosDeg(yaw);
         // forward is (−sin ψ, 0, cos ψ) and right (−cos ψ, 0, −sin ψ), as the hit frame's axes

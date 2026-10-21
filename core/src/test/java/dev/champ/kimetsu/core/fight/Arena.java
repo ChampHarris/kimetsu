@@ -3,8 +3,11 @@ package dev.champ.kimetsu.core.fight;
 import dev.champ.kimetsu.core.Fixtures;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.PulseSchedule;
+import dev.champ.kimetsu.core.data.DemonProfile;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.Moveset;
+import dev.champ.kimetsu.core.demon.Demon;
+import dev.champ.kimetsu.core.hit.Ground;
 import dev.champ.kimetsu.core.hit.Sight;
 import dev.champ.kimetsu.core.judge.InputHorizon;
 import dev.champ.kimetsu.core.machine.Combatant;
@@ -144,8 +147,12 @@ final class Arena {
     }
 
     Arena(Sight sight) {
+        this(sight, Ground.OPEN);
+    }
+
+    Arena(Sight sight, Ground ground) {
         world = new CombatWorld(
-                Fixtures.hits(), Fixtures.strikes(), Fixtures.timing(), Fixtures.rhythm(), WATER, sight);
+                Fixtures.hits(), Fixtures.strikes(), Fixtures.timing(), Fixtures.rhythm(), WATER, sight, ground);
     }
 
     Player player(int id, int latencyTicks) {
@@ -209,6 +216,18 @@ final class Arena {
         demons.add(d);
         brains.add(brain);
         return d;
+    }
+
+    /** A real demon of {@code profile} at the origin facing +z, its first tick the next one, with {@code brain}. */
+    Demon demon(int id, DemonProfile profile, Brain brain) {
+        Demon d = new Demon(id, profile, Fixtures.hits(), now + 1, 34, 0, 64, 0, 0);
+        world.add(d, brain);
+        return d;
+    }
+
+    /** The M1 demon. */
+    Demon demon(int id, Brain brain) {
+        return demon(id, Fixtures.demon(), brain);
     }
 
     Player get(int id) {

@@ -73,6 +73,8 @@ Things that already cost someone time. Read the relevant section before working 
 - Input codes are SDL's: mouse left 1, middle 2, right 3 (`InputConstants`), keys are scancodes (`KEY_A = 4`). The javadoc of NeoForge's `InputEvent.MouseButton` still describes GLFW values.
 - A `piercing_weapon` item makes the server ignore attack packets and turns on STAB; keep it off the Nichirin.
 - `ModConfig.Type` is LOCAL, CLIENT, SYNCED and STARTUP (no SERVER or COMMON). `DataPackRegistryEvent.NewRegistry` is gone: use `NewDatapackRegistryEvent`, whose `worldRegistry` can sync and whose `reloadableRegistry` reloads on `/reload` but can't sync.
+- `PoseRing.at(t, out)` copies the newest pose into `out` but returns false when `t` is past it, and online a player's frame for tick n reaches the server after tick n runs. Testing its return value as "have a pose" silently skipped the demon's guard turn and the lunge clip for every connected player; tests at latency 0 passed. Check `size() > 0` and use the pose; test anything pose-driven at latency 1 or more (slice 4a's netcode review).
+- A demon's replay judges meters again, never results: so anything a replay re-derives from state (whether a cancel keeps a stake, whether a block still asks for a counter) must be decided when the event is recorded and stored in it, or a late event earlier in the same tick flips it (slice 4a's code review).
 
 ## Assets and audio
 - One sprite with an odd size lowers mipmaps for its whole atlas. Atlas sprites must be ≥ 16 px and multiples of 16 (`tools/texture_lint.py` checks).
@@ -162,6 +164,8 @@ Things that already cost someone time. Read the relevant section before working 
 ## Windows
 - Hooks run under Git Bash. Without Git for Windows they fall back to PowerShell and the `sh` launcher fails; install Git for Windows.
 - Git for Windows checks text files out with CRLF unless `.gitattributes` says otherwise, and `Path.write_text` writes CRLF on Windows. The kit pins `*.py`, `*.json` and `*.mcmeta` to LF, the tools write LF, and `vanilla_scope.py`'s freshness hashes read CRLF as LF, so a Windows checkout of the same rules and data never looks stale. Python on Windows also prints to a pipe in the ANSI code page, which can't encode kanji (Claude Code reads every command through a pipe): each tool switches its output to UTF-8, and `.claude/settings.json` sets `PYTHONUTF8=1` for the scripts Claude writes.
+- Python's `open(p, 'w')` writes CRLF on Windows, so an edit script turns a whole LF source file CRLF (Git warns "CRLF will be replaced by LF"; `spotlessApply` puts it back). Pass `newline='\n'`.
+- Long `python - <<'EOF'` heredocs in the Bash tool fail with "unexpected EOF while looking for matching `''" well before 10 KB (one at about 6 KB). Write the script with the Write tool and run the file.
 - Tool paths arrive with backslashes on Windows; the hooks normalise them.
 - Keep the repository on a path without spaces. The guard hook's shell-write patterns can't follow an absolute path through a space, so `test_guard.py` failed 29/30 under `Downloads\Kimetsu Development\` and passes 30/30 at `C:\Users\morga\dev\kimetsu`.
 - `Path.write_text` writes CRLF on Windows: `make_ramp.py` and `vanilla_style.py --build-stats` did, which left the ramps "modified" after every run; both now pass `newline="\n"`. A `gradlew` cloned with `core.autocrlf=true` arrives with CRLF and Git Bash can't run it; `.gitattributes` pins it to LF.

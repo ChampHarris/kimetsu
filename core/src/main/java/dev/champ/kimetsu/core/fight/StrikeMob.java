@@ -1,12 +1,17 @@
 package dev.champ.kimetsu.core.fight;
 
-import dev.champ.kimetsu.core.data.FrameData;
+import dev.champ.kimetsu.core.data.FrameData.Sweep;
 import dev.champ.kimetsu.core.hit.Pose;
+import dev.champ.kimetsu.core.strike.PendingStrike;
+import dev.champ.kimetsu.core.strike.Verdict;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A mob that strikes players, as the fight loop sees its body: where it stands, how big it is, and what the strikes'
- * answers and the players' swings do to it. Slice 4's demon runs its own state machine behind this; tests use a box
- * dummy that records what happened to it.
+ * answers and the players' swings do to it. The demon ({@code demon.Demon}) runs its own state machine behind this;
+ * tests also use a box dummy that records what happened to it. Every call names the tick it takes effect at, which can
+ * be earlier than the tick being run (a late sweep, a payment decided after its impact): the body judges it as of that
+ * tick.
  */
 public interface StrikeMob {
     int id();
@@ -19,6 +24,12 @@ public interface StrikeMob {
 
     double maxPosture();
 
+    /** It joined {@code world}, whose outbox carries what it tells clients. */
+    default void joined(CombatWorld world) {}
+
+    /** Step 1 of tick {@code tick}, before {@link #pose}: the tick begins (the demon turns its guard). */
+    default void beginTick(long tick) {}
+
     /**
      * Where it stood at tick {@code tick} (step 1 of that tick: after the level moved it): its feet and look, into
      * {@code out}. From a strike's cue it moves only by the strike's own displacement (Rule 7.13), so while
@@ -27,17 +38,37 @@ public interface StrikeMob {
      */
     void pose(long tick, Pose out);
 
-    /**
-     * A player's swing landed on it at {@code tick} (a late sweep keeps its tick, so a stun ends when it would have):
-     * {@code damage} and {@code posture} as {@code HitMath} reckons them. Slice 4 decides blocks, clangs and the neck.
-     */
-    void hit(long tick, int fighter, FrameData attack, int window, double damage, double posture);
+    /** Its neck box in its own frame (x right, y up, z forward, from the feet) at tick {@code tick}, or null. */
+    default Sweep.@Nullable Box neck(long tick) {
+        return null;
+    }
+
+    /** How far from where its target stood at the cue a lunge of its stops (D-042); 0: it doesn't stop short. */
+    default double lungeStandoff() {
+        return 0;
+    }
+
+    /** Step 2: a strike of its was committed, its schedule fixed ({@link PendingStrike#slot}). */
+    default void scheduled(PendingStrike strike) {}
+
+    /** A player's swing touched it: what it did, decided once, from its state at the swing's tick. */
+    HitResult hit(SwingHit hit);
+
+    /** Whether a hit its guard blocks scores the hitter's beat credit (Rule 11.4: no). */
+    default boolean blocksScore() {
+        return false;
+    }
 
     /**
-     * Its strike {@code strike} was answered at its impact, tick {@code tick}: the best answer's Posture it loses then
-     * and ticks added to its recovery.
+     * Its strike {@code strike}'s best answer so far improved to {@code best}, as of its impact, tick {@code tick}: it
+     * pays {@code posture} more and adds {@code recoveryTicks} more to its recovery (D-039, D-045). Paid as each player
+     * is decided, so a Perfect's break doesn't wait for a slower ally; never more in all than the best answer, or than an
+     * answer already paid.
      */
-    void paid(long strike, long tick, double posture, int recoveryTicks);
+    void paid(long strike, long tick, Verdict.Kind best, double posture, int recoveryTicks);
+
+    /** Its strike {@code strike} is decided for every player it involved: {@code best} was its best answer. */
+    default void decided(long strike, long tick, Verdict.Kind best) {}
 
     /**
      * A Pommel Strike interrupted its strike at {@code atMicros}: the strike won't land, and it's stunned for
@@ -45,14 +76,34 @@ public interface StrikeMob {
      */
     void interrupted(long strike, long atMicros, int stunTicks);
 
-    /** Its strike won't land: the rest of an interrupted string, a Posture break, a {@code ClockEpoch}. */
-    void cancelled(long strike);
+    /**
+     * Its strike won't land from tick {@code tick} on: a feint's break, the rest of an interrupted string, a stop (its
+     * own {@link #stoppedAt}), a stall, its target leaving.
+     */
+    void cancelled(long strike, long tick);
+
+    /** Its grab {@code strike} connected at tick {@code tick}: it holds a player (Rule 6.3). */
+    default void holding(long strike, long tick) {}
+
+    /** The hold of its grab {@code strike} ended at tick {@code tick}, {@code how}. */
+    default void released(long strike, long tick, Release how) {}
 
     /**
-     * The tick its Posture last broke (STAGGER), or {@code Long.MIN_VALUE}: a break cancels its strikes landing after
-     * that tick, not those already landed (Rule 7.8's trades; a late hit's break keeps the tick it happened at).
+     * The tick it last stopped striking (a Posture break's STAGGER; for the demon also a collapse or its death), or
+     * {@code Long.MIN_VALUE}: its strikes landing after that tick are cancelled, not those already landed (Rule 7.8's
+     * trades; a late hit's break keeps the tick it happened at).
      */
-    long brokenAt();
+    long stoppedAt();
+
+    /** Why it stopped at {@link #stoppedAt}, for {@code AttackCancelled}. */
+    default String stopReason() {
+        return "posture break";
+    }
+
+    /** It's dead (the demon: decapitated): the loop drops it after the tick. */
+    default boolean dead() {
+        return false;
+    }
 
     /** The tick is over (step 7). */
     void endTick(long tick);
