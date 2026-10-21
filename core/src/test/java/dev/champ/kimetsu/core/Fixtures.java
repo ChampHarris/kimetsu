@@ -163,7 +163,12 @@ public final class Fixtures {
         return new StrikeRules(
                 2, // Strikes per target per beat: 2
                 8, // Min cue lead, mobs: 8 ticks
-                2); // Commit margin: the strike commits at least cue lead + 2 ticks before impact
+                2, // Commit margin: the strike commits at least cue lead + 2 ticks before impact
+                120, // Guard arc: 120°
+                4, 8, // Deflect Posture: −4 defender, −8 attacker
+                0.07, // Perfect Posture damage: 7% of attacker's max × Rhythm multiplier
+                8, // Perfect recovery penalty: +8 ticks
+                10); // Pommel Strike: stun 10 ticks
     }
 
     // Bodies (blocks): vanilla's player, and the M1 demon at a zombie's size (slice 3, PROPOSED).

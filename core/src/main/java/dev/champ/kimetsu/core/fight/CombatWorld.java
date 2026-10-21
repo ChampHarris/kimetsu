@@ -1,0 +1,913 @@
+package dev.champ.kimetsu.core.fight;
+
+import dev.champ.kimetsu.core.clock.Micros;
+import dev.champ.kimetsu.core.data.AttackClass;
+import dev.champ.kimetsu.core.data.FrameData;
+import dev.champ.kimetsu.core.data.FrameData.Cue;
+import dev.champ.kimetsu.core.data.FrameData.Displacement;
+import dev.champ.kimetsu.core.data.FrameData.HitWindow;
+import dev.champ.kimetsu.core.data.FrameData.Sweep;
+import dev.champ.kimetsu.core.data.HitRules;
+import dev.champ.kimetsu.core.data.Moveset;
+import dev.champ.kimetsu.core.data.Phase;
+import dev.champ.kimetsu.core.data.RhythmRules;
+import dev.champ.kimetsu.core.data.StrikeRules;
+import dev.champ.kimetsu.core.data.TimingRules;
+import dev.champ.kimetsu.core.hit.Contacts;
+import dev.champ.kimetsu.core.hit.HitMath;
+import dev.champ.kimetsu.core.hit.Pose;
+import dev.champ.kimetsu.core.hit.PoseRing;
+import dev.champ.kimetsu.core.hit.Sight;
+import dev.champ.kimetsu.core.hit.SweepBounds;
+import dev.champ.kimetsu.core.hit.SweepShape;
+import dev.champ.kimetsu.core.hit.SweepShapes;
+import dev.champ.kimetsu.core.hit.Sweeper;
+import dev.champ.kimetsu.core.hit.Targets;
+import dev.champ.kimetsu.core.machine.Combatant;
+import dev.champ.kimetsu.core.machine.Effect;
+import dev.champ.kimetsu.core.machine.State;
+import dev.champ.kimetsu.core.strike.BeatCap;
+import dev.champ.kimetsu.core.strike.PendingStrike;
+import dev.champ.kimetsu.core.strike.Scheduler;
+import dev.champ.kimetsu.core.strike.StrikeView;
+import dev.champ.kimetsu.core.strike.Verdict;
+import dev.champ.kimetsu.core.strike.Verdicts;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.IdentityHashMap;
+import java.util.List;
+import org.jspecify.annotations.Nullable;
+
+/**
+ * The server's fight loop, one tick at a time in the spec's order (Rule 3, "Order inside a server tick", with D-034):
+ *
+ * <ol>
+ *   <li>players' presses arrive and their machines advance ({@code Timeline.beginTick}: steps 1 and 3); cancels queued
+ *       between ticks reach their machines; mobs report where they stand;
+ *   <li>mobs' brains commit strings ({@link #commit}): each is scheduled onto its target's beat and told to it;
+ *   <li>cues that fire lock their strike's direction and its path (Rule 7.13: from then the attacker moves only by
+ *       the strike's own displacement, {@link #strikePose}), and players within reach of where its sweep will be at
+ *       the impact join it (Rule 2.9), each tick through the impact;
+ *   <li>players' active windows are swept, tick by tick across all players, up to the tick before each one's earliest
+ *       impact still to be decided for it;
+ *   <li>strikes are decided, in impact order, each as of its impact, for each involved player once that player's own
+ *       input horizon has passed it: a Pommel interrupt, then (slice 4) a clash, then the player's verdict, its effects
+ *       logged at the impact before anything its own swing did then, and its held ticks swept late, against the mobs
+ *       as they stood then. A grab or a charged red, which any of its players' Pommels could interrupt, is decided for
+ *       all of them at once. Once every involved player is decided the attacker pays, once, for the best answer
+ *       (D-039);
+ *   <li>(effects are logged as they're decided);
+ *   <li>players' meters run and their snapshots are kept ({@code Timeline.endTick}); mobs end their tick.
+ * </ol>
+ *
+ * <p>So a player's result waits only for that player's own input, not for a slower ally's, unless an ally's Pommel
+ * could save them. Two orders still hold across players: a player's strikes are decided in impact order (each Timeline
+ * resolves that way), and an attacker's strike waits until its earlier ones are decided for everyone, so the Posture
+ * break their answers cause reaches it first. A mob's Posture break at tick t cancels its strikes landing after t and
+ * no other: one that landed before it, or on it (a trade, Rule 7.8), stands, whenever the hit that broke it was swept;
+ * for a player already decided, its verdict stands. Deterministic: players and mobs in the order they were added
+ * (brains decide in that order, which the per-beat cap sees), strikes by impact then id. A tick with nothing committed
+ * or decided allocates nothing; a commit, a decision and an effect allocate their records.
+ */
+public final class CombatWorld {
+    private static final long NONE = Long.MIN_VALUE;
+
+    private static final class Mob {
+        final StrikeMob body;
+        final Brain brain;
+        final PoseRing poses = new PoseRing(32);
+        long handledBreak = NONE;
+        // the strike whose displacement moves it (the latest locked), until its recovery's scheduled end; a cancel
+        // freezes it where it was at a tick the inputs fix (the break, the interrupt), never when the server learnt it
+        @Nullable
+        PendingStrike path;
+
+        long pathEnd = NONE;
+        long frozenAt = Long.MAX_VALUE;
+
+        Mob(StrikeMob body, Brain brain) {
+            this.body = body;
+            this.brain = brain;
+        }
+    }
+
+    /** A cancel to log on a player's machine when its next tick begins. */
+    private record Queued(int fighter, long strike) {}
+
+    private final HitRules hits;
+    private final StrikeRules strikes;
+    private final Moveset moves;
+    private final Sight sight;
+    private final Verdicts verdicts;
+    private final RhythmRules rhythm;
+    private final BeatCap cap;
+    private final double stepBound;
+    private final List<Fighter> fighters = new ArrayList<>();
+    private final List<Mob> mobs = new ArrayList<>();
+    private final List<PendingStrike> book = new ArrayList<>();
+    private final List<Queued> queued = new ArrayList<>();
+    private final List<Effect> effects = new ArrayList<>();
+    // by identity: an attack's data is loaded once, and hashing a whole record on every active tick would cost more
+    private final IdentityHashMap<FrameData, SweepShape> shapes = new IdentityHashMap<>();
+    private final Sweeper sweeper = new Sweeper();
+    private final Targets targets = new Targets();
+    private final Contacts contacts = new Contacts();
+    private final SweepBounds bounds = new SweepBounds();
+    private final Verdict verdict = new Verdict();
+    private final Pose pose = new Pose();
+    private final Pose other = new Pose();
+    private final Pose at = new Pose();
+    private final Outbox outbox = new Outbox();
+    private final StrikeView view;
+    private int[] blocked = new int[8];
+    private int blockedCount;
+    private int[] busy = new int[4];
+    private int busyCount;
+    private long nextStrike = 1;
+    private long nextString = 1;
+    private long now = NONE;
+    private boolean committing;
+
+    public CombatWorld(
+            HitRules hits, StrikeRules strikes, TimingRules timing, RhythmRules rhythm, Moveset moves, Sight sight) {
+        this.hits = hits;
+        this.strikes = strikes;
+        this.moves = moves;
+        this.sight = sight;
+        this.verdicts = new Verdicts(hits, strikes, timing, rhythm);
+        this.rhythm = rhythm;
+        this.cap = new BeatCap(strikes.strikesPerTargetPerBeat());
+        this.view = new StrikeView(moves.pommel());
+        this.stepBound = fastestTick(moves.step());
+    }
+
+    /** The farthest an attack's own displacement carries its user in one tick (blocks). */
+    private static double fastestTick(FrameData f) {
+        double fastest = 0;
+        for (Displacement d : f.displacement()) {
+            fastest = Math.max(fastest, Math.sqrt(d.forward() * d.forward() + d.right() * d.right() + d.up() * d.up()));
+        }
+        return fastest;
+    }
+
+    /** A player joins, its Timeline at the tick it's about to begin. Add players in id order. */
+    public Fighter add(Fighter f) {
+        fighters.add(f);
+        return f;
+    }
+
+    /** A mob joins with its brain. Add mobs in id order. */
+    public void add(StrikeMob body, Brain brain) {
+        mobs.add(new Mob(body, brain));
+    }
+
+    /**
+     * Between ticks: a player leaves the fight (death, logout), in the next tick. A strike that had already landed on
+     * it, its verdict still waiting for its input, is decided then on what the server knows, as its hold cap would
+     * (Champ, D-043: logging out can't dodge a hit); the strikes still to land on it are cancelled for everyone (Edge
+     * Cases: the attack in progress is dropped), and it leaves every other strike it was in, so its stalled input holds
+     * nobody's result. Nothing more is committed on it or joins it meanwhile.
+     */
+    public void remove(int fighterId) {
+        Fighter f = fighter(fighterId);
+        if (f != null) {
+            f.leaving = true;
+        }
+    }
+
+    /** The leaving players go, at the end of tick {@code n}'s decisions ({@link #remove}). */
+    private void depart(long n) {
+        for (int i = fighters.size() - 1; i >= 0; i--) {
+            Fighter f = fighters.get(i);
+            if (!f.leaving) {
+                continue;
+            }
+            for (int j = 0; j < book.size(); j++) {
+                PendingStrike s = book.get(j);
+                if (s.status() != PendingStrike.Status.PENDING || !s.involves(f.id())) {
+                    continue;
+                }
+                if (s.target() == f.id()) {
+                    drop(s, "target gone", n);
+                } else {
+                    s.leave(f.id()); // one that waited for it alone is over at the next tick's decisions
+                }
+            }
+            fighters.remove(i);
+        }
+        purge();
+    }
+
+    public Outbox outbox() {
+        return outbox;
+    }
+
+    /** The strikes committed and not yet over (decided for everyone, or cancelled), by impact then id. Read only. */
+    public List<PendingStrike> pending() {
+        return book;
+    }
+
+    public @Nullable Fighter fighter(int id) {
+        for (int i = 0; i < fighters.size(); i++) {
+            if (fighters.get(i).id() == id) {
+                return fighters.get(i);
+            }
+        }
+        return null;
+    }
+
+    /** A mob's pose history, one pose a tick. */
+    public PoseRing mobPoses(int id) {
+        return mob(id).poses;
+    }
+
+    /**
+     * Where mob {@code mob}'s strike carries it by the end of tick {@code tick} (Rule 7.13: from its cue until its
+     * recovery ends it moves only by the strike's own displacement, along the locked yaw), into {@code out}; false
+     * outside every locked strike's time. The schedule fixes that time, never when a strike is decided, so where it
+     * stands (and where its next strike locks) doesn't depend on anyone's latency; a cancelled strike holds it where it
+     * was at the break or the interrupt. Its body follows this ({@link StrikeMob#pose}), so the strike's sweep, a
+     * Pommel's target and the box players' swings hit agree, on the server and on every client.
+     */
+    public boolean strikePose(int mob, long tick, Pose out) {
+        Mob m = mob(mob);
+        PendingStrike s = m.path;
+        if (s == null || tick < s.cueTick() || tick >= m.pathEnd) {
+            return false;
+        }
+        s.attackerAt(Math.min(tick, m.frozenAt), out);
+        return true;
+    }
+
+    /** {@code s} won't carry its attacker past tick {@code tick}: if it's the one moving it, it holds it there. */
+    private void freeze(PendingStrike s, long tick) {
+        Mob m = mob(s.attacker());
+        if (m.path == s) {
+            m.frozenAt = Math.min(m.frozenAt, Math.max(tick, s.cueTick()));
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------------- the tick
+
+    /** Runs tick {@code n}. */
+    public void tick(long n) {
+        now = n;
+        for (int i = 0; i < fighters.size(); i++) {
+            fighters.get(i).timeline().beginTick(n);
+        }
+        for (int i = 0; i < queued.size(); i++) {
+            Queued q = queued.get(i);
+            Fighter f = fighter(q.fighter());
+            if (f != null) {
+                f.timeline().dropStrike(q.strike());
+                log(f, new Effect.StrikeCancelled(q.strike()), n); // settles a Feint its press claimed
+            }
+        }
+        queued.clear();
+        for (int i = 0; i < mobs.size(); i++) {
+            Mob m = mobs.get(i);
+            m.body.pose(n, pose);
+            m.poses.put(Micros.ofTicks(n), pose.x(), pose.y(), pose.z(), pose.yaw(), pose.pitch());
+        }
+        committing = true;
+        for (int i = 0; i < mobs.size(); i++) {
+            Mob m = mobs.get(i);
+            m.brain.decide(n, m.body, this);
+        }
+        committing = false;
+        involve(n);
+        sweepAll();
+        resolve(n);
+        depart(n);
+        for (int i = 0; i < fighters.size(); i++) {
+            fighters.get(i).timeline().endTick(n);
+        }
+        for (int i = 0; i < mobs.size(); i++) {
+            mobs.get(i).body.endTick(n);
+        }
+    }
+
+    /**
+     * Rule 1.8, between ticks: vanilla dropped its backlog, so every pending strike is cancelled (the demon goes back
+     * to circling), every player's presses stamped after {@code cutoffMicros} are discarded, and the horizons start
+     * over. The cancels reach the players' machines in the next tick, settling the Feints their presses claimed; a
+     * player already decided keeps its verdict.
+     */
+    public void onEpoch(long cutoffMicros) {
+        for (int i = 0; i < book.size(); i++) {
+            PendingStrike s = book.get(i);
+            if (s.status() != PendingStrike.Status.PENDING) {
+                continue;
+            }
+            s.cancel();
+            for (int j = 0; j < s.involvedCount(); j++) {
+                if (!s.decidedFor(j)) {
+                    queued.add(new Queued(s.involved(j), s.id()));
+                }
+            }
+            freeze(s, Micros.tickOf(cutoffMicros));
+            payAnswered(s);
+            mob(s.attacker()).body.cancelled(s.id());
+            outbox.add(new Outbox.AttackCancelled(s.id(), now + 1, "epoch"));
+        }
+        book.clear();
+        cap.clear();
+        for (int i = 0; i < fighters.size(); i++) {
+            Fighter f = fighters.get(i);
+            f.timeline().onEpoch(cutoffMicros);
+            f.horizon().reset();
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------------- step 2
+
+    /**
+     * Step 2: mob {@code mob} commits {@code string} on player {@code target}, its first strike landing no earlier than
+     * beat {@code beatAtLeast} ({@link Scheduler#ANY_BEAT} for the first the margin allows). Scheduled onto the
+     * target's beat under the per-beat cap (Rules 7.7, 7.11, 7.12); refused if it can't be (the brain tries again).
+     * Only from a brain's {@link Brain#decide}.
+     */
+    public Scheduler.Plan commit(int mob, int target, List<FrameData> string, long beatAtLeast) {
+        if (!committing) {
+            throw new IllegalStateException("strikes commit in step 2, from a brain");
+        }
+        Fighter t = fighter(target);
+        if (t == null) {
+            throw new IllegalArgumentException("no player " + target);
+        }
+        if (t.leaving) {
+            return Scheduler.Plan.refuse("player " + target + " is leaving the fight");
+        }
+        Scheduler.Plan p = Scheduler.planUnderCap(now, string, t.pulse(), strikes, beatAtLeast, cap, target);
+        if (!p.ok()) {
+            return p;
+        }
+        cap.add(target, p);
+        long sid = nextString++;
+        List<Scheduler.Slot> slots = p.slots();
+        for (int k = 0; k < slots.size(); k++) {
+            Scheduler.Slot slot = slots.get(k);
+            PendingStrike s = new PendingStrike(nextStrike++, mob, target, sid, k == slots.size() - 1, slot);
+            insert(s);
+            tell(s, t, now);
+            outbox.add(new Outbox.AttackStarted(
+                    s.id(),
+                    mob,
+                    target,
+                    slot.attack().id(),
+                    now,
+                    slot.windupStartTick(),
+                    slot.cueTick(),
+                    slot.impactTick(),
+                    sid,
+                    s.last()));
+        }
+        log(t, Effect.TARGETED, now); // Rhythm's idle clock: something targets it (Rule 4.3)
+        return p;
+    }
+
+    private void insert(PendingStrike s) {
+        int i = book.size();
+        while (i > 0 && after(book.get(i - 1), s)) {
+            i--;
+        }
+        book.add(i, s);
+    }
+
+    private static boolean after(PendingStrike a, PendingStrike b) {
+        return a.impactTick() != b.impactTick() ? a.impactTick() > b.impactTick() : a.id() > b.id();
+    }
+
+    /**
+     * Player {@code f} is involved in {@code s}: its barrier holds from now, and its machine holds the strike from
+     * {@code tick} (now, or the cue for a player who joins after it, so a guard press made since then claims it).
+     */
+    private void tell(PendingStrike s, Fighter f, long tick) {
+        f.timeline().commitStrike(s.id(), s.impactMicros());
+        log(f, new Effect.StrikeCommitted(s.id(), s.impactMicros(), s.white()), tick);
+    }
+
+    // ------------------------------------------------------------------------------------------------- step 3
+
+    /**
+     * Cues that fire lock their strike: its direction and the pose its displacement carries from (Rule 7.13). From
+     * then through the impact, every player within the reach margin of its sweep as it will stand at the impact joins
+     * it, the margin grown by how far the player may have moved since its newest pose the server holds; and for a grab
+     * or a charged red, every player within a Pommel's reach of the attacker.
+     */
+    private void involve(long n) {
+        for (int i = 0; i < book.size(); i++) {
+            PendingStrike s = book.get(i);
+            if (s.status() != PendingStrike.Status.PENDING || n < s.cueTick() || n > s.impactTick()) {
+                continue;
+            }
+            Mob m = mob(s.attacker());
+            FrameData f = s.attack();
+            if (!s.locked()) {
+                m.poses.at(Micros.ofTicks(n), pose);
+                s.lock(pose.x(), pose.y(), pose.z(), pose.yaw());
+                m.path = s;
+                m.pathEnd = s.slot().windupStartTick() + s.slot().windupTicks() + f.active() + f.recovery();
+                m.frozenAt = Long.MAX_VALUE;
+                outbox.add(new Outbox.StrikeLocked(s.id(), pose.yaw(), pose.x(), pose.y(), pose.z()));
+            }
+            Sweep sweep = f.sweep();
+            if (sweep == null) {
+                continue;
+            }
+            s.attackerAt(s.impactTick(), at);
+            bounds.place(sweep, at.x(), at.y(), at.z(), m.body.eyeHeight(), s.lockedYaw(), 0);
+            boolean pommelled = pommelled(f);
+            double pommelReach = 0;
+            if (pommelled) {
+                pommelReach = shape(moves.pommel()).reach();
+                s.attackerAt(n, pose);
+            }
+            for (int j = 0; j < fighters.size(); j++) {
+                Fighter p = fighters.get(j);
+                if (p.leaving || s.involves(p.id())) {
+                    continue;
+                }
+                double slack = slack(p, n);
+                p.poses().at(Micros.ofTicks(n), other);
+                boolean near = bounds.within(
+                        hits.reachMarginBlocks() + slack,
+                        other.x() - p.halfWidth(),
+                        other.y(),
+                        other.z() - p.halfWidth(),
+                        other.x() + p.halfWidth(),
+                        other.y() + p.height(),
+                        other.z() + p.halfWidth());
+                if (!near && pommelled) {
+                    double dx = other.x() - pose.x();
+                    double dz = other.z() - pose.z();
+                    double r = pommelReach + m.body.halfWidth() + hits.reachMarginBlocks() + slack;
+                    near = dx * dx + dz * dz <= r * r;
+                }
+                if (near && s.join(p.id())) {
+                    tell(s, p, Math.max(s.cueTick(), p.timeline().earliestEffectTick()));
+                    outbox.add(new Outbox.Involved(s.id(), p.id(), n));
+                }
+            }
+        }
+    }
+
+    /**
+     * How far player {@code p} may stand from its newest pose the server holds, by tick {@code n} (Rule 2.9): that
+     * pose's age times the farthest it can move in a tick, its Step's fastest tick or the mod's bound for its running and
+     * jumping, whichever is more. A pose held back by a slow connection or a lag switch widens it, whatever the RTT.
+     */
+    private double slack(Fighter p, long n) {
+        long newest = p.poses().newestTime();
+        if (newest == Long.MIN_VALUE) {
+            return 0;
+        }
+        long age = Math.max(0, n - Micros.tickOf(newest));
+        return age * Math.max(stepBound, p.moveBoundBlocksPerTick());
+    }
+
+    private static boolean pommelled(FrameData f) {
+        return f.attackClass() == AttackClass.GRAB
+                || (f.cue().type() == Cue.Type.RED && f.cue().charged());
+    }
+
+    // ------------------------------------------------------------------------------------------------- step 4
+
+    /**
+     * Sweeps every player's active windows tick by tick, the oldest tick first across all players, each up to the
+     * tick before its earliest impact still to be decided for it (a strike's results are logged at its impact before
+     * anything the player's swing did then, D-037) or its Timeline's own limit. Only ticks with an active window are
+     * marked swept. After each tick, a mob whose Posture broke cancels its strikes landing after the break.
+     */
+    private void sweepAll() {
+        while (true) {
+            long t = Long.MAX_VALUE;
+            for (int i = 0; i < fighters.size(); i++) {
+                Fighter f = fighters.get(i);
+                if (f.sweptThrough < limit(f)) {
+                    t = Math.min(t, f.sweptThrough + 1);
+                }
+            }
+            if (t == Long.MAX_VALUE) {
+                return;
+            }
+            for (int i = 0; i < fighters.size(); i++) {
+                Fighter f = fighters.get(i);
+                if (f.sweptThrough == t - 1 && t <= limit(f)) {
+                    if (sweepTick(f, t)) {
+                        f.timeline().swept(t);
+                    }
+                    f.sweptThrough = t;
+                }
+            }
+            breaks();
+        }
+    }
+
+    private long limit(Fighter f) {
+        long through = f.timeline().sweepableThrough();
+        long impact = earliestAwaitedImpact(f.id());
+        return impact == NONE ? through : Math.min(through, impact - 1);
+    }
+
+    private long earliestAwaitedImpact(int fighter) {
+        for (int i = 0; i < book.size(); i++) {
+            PendingStrike s = book.get(i);
+            if (s.status() == PendingStrike.Status.PENDING && s.awaits(fighter)) {
+                return s.impactTick(); // the book runs by impact
+            }
+        }
+        return NONE;
+    }
+
+    /** Sweeps {@code f}'s attack at tick {@code t} against the mobs as they stood then; false if it had no active frame. */
+    private boolean sweepTick(Fighter f, long t) {
+        Combatant c = f.timeline().stateAt(t);
+        FrameData a = c.attack();
+        if (c.state() != State.ATTACK || a == null || a.sweep() == null || c.phase(t) != Phase.ACTIVE) {
+            return false;
+        }
+        long activeFrame = c.frameAt(t) - a.windup();
+        if (activeFrame < 0 || activeFrame >= a.active()) {
+            return false;
+        }
+        targets.clear();
+        for (int i = 0; i < mobs.size(); i++) {
+            Mob m = mobs.get(i);
+            StrikeMob b = m.body;
+            m.poses.at(Micros.ofTicks(t - 1), pose);
+            m.poses.at(Micros.ofTicks(t), other);
+            targets.add(
+                    b.id(),
+                    pose.x() - b.halfWidth(),
+                    pose.y(),
+                    pose.z() - b.halfWidth(),
+                    pose.x() + b.halfWidth(),
+                    pose.y() + b.height(),
+                    pose.z() + b.halfWidth(),
+                    other.x() - b.halfWidth(),
+                    other.y(),
+                    other.z() - b.halfWidth(),
+                    other.x() + b.halfWidth(),
+                    other.y() + b.height(),
+                    other.z() + b.halfWidth());
+        }
+        contacts.clear();
+        sweeper.sweep(
+                f.id(),
+                c.attackId(),
+                shape(a),
+                (int) activeFrame,
+                t,
+                f.poses(),
+                targets,
+                f.track,
+                sight,
+                hits,
+                contacts);
+        if (a.attackClass() == AttackClass.POMMEL) {
+            return true; // its only effect is the timed answer (Rule 5.2, D-041): no hit, no combo, no credit
+        }
+        for (int i = 0; i < contacts.size(); i++) {
+            Mob m = mob(contacts.target(i));
+            int window = contacts.window(i);
+            HitWindow w = a.hits().get(window);
+            double mult = c.rhythm().multiplier();
+            double damage = HitMath.damage(w, mult, HitMath.standIn(a, c.attackMushin(), moves), c.assistLevel(), hits);
+            double posture = HitMath.posture(w, mult, c.assistLevel(), hits);
+            m.body.hit(t, f.id(), a, window, damage, posture);
+            log(f, new Effect.Connected(), t);
+            if (c.attackOnBeat()) {
+                log(f, new Effect.Credit(c.attackBeat()), t);
+            }
+            outbox.add(new Outbox.SwingLanded(f.id(), m.body.id(), a.id(), window, t, damage, posture));
+        }
+        return true;
+    }
+
+    /** An attack's compiled sweep, compiled once (its arc, when it has one, comes with the animations: slice 5). */
+    private SweepShape shape(FrameData f) {
+        SweepShape s = shapes.get(f);
+        if (s == null) {
+            s = SweepShapes.compile(f, null, maxEye(), hits);
+            shapes.put(f, s);
+        }
+        return s;
+    }
+
+    private double maxEye() {
+        double e = 0;
+        for (int i = 0; i < fighters.size(); i++) {
+            e = Math.max(e, fighters.get(i).eye());
+        }
+        return e;
+    }
+
+    /** A mob whose Posture broke at tick b cancels its strikes landing after b, impact passed or not (Rule 3.9). */
+    private void breaks() {
+        for (int i = 0; i < mobs.size(); i++) {
+            Mob m = mobs.get(i);
+            long b = m.body.brokenAt();
+            if (b == NONE || b == m.handledBreak) {
+                continue;
+            }
+            m.handledBreak = b;
+            for (int j = 0; j < book.size(); j++) {
+                PendingStrike s = book.get(j);
+                if (s.attacker() == m.body.id() && s.status() == PendingStrike.Status.PENDING && s.impactTick() > b) {
+                    drop(s, "posture break", b);
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------------- step 5
+
+    /**
+     * Decides, in impact order, every strike whose impact has come, for each involved player whose input horizon has
+     * passed it (or whose hold cap ran out), unless that player still waits on an earlier strike (its Timeline resolves
+     * in impact order) or the strike's attacker still has an earlier strike to be decided for someone (so the Posture
+     * break that strike's answers cause reaches this one first). A grab or a charged red waits for all its players at
+     * once. A strike decided for everyone is over: its attacker pays.
+     */
+    private void resolve(long n) {
+        blockedCount = 0;
+        busyCount = 0;
+        for (int i = 0; i < book.size(); i++) {
+            PendingStrike s = book.get(i);
+            if (s.impactTick() > n) {
+                break;
+            }
+            if (s.status() != PendingStrike.Status.PENDING) {
+                continue;
+            }
+            if (!contains(busy, busyCount, s.attacker())) {
+                if (pommelled(s.attack())) {
+                    decideWhole(s, n);
+                } else {
+                    decideEach(s, n);
+                }
+                if (s.status() == PendingStrike.Status.PENDING && s.allDecided()) {
+                    complete(s);
+                }
+            }
+            if (s.status() == PendingStrike.Status.PENDING) {
+                busy = add(busy, busyCount++, s.attacker());
+                for (int j = 0; j < s.involvedCount(); j++) {
+                    if (!s.decidedFor(j)) {
+                        blocked = add(blocked, blockedCount++, s.involved(j));
+                    }
+                }
+            }
+        }
+        purge();
+    }
+
+    private static boolean contains(int[] ids, int count, int id) {
+        for (int k = 0; k < count; k++) {
+            if (ids[k] == id) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int[] add(int[] ids, int count, int id) {
+        int[] out = count == ids.length ? Arrays.copyOf(ids, count * 2) : ids;
+        out[count] = id;
+        return out;
+    }
+
+    private void purge() {
+        int keep = 0;
+        for (int i = 0; i < book.size(); i++) {
+            if (book.get(i).status() == PendingStrike.Status.PENDING) {
+                book.set(keep++, book.get(i));
+            }
+        }
+        while (book.size() > keep) {
+            book.remove(book.size() - 1);
+        }
+    }
+
+    /** The involved player's fighter; one who left the fight left its strikes ({@link #remove}). */
+    private Fighter player(int id) {
+        Fighter f = fighter(id);
+        if (f == null) {
+            throw new IllegalStateException("player " + id + " left but is still involved in a strike");
+        }
+        return f;
+    }
+
+    private boolean ready(Fighter f, PendingStrike s, long n) {
+        if (contains(blocked, blockedCount, f.id())) {
+            return false;
+        }
+        if (f.leaving && s.impactTick() < n) {
+            return true; // it landed before the player left: decided on what's known, as the hold cap would
+        }
+        return f.horizon()
+                .decided(s.impactMicros(), true, Micros.ofTicks(n), f.holdCapMicros(), f.earliestHeldMicros());
+    }
+
+    /** Each involved player whose input has passed the impact, in join order (Rules 2.10, 6; D-039). */
+    private void decideEach(PendingStrike s, long n) {
+        boolean viewed = false;
+        for (int j = 0; j < s.involvedCount(); j++) {
+            if (s.status() != PendingStrike.Status.PENDING) {
+                return; // a late sweep's Posture break cancelled the rest
+            }
+            if (s.decidedFor(j)) {
+                continue;
+            }
+            Fighter f = player(s.involved(j));
+            if (!ready(f, s, n)) {
+                continue;
+            }
+            if (!viewed) {
+                view(s);
+                viewed = true;
+            }
+            decideFor(s, j, f);
+        }
+    }
+
+    /**
+     * A grab or a charged red, for all its players at once, when every one is ready: any of their Pommels interrupts it
+     * for everyone (Rule 5.2), so none is decided until all could be.
+     */
+    private void decideWhole(PendingStrike s, long n) {
+        for (int j = 0; j < s.involvedCount(); j++) {
+            if (!s.decidedFor(j) && !ready(player(s.involved(j)), s, n)) {
+                return;
+            }
+        }
+        view(s);
+        StrikeMob body = mob(s.attacker()).body;
+        long tick = s.impactTick();
+        long interrupt = NONE;
+        Fighter interrupter = null;
+        for (int j = 0; j < s.involvedCount(); j++) {
+            Fighter f = player(s.involved(j));
+            long t = verdicts.pommelInterrupt(
+                    view,
+                    f.timeline().stateAt(tick),
+                    f.poses(),
+                    f.eye(),
+                    moves.pommel(),
+                    body.halfWidth(),
+                    body.height(),
+                    sight);
+            if (t != Verdicts.NONE && (interrupt == NONE || t < interrupt)) {
+                interrupt = t;
+                interrupter = f;
+            }
+        }
+        if (interrupter != null) {
+            log(interrupter, new Effect.RhythmDelta(rhythm.dodge()), tick); // like a clearing dodge (Champ, D-043)
+            interrupted(s, tick, interrupt);
+            for (int i = 0; i < book.size(); i++) {
+                PendingStrike t = book.get(i);
+                if (t != s && t.string() == s.string() && t.status() == PendingStrike.Status.PENDING) {
+                    drop(t, "interrupted", Micros.stepOf(interrupt)); // the rest of its string
+                }
+            }
+            sweepAll();
+            return;
+        }
+        for (int j = 0; j < s.involvedCount(); j++) {
+            if (s.status() != PendingStrike.Status.PENDING) {
+                return;
+            }
+            if (!s.decidedFor(j)) {
+                decideFor(s, j, player(s.involved(j)));
+            }
+        }
+    }
+
+    private void view(PendingStrike s) {
+        Scheduler.Slot slot = s.slot();
+        view.set(
+                s.id(),
+                s.attack(),
+                slot.windupStartTick(),
+                slot.windupTicks(),
+                slot.cueTick(),
+                slot.impactTick(),
+                s.last(),
+                s.lockX(),
+                s.lockY(),
+                s.lockZ(),
+                mob(s.attacker()).body.eyeHeight(),
+                s.lockedYaw());
+    }
+
+    /**
+     * Strike {@code s}'s verdict on its {@code j}th player, as of its impact: its effects logged there, its Timeline
+     * released, then its held ticks swept late (D-034).
+     */
+    private void decideFor(PendingStrike s, int j, Fighter f) {
+        // slice 4: a clash with the defender's own heavy attack or form is found here, before the verdict
+        long tick = s.impactTick();
+        verdicts.judge(
+                view,
+                f.timeline().stateAt(tick),
+                f.poses(),
+                f.halfWidth(),
+                f.height(),
+                sight,
+                mob(s.attacker()).body.maxPosture(),
+                verdict);
+        double damage = apply(f, s, tick);
+        log(f, new Effect.StrikeDecided(s.id(), verdict.answered()), tick);
+        f.timeline().resolve(s.id());
+        s.answer(verdict.kind(), verdict.attackerPosture(), verdict.attackerRecoveryTicks());
+        s.decideFor(j);
+        outbox.add(new Outbox.StrikeResult(s.id(), f.id(), verdict.kind(), damage));
+        sweepAll(); // its held ticks, against the mobs as they stood then
+    }
+
+    /** Logs the verdict's effects on {@code f} at the impact tick ({@link Verdicts#effects}); returns the HP damage. */
+    private double apply(Fighter f, PendingStrike s, long tick) {
+        boolean landed = verdict.landed();
+        int count = landed ? f.combo.land(tick, hits) : 0;
+        verdicts.effects(verdict, s.attack(), count, effects);
+        for (int i = 0; i < effects.size(); i++) {
+            log(f, effects.get(i), tick);
+        }
+        return landed ? s.attack().hits().get(0).damage() : 0;
+    }
+
+    /** Decided for everyone: the attacker pays once, for the best answer (D-039); a break that causes is at the impact. */
+    private void complete(PendingStrike s) {
+        s.decide();
+        cap.remove(s.target(), s.beat());
+        if (s.bestPosture() > 0 || s.bestRecovery() > 0) {
+            mob(s.attacker()).body.paid(s.id(), s.impactTick(), s.bestPosture(), s.bestRecovery());
+            breaks(); // before this pass decides any strike of the breaker's landing after it
+        }
+    }
+
+    /**
+     * A Pommel Strike interrupted {@code s} at {@code atMicros}: it's cancelled for everyone, its cancel logged at its
+     * impact, whose tick the world read (each player's state there was judged) and so stays as read.
+     */
+    private void interrupted(PendingStrike s, long tick, long atMicros) {
+        s.cancel();
+        for (int j = 0; j < s.involvedCount(); j++) {
+            Fighter f = player(s.involved(j));
+            log(f, new Effect.StrikeCancelled(s.id()), tick);
+            f.timeline().cancelStrike(s.id());
+        }
+        cap.remove(s.target(), s.beat());
+        freeze(s, Micros.stepOf(atMicros));
+        mob(s.attacker()).body.interrupted(s.id(), atMicros, strikes.pommelStunTicks());
+        outbox.add(new Outbox.AttackCancelled(s.id(), tick, "pommel"));
+    }
+
+    /**
+     * {@code s} won't land: dropped now for every player not yet decided, whose state was never read for it, freezing
+     * no tick; its attacker stops moving by it at tick {@code stopsAt}. A player already decided keeps its verdict, and
+     * the attacker pays for what was answered.
+     */
+    private void drop(PendingStrike s, String why, long stopsAt) {
+        s.cancel();
+        for (int j = 0; j < s.involvedCount(); j++) {
+            if (!s.decidedFor(j)) {
+                Fighter f = player(s.involved(j));
+                f.timeline().dropStrike(s.id());
+                log(f, new Effect.StrikeCancelled(s.id()), now);
+            }
+        }
+        cap.remove(s.target(), s.beat());
+        freeze(s, stopsAt);
+        payAnswered(s);
+        mob(s.attacker()).body.cancelled(s.id());
+        outbox.add(new Outbox.AttackCancelled(s.id(), now, why));
+    }
+
+    /**
+     * A strike cancelled after some of its players were decided: its attacker pays for the best of their answers, as it
+     * would have. A break that causes is handled where breaks are: after the next swept tick or the next payment.
+     */
+    private void payAnswered(PendingStrike s) {
+        if (s.decidedCount() > 0 && (s.bestPosture() > 0 || s.bestRecovery() > 0)) {
+            mob(s.attacker()).body.paid(s.id(), s.impactTick(), s.bestPosture(), s.bestRecovery());
+        }
+    }
+
+    /** Logs {@code e} on {@code f}'s machine at {@code tick}, and records it for {@code f}'s client to log there too. */
+    private void log(Fighter f, Effect e, long tick) {
+        f.timeline().effect(e, tick);
+        outbox.add(new Outbox.PlayerEffect(f.id(), tick, e));
+    }
+
+    private Mob mob(int id) {
+        for (int i = 0; i < mobs.size(); i++) {
+            if (mobs.get(i).body.id() == id) {
+                return mobs.get(i);
+            }
+        }
+        throw new IllegalArgumentException("no mob " + id);
+    }
+}

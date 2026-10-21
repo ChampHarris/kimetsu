@@ -3,6 +3,7 @@ package dev.champ.kimetsu.core.machine;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.PulseSchedule;
 import dev.champ.kimetsu.core.data.Armour;
+import dev.champ.kimetsu.core.data.AttackClass;
 import dev.champ.kimetsu.core.data.BreathRules;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.FrameData.Into;
@@ -14,6 +15,7 @@ import dev.champ.kimetsu.core.data.RhythmRules;
 import dev.champ.kimetsu.core.data.Style;
 import dev.champ.kimetsu.core.data.TimingRules;
 import dev.champ.kimetsu.core.judge.CreditLedger;
+import dev.champ.kimetsu.core.judge.DeflectJudge;
 import dev.champ.kimetsu.core.judge.OnBeat;
 import dev.champ.kimetsu.core.machine.InputBuffer.Slot;
 import dev.champ.kimetsu.core.meter.Breath;
@@ -43,11 +45,19 @@ import org.jspecify.annotations.Nullable;
  * active frames start; a hit stuns no one GRABBED, in a CLASH, COLLAPSED or DEAD, and a Posture break waits for a
  * knockdown, a grab or a clash to end; nothing moves a COLLAPSED or DEAD combatant but death.
  *
+ * <p><b>Strikes on it</b> (Rules 2.6–2.8). Its {@link DeflectJudge} holds the NPC strikes it's involved in, logged by the
+ * world as {@link Effect.StrikeCommitted}; a guard press claims from them only where the guard can come up at that
+ * moment (standing, guarding, from the radial, a Feint in a form's windup, Water's guard-cancel in a recovery), and
+ * elsewhere claims nothing and starts no lockout. A strike leaves with its verdict ({@link Effect.StrikeDecided}), a
+ * cancel, or once its claim can no longer be decided. {@link TimedAnswers} keeps when its Steps, Jumps and Pommel
+ * Strikes started, for the verdicts that read them.
+ *
  * <p>The server and the predicting client run the same machine; a {@link Timeline} snapshots it every tick and replays
  * late presses at their stamps. Everything it mutates is copied by {@link #copyFrom}, and nothing it reads lies outside
  * it except the rules, the moveset and the Pulse, whose past never changes.
  */
 public final class Combatant {
+    private static final int JUMP_REPEAT_TICKS = 2;
     private static final long NONE = Long.MIN_VALUE;
     private static final int JUMPS = 16;
     private static final Slot[] SLOTS = Slot.values();
@@ -65,6 +75,8 @@ public final class Combatant {
     private final Rhythm rhythm;
     private final CreditLedger ledger;
     private final InputBuffer buffer;
+    private final DeflectJudge deflects;
+    private final TimedAnswers answers = new TimedAnswers();
 
     private int assistLevel;
     private State state = State.NEUTRAL;
@@ -101,6 +113,7 @@ public final class Combatant {
     private double pendingFeint;
     private long pendingFeintTick = NONE;
     private long pendingFeintPress = NONE;
+    private boolean feintAnswered; // a strike its press claimed was deflected: the Feint is free
 
     private long knockdownAt = NONE;
     private boolean airborne;
@@ -140,6 +153,7 @@ public final class Combatant {
         this.rhythm = new Rhythm(rhythmRules);
         this.ledger = new CreditLedger(timing.creditsPerBeat());
         this.buffer = new InputBuffer(rules.bufferTicks());
+        this.deflects = new DeflectJudge(timing);
     }
 
     /** A fresh combatant sharing this one's rules, moveset and Pulse (a snapshot slot). */
@@ -178,7 +192,7 @@ public final class Combatant {
             case STEP -> {
                 if (!voided) {
                     buffer.dropOffence();
-                    queue(Slot.STEP, in, tick, minActiveTick);
+                    queue(Slot.STEP, in, tick, tick); // no active frames to hold back: when it arrived doesn't matter
                 }
             }
             case ATTACK -> {
@@ -237,17 +251,47 @@ public final class Combatant {
         }
     }
 
-    /** Rule 3.3: a guard press in the first part of a form's windup feints it; any other just raises the guard. */
+    /**
+     * Rule 3.3: a guard press in the first part of a form's windup feints it; any other just raises the guard. Where the
+     * guard can come up at the press's moment it's also a deflect attempt (Rules 2.6–2.8).
+     */
     private void guardDown(Input in, long tick) {
         guardDown = true;
         guardSince = tick;
         buffer.dropOffence();
         FrameData f = attack;
-        if (state == State.ATTACK && f != null && cancels(f, Into.FEINT, tick - 1)) {
-            feint(in, tick);
+        Style.GuardCancel gc = moves.style().guardCancel();
+        boolean feints = state == State.ATTACK && f != null && cancels(f, Into.FEINT, tick - 1);
+        boolean cancelsRecovery = !feints
+                && state == State.ATTACK
+                && f != null
+                && gc != null
+                && phaseAt(f, Math.max(attackStart, tick - 1)) == Phase.RECOVERY;
+        boolean claimed = guardCanRise(f, tick - 1, feints) && deflects.press(in.stampMicros(), assistLevel);
+        if (feints) {
+            feint(in, tick, claimed);
+        } else if (cancelsRecovery && gc != null) {
+            guardCancel(gc, tick); // the press itself cancels, so a tap that claims pays as a held guard would
         } else if (state == State.RADIAL) {
             setState(State.NEUTRAL, tick); // the guard cancels it; GUARD follows by the one rule
         }
+    }
+
+    /**
+     * Whether the guard can come up at a press judged against tick {@code lived}: standing, guarding, from the radial, a
+     * Feint, or Water's guard-cancel in a recovery. Mid-swing, mid-Step, stunned or held, it can't: the press claims no
+     * strike and starts no lockout, though a held guard still rises when it can.
+     */
+    private boolean guardCanRise(@Nullable FrameData f, long lived, boolean feints) {
+        return switch (state) {
+            case NEUTRAL, GUARD, RADIAL -> true;
+            case ATTACK ->
+                feints
+                        || (f != null
+                                && moves.style().guardCancel() != null
+                                && phaseAt(f, Math.max(attackStart, lived)) == Phase.RECOVERY);
+            default -> false;
+        };
     }
 
     private void guardUp(long tick) {
@@ -262,7 +306,7 @@ public final class Combatant {
      * that claimed a strike pays only once that strike is decided unanswered; one Feint waits at a time, and a second
      * pays the first's cost at once.
      */
-    private void feint(Input in, long tick) {
+    private void feint(Input in, long tick, boolean claimed) {
         breath.refundForm(tick);
         if (pendingFeint > 0) {
             payFeint(tick, pendingFeintTick, pendingFeint);
@@ -271,10 +315,11 @@ public final class Combatant {
         double cost = lastFeintTick != NONE && tick - lastFeintTick <= rules.feintDoublingTicks()
                 ? lastFeintCost * 2
                 : rules.feintBreath();
-        if (in.claimed()) {
+        if (claimed) {
             pendingFeint = cost;
             pendingFeintTick = tick;
             pendingFeintPress = in.stampMicros();
+            feintAnswered = false;
         } else {
             payFeint(tick, tick, cost);
         }
@@ -292,6 +337,25 @@ public final class Combatant {
         pendingFeint = 0;
         pendingFeintTick = NONE;
         pendingFeintPress = NONE;
+        feintAnswered = false;
+    }
+
+    /**
+     * Ruling Q8: a strike that the press claimed with {@code claimedAt} left, {@code answered} or not. A Feint that press
+     * made is free if any strike it claimed was answered, and pays once every one of them has left otherwise.
+     */
+    private void settle(long claimedAt, boolean answered, long tick) {
+        if (pendingFeint <= 0 || claimedAt == DeflectJudge.UNCLAIMED || claimedAt != pendingFeintPress) {
+            return;
+        }
+        feintAnswered |= answered;
+        if (deflects.claimedBy(pendingFeintPress)) {
+            return; // another strike it claimed is still to be decided
+        }
+        if (!feintAnswered) {
+            payFeint(tick, pendingFeintTick, pendingFeint);
+        }
+        clearPendingFeint();
     }
 
     private void inhale(Input in, long tick) {
@@ -357,6 +421,13 @@ public final class Combatant {
     /** Rule 9.2: a Jump during a knockdown is a Tech attempt, judged against the next contact. */
     private void jump(Input in, long tick) {
         if (state != State.KNOCKDOWN) {
+            long j = in.stampMicros();
+            // a dodge, if it clears a strike (Rule 6.2); a press within 2 ticks of the last is mashing mid-air, not a
+            // jump, and mustn't push the one that left the ground out of the answers
+            if (answers.count(TimedAnswers.Kind.JUMP) == 0
+                    || j - answers.at(TimedAnswers.Kind.JUMP, 0) >= Micros.ofTicks(JUMP_REPEAT_TICKS)) {
+                answers.add(TimedAnswers.Kind.JUMP, j);
+            }
             return; // the breakfall on an ordinary landing is travel (build step 6)
         }
         long j = in.stampMicros();
@@ -444,7 +515,13 @@ public final class Combatant {
             }
             default -> {}
         }
-        if (pendingFeint > 0 && Micros.ofTicks(tick) > pendingFeintPress + claimMicros()) {
+        long now = Micros.ofTicks(tick);
+        for (int i = deflects.count() - 1; i >= 0; i--) {
+            if (now > deflects.impactAt(i) + claimMicros()) {
+                settle(deflects.removeAt(i), false, tick); // no verdict came: nothing answered it
+            }
+        }
+        if (pendingFeint > 0 && now > pendingFeintPress + claimMicros()) {
             payFeint(tick, pendingFeintTick, pendingFeint); // no verdict came: a claim nothing answered
             clearPendingFeint();
         }
@@ -477,14 +554,19 @@ public final class Combatant {
         }
         Style.GuardCancel gc = moves.style().guardCancel();
         if (gc != null && guardDown && phaseAt(f, tick) == Phase.RECOVERY) {
-            double cost = attackConnected ? gc.afterHit() : gc.afterMiss();
-            endAttack();
-            resetChain();
-            if (cost > 0) {
-                breath.spend(tick, Fixed.of(cost)); // legal whatever the Breath: the client can't know the cost
-            }
-            setState(State.NEUTRAL, tick);
+            guardCancel(gc, tick);
         }
+    }
+
+    /** Water's guard-cancel (Rule 3.4, R9-09): the recovery ends, free after a miss, costing Breath after a hit. */
+    private void guardCancel(Style.GuardCancel gc, long tick) {
+        double cost = attackConnected ? gc.afterHit() : gc.afterMiss();
+        endAttack();
+        resetChain();
+        if (cost > 0) {
+            breath.spend(tick, Fixed.of(cost)); // legal whatever the Breath: the client can't know the cost
+        }
+        setState(State.NEUTRAL, tick);
     }
 
     /**
@@ -535,7 +617,7 @@ public final class Combatant {
      */
     private boolean run(Slot slot, Input in, long tick, long lived, long minActiveTick) {
         return switch (slot) {
-            case STEP -> runStep(tick, lived);
+            case STEP -> runStep(in, tick, lived);
             case POMMEL -> {
                 if (state != State.NEUTRAL) {
                     yield false;
@@ -543,6 +625,7 @@ public final class Combatant {
                 judgePress(in.stampMicros());
                 startAttack(moves.pommel(), tick, minActiveTick, in.stampMicros(), false);
                 resetChain();
+                answers.add(TimedAnswers.Kind.POMMEL, startedAt(in, tick));
                 yield true;
             }
             case ATTACK -> runAttack(in, tick, minActiveTick);
@@ -560,7 +643,7 @@ public final class Combatant {
     }
 
     /** Rule 3.6 and ruling Q3: from NEUTRAL or GUARD, or cancelling an attack's recovery; short of Breath, nothing. */
-    private boolean runStep(long tick, long lived) {
+    private boolean runStep(Input in, long tick, long lived) {
         FrameData f = attack;
         boolean cancel = state == State.ATTACK && f != null && cancels(f, Into.STEP, lived);
         if (state != State.NEUTRAL && state != State.GUARD && !cancel) {
@@ -575,8 +658,17 @@ public final class Combatant {
             breath.spend(tick, cost);
             setState(State.STEP, tick);
             stateUntil = tick + step.total();
+            answers.add(TimedAnswers.Kind.STEP, startedAt(in, tick));
         }
         return true;
+    }
+
+    /**
+     * When what {@code in} started at step {@code tick} began: at its stamp if it ran in the step it arrived in, else at
+     * the start of the tick the buffer let it run, whose pose is where it began.
+     */
+    private static long startedAt(Input in, long tick) {
+        return Math.max(in.stampMicros(), Micros.ofTicks(tick - 1));
     }
 
     /** Rules 3.1 and 3.2: a contextual form, the chain's next hit or a stumble, or Chain 1. */
@@ -774,14 +866,9 @@ public final class Combatant {
             }
             case Effect.InCombat c -> breath.setInCombat(tick, c.value());
             case Effect.Targeted t -> rhythm.active(tick);
-            case Effect.FeintSettled s -> {
-                if (pendingFeint > 0 && s.pressMicros() == pendingFeintPress) {
-                    if (!s.answered()) {
-                        payFeint(tick, pendingFeintTick, pendingFeint);
-                    }
-                    clearPendingFeint();
-                }
-            }
+            case Effect.StrikeCommitted s -> deflects.commit(s.id(), s.impactMicros(), s.white());
+            case Effect.StrikeCancelled s -> settle(deflects.remove(s.id()), false, tick);
+            case Effect.StrikeDecided s -> settle(deflects.remove(s.id()), s.answered(), tick);
             case Effect.AssistChanged a -> assistLevel = a.level();
             case Effect.Collapse c -> {
                 if (movable) {
@@ -827,6 +914,7 @@ public final class Combatant {
     }
 
     private void stun(long tick, long until) {
+        retractUnstruckPommel(tick);
         endAttack();
         resetChain();
         setState(State.HITSTUN, tick);
@@ -870,8 +958,23 @@ public final class Combatant {
     /** A stagger, knockdown, grab, clash, collapse or death: the attack, the chain and the queued presses go. */
     private void incapacitate(long tick) {
         clearBuffer(tick);
+        retractUnstruckPommel(tick);
         endAttack();
         resetChain();
+    }
+
+    /**
+     * A Pommel Strike cut off in its windup (a hit, a grab, a knockdown at tick {@code tick}) never reached its active
+     * frames, so it answers nothing: its timed answer goes (Rule 5.2), as a claim goes when the guard can't rise.
+     */
+    private void retractUnstruckPommel(long tick) {
+        FrameData f = attack;
+        if (state == State.ATTACK
+                && f != null
+                && f.attackClass() == AttackClass.POMMEL
+                && phaseAt(f, tick) == Phase.WINDUP) {
+            answers.dropNewest(TimedAnswers.Kind.POMMEL);
+        }
     }
 
     /** Rule 3's buffer empties when a hit reaches the combatant; a press stamped before then comes to nothing. */
@@ -1147,6 +1250,16 @@ public final class Combatant {
         return buffer;
     }
 
+    /** The strikes it's involved in and its guard presses' claims on them. Read it; don't change it. */
+    public DeflectJudge deflects() {
+        return deflects;
+    }
+
+    /** When its recent Steps, Jumps and Pommel Strikes started. */
+    public TimedAnswers answers() {
+        return answers;
+    }
+
     // ------------------------------------------------------------------------------------------------ snapshots
 
     /** Becomes an exact copy of {@code o}, which must share its rules, moveset and Pulse. */
@@ -1159,6 +1272,8 @@ public final class Combatant {
         rhythm.copyFrom(o.rhythm);
         ledger.copyFrom(o.ledger);
         buffer.copyFrom(o.buffer);
+        deflects.copyFrom(o.deflects);
+        answers.copyFrom(o.answers);
         assistLevel = o.assistLevel;
         state = o.state;
         stateUntil = o.stateUntil;
@@ -1189,6 +1304,7 @@ public final class Combatant {
         pendingFeint = o.pendingFeint;
         pendingFeintTick = o.pendingFeintTick;
         pendingFeintPress = o.pendingFeintPress;
+        feintAnswered = o.feintAnswered;
         knockdownAt = o.knockdownAt;
         airborne = o.airborne;
         lastContact = o.lastContact;
@@ -1218,6 +1334,8 @@ public final class Combatant {
                 && rhythm.sameAs(o.rhythm)
                 && ledger.sameAs(o.ledger)
                 && buffer.sameAs(o.buffer)
+                && deflects.sameAs(o.deflects)
+                && answers.sameAs(o.answers)
                 && assistLevel == o.assistLevel
                 && state == o.state
                 && stateUntil == o.stateUntil
@@ -1248,6 +1366,7 @@ public final class Combatant {
                 && Double.compare(pendingFeint, o.pendingFeint) == 0
                 && pendingFeintTick == o.pendingFeintTick
                 && pendingFeintPress == o.pendingFeintPress
+                && feintAnswered == o.feintAnswered
                 && knockdownAt == o.knockdownAt
                 && airborne == o.airborne
                 && lastContact == o.lastContact

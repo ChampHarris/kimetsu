@@ -7,8 +7,17 @@ import dev.champ.kimetsu.core.data.TimingRules;
  * When an NPC strike's result on a player is decided (Rule 2.9, R9-02): once the server holds that player's input up
  * to the impact I, or at I plus the hold cap, whichever comes first. Frames arrive in order, so the newest frame's
  * stamp is how far the player's input is known. A guard answer needs any frame judged at or after I (its stamp minus
- * half a frame, as the judge reads stamps); a position answer, against a red or purple strike, needs a client-tick
- * frame at or after I, which carries a fresh pose. Input that arrives after the decision doesn't count.
+ * half a frame, as the judge reads stamps); a position answer needs a client-tick frame at or after I, which carries a
+ * fresh pose. Since every answer needs the defender inside the strike's sweep at I (D-039), the strike resolver asks
+ * for the position horizon on every strike. Input that arrives after the decision doesn't count.
+ *
+ * <p>A client-tick frame's time is the start of its engine tick (a whole tick of combat time, so a clock that snaps
+ * forward keeps it whole). It must come later than the last one accepted, so a client can't file a pose under an
+ * earlier time, and no more than a tick after the frame's send stamp as the stamp check let it count (Rule 2.10): a
+ * client running ahead of the server by more than the stamp tolerance (up to the spec's 36 ms for a beat after a TPS
+ * drop, against a 20 ms tolerance) has its stamps clamped back, and an honest tick frame sent just after its tick
+ * starts would otherwise be refused. A tick a tick ahead of its clamped stamp only commits a pose earlier than it
+ * had to. A frame whose tick time fails still counts for presses.
  */
 public final class InputHorizon {
     private final TimingRules rules;
@@ -31,14 +40,20 @@ public final class InputHorizon {
     /**
      * A frame arrived: the send stamp the stamp check let it count ({@link StampCheck#frame}), its frame time, and the
      * nominal time of the client tick whose pose it carries, or {@link #NO_TICK}. The pose is as of the tick time,
-     * which a late tick sends well after.
+     * which a late tick sends well after. Returns whether the tick time was accepted as a fresh pose, the one the mod
+     * then records in the player's pose history; false for {@link #NO_TICK}.
      */
-    public void frame(long sendStampMicros, long frameTimeMicros, long tickTimeMicros) {
+    public boolean frame(long sendStampMicros, long frameTimeMicros, long tickTimeMicros) {
         long judged = sendStampMicros - StampCheck.halfFrame(rules, frameTimeMicros);
         horizon = Math.max(horizon, judged);
-        if (tickTimeMicros != NO_TICK) {
-            tickHorizon = Math.max(tickHorizon, Math.min(tickTimeMicros, sendStampMicros));
+        if (tickTimeMicros == NO_TICK
+                || tickTimeMicros > sendStampMicros + Micros.PER_TICK
+                || Math.floorMod(tickTimeMicros, Micros.PER_TICK) != 0
+                || (tickHorizon != Long.MIN_VALUE && tickTimeMicros <= tickHorizon)) {
+            return false;
         }
+        tickHorizon = tickTimeMicros;
+        return true;
     }
 
     /**

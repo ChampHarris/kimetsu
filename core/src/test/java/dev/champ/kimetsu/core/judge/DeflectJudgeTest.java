@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.champ.kimetsu.core.Fixtures;
+import dev.champ.kimetsu.core.data.TimingRules;
 import dev.champ.kimetsu.core.judge.DeflectJudge.Answer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -12,13 +13,25 @@ import org.junit.jupiter.params.provider.CsvSource;
 
 /** Rules 2.6–2.8. A strike's impact I is at 10 s; presses are judged times relative to it. */
 class DeflectJudgeTest {
-    private static final long I = 10_000_000;
-
-    private static Answer answer(long pressMs, int assistLevel) {
+    @Test
+    void theSameStrikeToldAgainKeepsItsClaim_aMovedImpactStartsOver() {
         DeflectJudge judge = new DeflectJudge(Fixtures.timing());
         judge.commit(1, I, true);
+        assertTrue(judge.press(I - 30_000, 0));
+        judge.commit(1, I, true); // told again, as a late joiner's commit might be
+        assertEquals(I - 30_000, judge.claimOf(1));
+        judge.commit(1, I + 650_000, true); // moved a beat: a different strike now
+        assertEquals(DeflectJudge.UNCLAIMED, judge.claimOf(1));
+    }
+
+    private static final long I = 10_000_000;
+    private static final TimingRules T = Fixtures.timing();
+
+    private static Answer answer(long pressMs, int assistLevel) {
+        DeflectJudge judge = new DeflectJudge(T);
+        judge.commit(1, I, true);
         judge.press(I + pressMs * 1000, assistLevel);
-        return judge.resolve(1, true, assistLevel);
+        return DeflectJudge.answer(judge.claimOf(1), I, T, assistLevel);
     }
 
     @ParameterizedTest
@@ -41,69 +54,99 @@ class DeflectJudgeTest {
 
     @Test
     void theFirstQualifyingPressDecidesAndASecondIsAWhiff() {
-        DeflectJudge judge = new DeflectJudge(Fixtures.timing());
+        DeflectJudge judge = new DeflectJudge(T);
         judge.commit(1, I, true);
         assertTrue(judge.press(I - 100_000, 0)); // a deflect, not yet a Perfect
         assertFalse(judge.press(I - 10_000, 0)); // the tap meant to upgrade it: a whiff
-        assertEquals(Answer.DEFLECT, judge.resolve(1, true, 0));
+        assertEquals(Answer.DEFLECT, DeflectJudge.answer(judge.claimOf(1), I, T, 0));
         assertTrue(judge.lockedOut(I - 10_000 + 249_999));
         assertFalse(judge.lockedOut(I - 10_000 + 250_000));
     }
 
     @Test
     void aWhiffLocksDeflectsOutForFiveTicksAndAWhiffInsideExtendsIt() {
-        DeflectJudge judge = new DeflectJudge(Fixtures.timing());
+        DeflectJudge judge = new DeflectJudge(T);
         judge.commit(1, I, true);
         assertFalse(judge.press(I - 400_000, 0)); // nothing inside the 150 ms after it
         assertFalse(judge.press(I - 200_000, 0)); // inside the lockout: extends it to I + 50 ms
         assertFalse(judge.press(I - 30_000, 0)); // would have been a Perfect
-        assertEquals(Answer.NONE, judge.resolve(1, true, 0));
+        assertEquals(DeflectJudge.UNCLAIMED, judge.claimOf(1));
         assertTrue(judge.lockedOut(I + 219_999));
     }
 
     @Test
     void onePressAnswersBothStrikesOfABeat() {
-        DeflectJudge judge = new DeflectJudge(Fixtures.timing());
+        DeflectJudge judge = new DeflectJudge(T);
         judge.commit(1, I, true);
         judge.commit(2, I + 50_000, true);
         assertTrue(judge.press(I - 20_000, 0));
-        assertEquals(Answer.PERFECT, judge.resolve(1, true, 0));
-        assertEquals(Answer.DEFLECT, judge.resolve(2, true, 0));
-    }
-
-    @Test
-    void outsideTheFrontArcAtTheImpactNothingIsDeflected() {
-        DeflectJudge judge = new DeflectJudge(Fixtures.timing());
-        judge.commit(1, I, true);
-        judge.press(I - 30_000, 0);
-        assertEquals(Answer.NONE, judge.resolve(1, false, 0));
+        assertEquals(Answer.PERFECT, DeflectJudge.answer(judge.claimOf(1), I, T, 0));
+        assertEquals(Answer.DEFLECT, DeflectJudge.answer(judge.claimOf(2), I + 50_000, T, 0));
     }
 
     @Test
     void onlyWhiteStrikesCanBeDeflected() {
-        DeflectJudge judge = new DeflectJudge(Fixtures.timing());
+        DeflectJudge judge = new DeflectJudge(T);
         judge.commit(1, I, false); // red: dodge it
         assertFalse(judge.press(I - 30_000, 0));
-        assertEquals(Answer.NONE, judge.resolve(1, true, 0));
+        assertEquals(DeflectJudge.UNCLAIMED, judge.claimOf(1));
     }
 
     @Test
     void threeDemonsStringsAreNineStrikesAndNoneIsLost() {
-        DeflectJudge judge = new DeflectJudge(Fixtures.timing());
+        DeflectJudge judge = new DeflectJudge(T);
         for (int i = 0; i < 9; i++) {
             judge.commit(i, I + i * 650_000L, true);
         }
-        assertEquals(9, judge.pending());
+        assertEquals(9, judge.count());
         judge.press(I + 8 * 650_000L - 30_000, 0);
-        assertEquals(Answer.PERFECT, judge.resolve(8, true, 0));
+        assertEquals(Answer.PERFECT, DeflectJudge.answer(judge.claimOf(8), I + 8 * 650_000L, T, 0));
     }
 
     @Test
-    void aCancelledStrikeLeavesNothingToAnswer() {
-        DeflectJudge judge = new DeflectJudge(Fixtures.timing());
+    void aStrikeThatLeftLeavesNothingToAnswerAndReportsItsClaim() {
+        DeflectJudge judge = new DeflectJudge(T);
         judge.commit(1, I, true);
-        judge.cancel(1);
-        assertEquals(0, judge.pending());
-        assertFalse(judge.press(I - 30_000, 0));
+        judge.press(I - 30_000, 0);
+        assertTrue(judge.claimedBy(I - 30_000));
+        assertEquals(I - 30_000, judge.remove(1));
+        assertEquals(0, judge.count());
+        assertFalse(judge.claimedBy(I - 30_000));
+        assertEquals(DeflectJudge.UNCLAIMED, judge.remove(1));
+        judge.commit(2, I + 650_000, true);
+        assertFalse(judge.press(I + 650_000 - 400_000, 0)); // nothing in its window now
+    }
+
+    @Test
+    void aRepeatedCommitReplacesTheStrikeAndClearsItsClaim() {
+        DeflectJudge judge = new DeflectJudge(T);
+        judge.commit(1, I, true);
+        judge.press(I - 30_000, 0);
+        judge.commit(1, I + 650_000, true);
+        assertEquals(1, judge.count());
+        assertEquals(DeflectJudge.UNCLAIMED, judge.claimOf(1));
+    }
+
+    @Test
+    void aSnapshotHoldsTheSameStrikesClaimsAndLockoutInAnyOrder() {
+        DeflectJudge a = new DeflectJudge(T);
+        a.commit(1, I, true);
+        a.commit(2, I + 650_000, true);
+        a.press(I - 30_000, 0);
+        DeflectJudge copy = new DeflectJudge(T);
+        copy.copyFrom(a);
+        assertTrue(copy.sameAs(a));
+        DeflectJudge reversed = new DeflectJudge(T);
+        reversed.commit(2, I + 650_000, true);
+        reversed.commit(1, I, true);
+        reversed.press(I - 30_000, 0);
+        assertTrue(reversed.sameAs(a));
+        reversed.press(I + 650_000 - 20_000, 0);
+        assertFalse(reversed.sameAs(a));
+        for (int i = 0; i < 20; i++) { // past its first arrays
+            a.commit(10 + i, I + i * 650_000L, true);
+        }
+        copy.copyFrom(a);
+        assertTrue(copy.sameAs(a));
     }
 }

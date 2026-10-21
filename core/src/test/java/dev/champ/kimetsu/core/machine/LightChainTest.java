@@ -144,7 +144,7 @@ class LightChainTest {
         assertEquals(0, step.c.chainNext());
 
         Rig guard = new Rig();
-        guard.press(Input.Kind.ATTACK, Rig.beat(1)).press(Input.guard(Rig.during(19, 10), false));
+        guard.press(Input.Kind.ATTACK, Rig.beat(1)).press(Input.guard(Rig.during(19, 10)));
         guard.through(21);
         assertEquals(State.GUARD, guard.c.state()); // guard-cancelled at 20, GUARD at 21
         assertEquals(0, guard.c.chainNext());

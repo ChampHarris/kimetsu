@@ -29,7 +29,7 @@ class TimelineTest {
             Input.release(Rig.ms(1950), 2),
             Input.of(Input.Kind.INHALE, Rig.beat(4)),
             Input.of(Input.Kind.STEP, Rig.ms(3500)),
-            Input.guard(Rig.ms(3800), false),
+            Input.guard(Rig.ms(3800)),
             Input.of(Input.Kind.GUARD_UP, Rig.ms(4100)),
         };
         for (Input in : script) {

@@ -114,6 +114,11 @@ public final class Timeline {
         return live;
     }
 
+    /** How many past ticks of snapshots it keeps. */
+    public int historyTicks() {
+        return size - 1;
+    }
+
     /** The tick begun, or the last one ended. */
     public long current() {
         return current;
@@ -250,6 +255,7 @@ public final class Timeline {
         }
         dirty = NONE;
         run(n);
+        applyEffects(n); // a client's server effects logged ahead of its tick; none on the server
         ranCurrent = true;
     }
 
@@ -389,6 +395,26 @@ public final class Timeline {
     }
 
     /**
+     * The predicting client's log of what the server decided that it couldn't predict (that it joined a strike, a
+     * strike's cancel), at the server's tick: ignored when the snapshot it last rebased onto already holds that tick, or
+     * when the tick is older than its history; otherwise logged there and replayed before the next read (a tick still
+     * to come applies when it runs). Callable between ticks or inside one.
+     */
+    public void serverEffect(Effect e, long tick) {
+        if ((rebasedThrough != NONE && tick <= rebasedThrough) || tick <= oldestEnd()) {
+            return;
+        }
+        int i = effects.size();
+        while (i > 0 && effects.get(i - 1).tick() > tick) {
+            i--;
+        }
+        effects.add(i, new LoggedEffect(e, tick));
+        if (tick < current || (tick == current && (ranCurrent || !inTick))) {
+            dirty = dirty == NONE ? tick : Math.min(dirty, tick);
+        }
+    }
+
+    /**
      * An NPC strike on the player committed with its impact at {@code impactMicros} (Rule 7.11); a repeated id
      * replaces the earlier commit. Every player the strike's sweep can reach gets one, not only its target.
      */
@@ -405,7 +431,7 @@ public final class Timeline {
     /**
      * The strike won't land (its attacker was interrupted, or unloaded): the presses it held go through. After its
      * impact tick the world may have read the player there (a Pommel interrupt, a clash), so that tick stays as read.
-     * Its resolver still owes a {@link Effect.FeintSettled} for any guard press that claimed it.
+     * Log {@link Effect.StrikeCancelled} for it too, so the machine drops it and settles a Feint its press claimed.
      */
     public void cancelStrike(long id) {
         long impact = removeStrike(id);
@@ -417,6 +443,17 @@ public final class Timeline {
             read(tick);
         }
         release();
+    }
+
+    /**
+     * The strike is gone and the world never read the player for it (a Posture break before its impact, its attacker or
+     * this player gone): the presses it held go through at their stamps, and no tick is frozen. Log
+     * {@link Effect.StrikeCancelled} for it too.
+     */
+    public void dropStrike(long id) {
+        if (removeStrike(id) != NONE) {
+            release();
+        }
     }
 
     /**
@@ -462,6 +499,15 @@ public final class Timeline {
     public long sweepableThrough() {
         long impact = earliestImpact();
         return impact == NONE ? current : Math.min(current, Micros.stepOf(impact));
+    }
+
+    /**
+     * The earliest tick an {@link #effect} may still be logged at in the tick under way: after the oldest snapshot kept
+     * and no earlier than the watermark.
+     */
+    public long earliestEffectTick() {
+        long first = oldestEnd() + 1;
+        return watermark == NONE ? first : Math.max(first, watermark);
     }
 
     /** The newest tick the world has read, or {@code Long.MIN_VALUE}: presses at or before it apply after it. */

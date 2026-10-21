@@ -88,7 +88,9 @@ public final class Sweeper {
         poses.at(from, start); // a young history (a fight just begun) clamps to its first pose
         poses.at(Micros.ofTicks(tick), end); // a pose not yet arrived clamps to the newest, the server's own view
         if (!track.aimed()) {
-            track.aim(start.yaw, pitchFor(s, start.pitch, rules)); // the swing starts aimed where the look was
+            track.aim(
+                    start.yaw,
+                    SweepBounds.pitchFor(s, start.pitch, rules)); // the swing starts aimed where the look was
         }
         double dx = end.x - start.x;
         double dy = end.y - start.y;
@@ -109,7 +111,7 @@ public final class Sweeper {
         for (int k = 1; k <= subSteps; k++) {
             double t = (double) k / subSteps;
             double turnYaw = Pose.wrap(Pose.lerpAngle(start.yaw, end.yaw, t) - aimYaw);
-            double turnPitch = pitchFor(s, start.pitch + (end.pitch - start.pitch) * t, rules) - aimPitch;
+            double turnPitch = SweepBounds.pitchFor(s, start.pitch + (end.pitch - start.pitch) * t, rules) - aimPitch;
             double turn = Math.sqrt(turnYaw * turnYaw + turnPitch * turnPitch);
             if (turn > step) {
                 turnYaw *= step / turn;
@@ -292,15 +294,6 @@ public final class Sweeper {
     /** The pose's eyes, clamped to the body's standing height (the shape's reach is computed for no higher). */
     private static double eye(Pose p, SweepShape s) {
         return Math.clamp(p.eyeOr(s.maxEye), 0, s.maxEye);
-    }
-
-    /** The pitch a sweep follows: none for a level one, the look clamped for a {@code look_clamped} one. */
-    private static double pitchFor(Sweep sweep, double pitch, HitRules rules) {
-        return switch (sweep.pitch()) {
-            case LEVEL -> 0;
-            case LOOK -> pitch;
-            case LOOK_CLAMPED -> Math.clamp(pitch, -rules.horizontalPitchClampDeg(), rules.horizontalPitchClampDeg());
-        };
     }
 
     private void swap() {

@@ -80,7 +80,7 @@ class TransitionTableTest {
     private static Input press(Input.Kind kind) {
         return switch (kind) {
             case BREATHE_UP -> Input.release(PRESS, 0);
-            case GUARD_DOWN -> Input.guard(PRESS, false);
+            case GUARD_DOWN -> Input.guard(PRESS);
             default -> Input.of(kind, PRESS);
         };
     }

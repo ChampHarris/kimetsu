@@ -51,10 +51,21 @@ public sealed interface Effect {
     record Targeted() implements Effect {}
 
     /**
-     * The strike that the guard press stamped {@code pressMicros} claimed is decided. If that press feinted a form and
-     * the strike wasn't answered, the Feint pays after all (ruling Q8). The resolver sends one for every claimed press.
+     * An NPC strike on it was committed (Rule 7.11), or it joined one whose sweep can reach it (Rule 2.9): impact at
+     * {@code impactMicros}; {@code white} for a deflectable one. A guard press claims it from its deflect window (Rules
+     * 2.6–2.8). The world logs it in the tick the combatant becomes involved; a repeated id replaces the earlier entry.
      */
-    record FeintSettled(long pressMicros, boolean answered) implements Effect {}
+    record StrikeCommitted(long id, long impactMicros, boolean white) implements Effect {}
+
+    /** The strike won't land (a feint, an interrupt, a Posture break, a {@code ClockEpoch}): nothing answered it. */
+    record StrikeCancelled(long id) implements Effect {}
+
+    /**
+     * The strike is decided, logged at its impact tick after the outcome's own effects: {@code answered} if this
+     * combatant deflected or Perfected it. A Feint its claiming press made is free if any strike that press claimed was
+     * answered, and pays once they're all decided otherwise (ruling Q8).
+     */
+    record StrikeDecided(long id, boolean answered) implements Effect {}
 
     /** The player changed their rhythm assist (0–3); logged like any effect, so a replay judges with the level then. */
     record AssistChanged(int level) implements Effect {}

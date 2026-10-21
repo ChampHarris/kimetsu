@@ -9,10 +9,8 @@ import dev.champ.kimetsu.core.clock.Micros;
  * @param stampMicros the judged combat time of the press, in microseconds
  * @param slot for a Breathe release, the radial slot it was released toward, or −1 for none
  * @param fallBlocks for an attack press, how far above the ground the player was while falling (0 when not falling)
- * @param claimed for a guard press, whether the deflect judge claimed a strike with it when it arrived (a Feint it
- *     cancels is then settled by that strike's verdict, ruling Q8)
  */
-public record Input(Kind kind, long stampMicros, int slot, double fallBlocks, boolean claimed) {
+public record Input(Kind kind, long stampMicros, int slot, double fallBlocks) {
 
     public enum Kind {
         ATTACK,
@@ -29,19 +27,20 @@ public record Input(Kind kind, long stampMicros, int slot, double fallBlocks, bo
     }
 
     public static Input of(Kind kind, long stampMicros) {
-        return new Input(kind, stampMicros, -1, 0, false);
+        return new Input(kind, stampMicros, -1, 0);
     }
 
     public static Input release(long stampMicros, int slot) {
-        return new Input(Kind.BREATHE_UP, stampMicros, slot, 0, false);
+        return new Input(Kind.BREATHE_UP, stampMicros, slot, 0);
     }
 
     public static Input attackFalling(long stampMicros, double fallBlocks) {
-        return new Input(Kind.ATTACK, stampMicros, -1, fallBlocks, false);
+        return new Input(Kind.ATTACK, stampMicros, -1, fallBlocks);
     }
 
-    public static Input guard(long stampMicros, boolean claimed) {
-        return new Input(Kind.GUARD_DOWN, stampMicros, -1, 0, claimed);
+    /** A guard press: the machine claims the strikes it can deflect (Rules 2.6–2.8). */
+    public static Input guard(long stampMicros) {
+        return new Input(Kind.GUARD_DOWN, stampMicros, -1, 0);
     }
 
     /** The engine step it acts in (Rule 2.1). */

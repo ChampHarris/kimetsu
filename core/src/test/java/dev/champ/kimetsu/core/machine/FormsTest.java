@@ -99,9 +99,7 @@ class FormsTest {
     @Test
     void aFeintedOrInterruptedFinisherNeverPaysItsMushin() {
         Rig feint = new Rig().effect(new Effect.RhythmDelta(20), 1);
-        feint.form(0, Rig.ms(1200), 200)
-                .press(Input.guard(Rig.during(24, 10), false))
-                .through(25);
+        feint.form(0, Rig.ms(1200), 200).press(Input.guard(Rig.during(24, 10))).through(25);
         assertEquals(State.NEUTRAL, feint.c.state());
         assertEquals(20, feint.c.rhythm().points());
         feint.press(Input.Kind.GUARD_UP, Rig.during(25, 10));
@@ -166,7 +164,7 @@ class FormsTest {
     @Test
     void aGuardPressCancelsTheRadialIntoGuard() {
         Rig r = new Rig();
-        r.press(Input.Kind.BREATHE_DOWN, Rig.ms(1000)).press(Input.guard(Rig.during(25, 10), false));
+        r.press(Input.Kind.BREATHE_DOWN, Rig.ms(1000)).press(Input.guard(Rig.during(25, 10)));
         r.through(26);
         assertEquals(State.NEUTRAL, r.c.state());
         r.through(27);

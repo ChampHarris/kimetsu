@@ -168,7 +168,7 @@ class BeingHitTest {
     void aGuardHeldWhileWindedDrainsPostureUntilItBreaks() {
         Rig r = seeded().effect(new Effect.PostureDamage(Rig.points(95), true), 1);
         r.c.breath().spend(0, Rig.points(100)); // Winded to 40
-        r.press(Input.guard(Rig.during(2, 10), false)).through(20);
+        r.press(Input.guard(Rig.during(2, 10))).through(20);
         assertEquals(State.GUARD, r.c.state()); // 5 Posture at 0.3 a tick from tick 4
         r.through(21);
         assertEquals(State.STAGGER, r.c.state());

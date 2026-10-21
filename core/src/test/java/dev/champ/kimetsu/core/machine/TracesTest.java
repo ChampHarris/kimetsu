@@ -99,7 +99,7 @@ class TracesTest {
         String at = String.format(Locale.ROOT, "%.3f ms", Micros.toMillis(in.stampMicros()));
         return switch (in.kind()) {
             case BREATHE_UP -> "release slot " + in.slot() + " @" + at;
-            case GUARD_DOWN -> "guard" + (in.claimed() ? " (claims a strike)" : "") + " @" + at;
+            case GUARD_DOWN -> "guard @" + at;
             case ATTACK -> in.fallBlocks() > 0 ? "attack, falling @" + at : "attack @" + at;
             default -> in.kind().name().toLowerCase(Locale.ROOT) + " @" + at;
         };
@@ -140,13 +140,14 @@ class TracesTest {
 
     @Test
     void aFeintThatAlsoDeflected() throws IOException {
-        long press = Rig.during(24, 10);
+        long press = Rig.during(24, 10); // 1210 ms: inside the deflect window of the strike landing at tick 28 (1400)
         Script s = new Script()
+                .effect(new Effect.StrikeCommitted(1, Rig.ms(1400), true), 18)
                 .press(Input.of(Input.Kind.BREATHE_DOWN, Rig.ms(1000)))
                 .press(Input.release(Rig.ms(1200), 0))
-                .press(Input.guard(press, true))
+                .press(Input.guard(press))
                 .press(Input.of(Input.Kind.GUARD_UP, Rig.during(26, 10)))
-                .effect(new Effect.FeintSettled(press, true), 28);
+                .effect(new Effect.StrikeDecided(1, true), 28);
         List<String> lines = s.run(19, 32);
         write(
                 "feint-that-deflected.txt",

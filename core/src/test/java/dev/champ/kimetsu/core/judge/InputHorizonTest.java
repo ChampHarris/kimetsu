@@ -59,17 +59,43 @@ class InputHorizonTest {
         long cap = 395_000;
         h.frame(I + 30_000, FRAME, NO_TICK); // an event frame carries no fresh pose
         assertFalse(h.decided(I, true, I + 50_000, cap, NONE_HELD));
-        h.frame(I + 35_000, FRAME, I - 10_000); // a late tick: sent after I, its pose from before
+        h.frame(I + 35_000, FRAME, I - 50_000); // a late tick: sent after I, its pose from before
         assertFalse(h.decided(I, true, I + 50_000, cap, NONE_HELD));
         h.frame(I + 60_000, FRAME, I); // the client tick at I
         assertTrue(h.decided(I, true, I + 60_000, cap, NONE_HELD));
     }
 
     @Test
-    void aTickTimeLaterThanItsSendStampCountsOnlyAsFarAsTheSend() {
+    void aTickTimeLaterThanItsSendStampIsNoFreshPose() {
         InputHorizon h = new InputHorizon(Fixtures.timing());
-        h.frame(I - 20_000, FRAME, I + 500_000); // a fabricated tick time
+        assertFalse(h.frame(I - 20_000, FRAME, I + 500_000)); // a fabricated tick time
         assertFalse(h.decided(I, true, I, 395_000, NONE_HELD));
+        assertTrue(h.decided(I - 50_000, false, I, 395_000, NONE_HELD)); // the frame still counts for presses
+    }
+
+    @Test
+    void aClockAheadOfTheServerKeepsItsFreshPoses_aTickTimeMoreThanATickAheadOfItsStampDoesNot() {
+        InputHorizon h = new InputHorizon(Fixtures.timing());
+        // the client runs 36 ms ahead, the stamp check clamps its stamps 16 ms back: its tick frame for I, sent 10 ms
+        // after the tick began, counts as sent 6 ms before it
+        assertTrue(h.frame(I - 6_000, FRAME, I));
+        assertTrue(h.decided(I, true, I, 395_000, NONE_HELD));
+        assertTrue(h.frame(I, FRAME, I + 50_000)); // a whole tick ahead of its stamp: still taken
+        assertFalse(h.frame(I + 49_999, FRAME, I + 100_000)); // 1 µs more than a tick ahead: no fresh pose
+    }
+
+    @Test
+    void aClientTickTimeIsAWholeTickLaterThanTheLast() {
+        InputHorizon h = new InputHorizon(Fixtures.timing());
+        assertTrue(h.frame(I + 10_000, FRAME, I));
+        assertFalse(h.frame(I + 20_000, FRAME, I)); // the same tick again
+        assertFalse(h.frame(I + 30_000, FRAME, I - 50_000)); // filed under an earlier tick
+        assertFalse(h.frame(I + 60_000, FRAME, I + 30_000)); // not a whole tick
+        assertTrue(h.frame(I + 160_000, FRAME, I + 150_000)); // catch-up ticks may skip ahead
+        assertFalse(h.decided(I + 200_000, true, I + 200_000, 395_000, NONE_HELD));
+        assertTrue(h.decided(I + 150_000, true, I + 200_000, 395_000, NONE_HELD));
+        h.reset(); // a ClockEpoch: the new timeline starts behind the old one
+        assertTrue(h.frame(I - 990_000, FRAME, I - 1_000_000));
     }
 
     @Test
