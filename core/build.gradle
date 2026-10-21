@@ -29,6 +29,9 @@ tasks.named('test', Test) {
     useJUnitPlatform {
         excludeTags 'hot-path'
     }
+    testLogging {
+        exceptionFormat = 'full' // CI's log then shows each failed assertion's message
+    }
 }
 
 // The allocation checks on the hot paths (Performance Budget), with escape analysis off: a JIT that scalar-replaces an
@@ -46,6 +49,7 @@ def hotPathTest = tasks.register('hotPathTest', Test) {
     systemProperty 'kimetsu.bench', providers.gradleProperty('bench').isPresent().toString()
     testLogging {
         showStandardStreams = true
+        exceptionFormat = 'full'
     }
 }
 

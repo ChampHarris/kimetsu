@@ -178,26 +178,47 @@ class HotPathTest {
         return sweeper.sweep(1, swing, shape, 0, 10, poses, crowd, track, Sight.OPEN, RULES, out);
     }
 
-    private long allocated(SweepShape shape, Targets crowd) {
+    /**
+     * The bytes this thread allocates in each of 10 windows of 20,000 sweeps, after 50,000 to warm up. With escape
+     * analysis off, a sweep that allocated would show in every window. The JIT's own tier changes allocate a few
+     * hundred bytes on this thread now and then (a 2-core runner still shows one after 100,000 sweeps), so one window
+     * that must read 0 would flake: most of them must.
+     */
+    private long[] allocated(SweepShape shape, Targets crowd) {
         long swing = 0;
-        for (int i = 0; i < 20_000; i++) {
+        for (int i = 0; i < 50_000; i++) {
             once(shape, crowd, ++swing);
         }
         com.sun.management.ThreadMXBean bean = (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
-        long before = bean.getCurrentThreadAllocatedBytes();
+        long[] windows = new long[10];
         int contacts = 0;
-        for (int i = 0; i < 100_000; i++) {
-            contacts += once(shape, crowd, ++swing);
+        for (int w = 0; w < windows.length; w++) {
+            long before = bean.getCurrentThreadAllocatedBytes();
+            for (int i = 0; i < 20_000; i++) {
+                contacts += once(shape, crowd, ++swing);
+            }
+            windows[w] = bean.getCurrentThreadAllocatedBytes() - before;
         }
-        long bytes = bean.getCurrentThreadAllocatedBytes() - before;
         assertEquals(0, contacts);
-        return bytes;
+        return windows;
+    }
+
+    private static void mostlyClean(long[] windows, String sweeps) {
+        System.out.println(sweeps + ", bytes allocated per window of 20,000: " + Arrays.toString(windows));
+        int clean = 0;
+        for (long bytes : windows) {
+            clean += bytes == 0 ? 1 : 0;
+        }
+        assertTrue(
+                clean >= 6,
+                sweeps + " allocated in " + (windows.length - clean) + " of " + windows.length
+                        + " windows of 20,000 sweeps (bytes: " + Arrays.toString(windows) + ")");
     }
 
     @Test
     void aSweepAllocatesNothing() {
-        assertEquals(0, allocated(box, boxMisses), "bytes allocated over 100,000 box sweeps");
-        assertEquals(0, allocated(blade, bladeMisses), "bytes allocated over 100,000 arc sweeps");
+        mostlyClean(allocated(box, boxMisses), "box sweeps");
+        mostlyClean(allocated(blade, bladeMisses), "arc sweeps");
     }
 
     private long median(SweepShape shape, Targets crowd) {
