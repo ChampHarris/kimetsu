@@ -47,6 +47,16 @@ public final class SwingTrack {
         return false;
     }
 
+    /** Whether any window of this swing has touched {@code target}, body or neck, landed or blocked. */
+    public boolean touched(int target) {
+        for (int i = 0; i < count; i++) {
+            if (targets[i] == target) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public void mark(int target, int window, int part) {
         if (count == targets.length) {
             int n = count * 2;

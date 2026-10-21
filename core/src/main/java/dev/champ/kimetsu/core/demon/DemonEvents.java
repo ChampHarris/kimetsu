@@ -174,8 +174,8 @@ final class DemonEvents {
             case DIE -> b.die(t);
             case OUTSIDE -> b.outside(t, l1[i], (f & F_KILLING) != 0);
             case WALL -> b.wall(t);
-            case CLASH -> b.clashed(t);
-            case CLASH_END -> b.clashEnded(t, (f & F_LOST) != 0);
+            case CLASH -> b.clashed(t, i1[i]);
+            case CLASH_END -> b.clashEnded(t, (f & F_LOST) != 0, l1[i]);
             default -> throw new IllegalStateException("unknown demon event " + kind[i]);
         }
     }

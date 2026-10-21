@@ -506,6 +506,10 @@ public final class Combatant {
                 }
             }
             case KNOCKDOWN -> {
+                if (airborne && tick >= knockdownAt + rules.knockdownMaxAirTicks()) {
+                    // no landing reported in time (one the level missed, or withheld): it meets the floor now
+                    contact(Effect.Surface.FLOOR, Micros.ofTicks(tick), tick); // allocating nothing
+                }
                 if (!airborne && stateUntil != NONE && tick >= stateUntil) {
                     recover(tick); // down 20 ticks, then rising 8: one span
                 }
@@ -829,7 +833,7 @@ public final class Combatant {
                     knockdown(tick);
                 }
             }
-            case Effect.Contact c -> contact(c, tick);
+            case Effect.Contact c -> contact(c.surface(), c.micros(), tick);
             case Effect.Grabbed g -> {
                 if (movable) {
                     incapacitate(tick);
@@ -988,24 +992,24 @@ public final class Combatant {
 
     /**
      * Rule 9.2 (R9-05): a Jump from 4 ticks before to 1 tick after the contact Techs; any other locks Tech out. A floor
-     * contact without one starts the ticks down, counted from the contact as the player's own client lived it.
+     * contact without one starts the ticks down, counted from the contact.
      */
-    private void contact(Effect.Contact c, long tick) {
-        if (state != State.KNOCKDOWN || c.micros() < Micros.ofTicks(knockdownAt)) {
-            return;
+    private void contact(Effect.Surface surface, long micros, long tick) {
+        if (state != State.KNOCKDOWN || !airborne || micros < Micros.ofTicks(knockdownAt)) {
+            return; // once down, a second report (late, or after the air-time limit) changes nothing
         }
-        lastContact = c.micros();
+        lastContact = micros;
         for (int i = 0; i < jumpCount; i++) {
-            if (techAgainst(c.micros(), jumps[i])) {
+            if (techAgainst(micros, jumps[i])) {
                 jumpCount = 0;
                 tech(tick);
                 return;
             }
         }
         jumpCount = 0;
-        if (c.surface() == Effect.Surface.FLOOR) {
+        if (surface == Effect.Surface.FLOOR) {
             airborne = false;
-            stateUntil = Micros.stepOf(c.micros()) + rules.knockdownDownTicks() + rules.knockdownRiseTicks();
+            stateUntil = Micros.stepOf(micros) + rules.knockdownDownTicks() + rules.knockdownRiseTicks();
         } // a wall splat without a Tech: still in the air, the floor comes next
     }
 

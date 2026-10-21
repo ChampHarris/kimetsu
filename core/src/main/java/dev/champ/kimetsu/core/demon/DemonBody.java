@@ -46,8 +46,9 @@ final class DemonBody {
     long stoppedAt = NONE;
     int stop = STOP_BREAK;
     long deadAt = NONE;
-    long clashFrom = NONE; // a micro-clash, until it ends (Long.MAX_VALUE while it runs)
+    long clashFrom = NONE; // a micro-clash, until it ends (Long.MAX_VALUE while it runs), and with whom
     long clashUntil = NONE;
+    int clashFighter = -1;
     long holdStrike = NONE; // the grab holding players, and how many
     int holds;
     int blocked; // its target's blocks toward a counter
@@ -96,6 +97,7 @@ final class DemonBody {
         deadAt = o.deadAt;
         clashFrom = o.clashFrom;
         clashUntil = o.clashUntil;
+        clashFighter = o.clashFighter;
         holdStrike = o.holdStrike;
         holds = o.holds;
         blocked = o.blocked;
@@ -456,16 +458,24 @@ final class DemonBody {
     }
 
     /** Frozen in a micro-clash from {@code t} (Rule 10.2): it strikes nothing more, and its guard is down. */
-    void clashed(long t) {
+    void clashed(long t, int fighter) {
         clashFrom = t;
+        clashFighter = fighter;
         clashUntil = Long.MAX_VALUE;
         stunUntil = NONE;
     }
 
-    /** The clash ended at {@code t}; {@code lost}, its Posture breaks then (Rule 10.3). */
-    void clashEnded(long t, boolean lost) {
+    /**
+     * The clash ended at {@code t}; {@code lost}, it loses {@code shareFixed} of its max Posture then (D-050: half; all of
+     * it breaks it, as Rule 10.3 was written).
+     */
+    void clashEnded(long t, boolean lost, long shareFixed) {
         clashUntil = t;
-        if (lost && !dead(t) && !collapsed(t) && posture.damage(t, posture.at(t) + Fixed.ONE, true)) {
+        if (!lost || shareFixed <= 0 || dead(t) || collapsed(t)) {
+            return;
+        }
+        long amount = Math.round(Fixed.of(p.posture().max()) * (double) shareFixed / Fixed.ONE);
+        if (posture.damage(t, amount, true)) {
             onBreak(t);
         }
     }

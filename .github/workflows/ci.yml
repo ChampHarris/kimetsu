@@ -44,6 +44,10 @@ jobs:
           python tools/sims/pulse_sim.py > /dev/null
           python tools/sims/duel_sim.py --fights 200
           python tools/sims/night_sim.py --nights 30 > /dev/null
+      - name: Duel sim tests, and the bots' parity reference is current (D-044)
+        run: |
+          python tools/tests/test_duel_sim.py
+          python tools/sims/parity_reference.py --check
 
   build:
     runs-on: ubuntu-latest

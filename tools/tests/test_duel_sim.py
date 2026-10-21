@@ -214,6 +214,38 @@ class RulesTests(unittest.TestCase):
         f.run(60)
         self.assertEqual((f.stats["dodge"], f.stats["strings_cut"]), (1, 1))
 
+    def engine_matched(self, seeds: int, **rules) -> dict:
+        """Stats summed over `seeds` fights of the average profile with the M1 strings, 8% feints and `rules`."""
+        total: dict = {}
+        for seed in range(seeds):
+            f = ruled(seed=seed, strings=True, **rules)
+            f.feint_rate = 0.08
+            f.run(600)
+            for k, v in f.stats.items():
+                total[k] = total.get(k, 0) + v
+        return total
+
+    def test_white_feints_count_in_the_length_and_keep_the_feint_share(self):
+        s = self.engine_matched(150, white_feints=True)
+        self.assertEqual(s.get("feint_white", 0), s["feints"])        # never a red or purple feint
+        self.assertAlmostEqual(s["feints"] / s["strings"], 0.08, delta=0.015)
+
+    def test_follows_keeps_a_heavy_from_following_a_heavy(self):
+        self.assertGreater(self.engine_matched(60).get("heavy_after_heavy", 0), 0)
+        self.assertEqual(self.engine_matched(60, follows=True).get("heavy_after_heavy", 0), 0)
+
+    def test_engine_gap_starts_when_the_demon_is_free(self):
+        # a swipe's 2 active ticks and 13 recovery ticks end 15 ticks after its impact; core/'s brain counts the last of
+        # them as free, so 14: past the next beat at 13
+        f = ruled(engine_gap=True)
+        f.t = 0.0
+        f.resolve("deflect", f.c["m1_demon"]["attacks"]["swipe"])
+        self.assertAlmostEqual(f._free_at, 700.0)
+        g = ruled(engine_gap=True)
+        g.t = 0.0
+        g.resolve("perfect", g.c["m1_demon"]["attacks"]["swipe"])
+        self.assertAlmostEqual(g._free_at, 100 + 650 + 400 - 50)   # a Perfect's 8-tick stun on top
+
     def test_double_tap_first_vs_latest(self):
         sk = exact("casual+assist+doubletap")
         first = ruled(sk=sk)

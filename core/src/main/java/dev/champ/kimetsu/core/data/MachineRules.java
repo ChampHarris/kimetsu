@@ -15,6 +15,8 @@ package dev.champ.kimetsu.core.data;
  * @param techLockoutTicks any other Jump during a knockdown locks Tech out this long
  * @param knockdownDownTicks ticks down after a contact with no Tech
  * @param knockdownRiseTicks ticks to rise after them
+ * @param knockdownMaxAirTicks a knockdown with no contact reported this long after it lands on the floor then (a landing
+ *     the level missed, or a client that withholds it, can't hold a player down for good)
  * @param juggleCutBreath Sneak in mid-air cuts a juggle short for this much Breath
  * @param grabEscapeInputs on-beat presses, one per beat, that break a grab
  * @param historyTicks ticks of state kept for late inputs and "what were you doing at the impact" (Rule 2.10)
@@ -32,6 +34,7 @@ public record MachineRules(
         int techLockoutTicks,
         int knockdownDownTicks,
         int knockdownRiseTicks,
+        int knockdownMaxAirTicks,
         double juggleCutBreath,
         int grabEscapeInputs,
         int historyTicks) {
@@ -49,6 +52,7 @@ public record MachineRules(
         Check.atLeast("tech_lockout_ticks", techLockoutTicks, 0);
         Check.atLeast("knockdown_down_ticks", knockdownDownTicks, 0);
         Check.atLeast("knockdown_rise_ticks", knockdownRiseTicks, 0);
+        Check.positive("knockdown_max_air_ticks", knockdownMaxAirTicks);
         Check.atLeast("juggle_cut_breath", juggleCutBreath, 0.0);
         Check.positive("grab_escape_inputs", grabEscapeInputs);
         Check.atLeast("history_ticks", historyTicks, 2);

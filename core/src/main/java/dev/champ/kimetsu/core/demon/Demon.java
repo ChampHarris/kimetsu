@@ -320,7 +320,9 @@ public final class Demon implements StrikeMob {
     public HitResult hit(SwingHit h) {
         long t = clamp(h.tick());
         DemonBody s = stateAt(t);
-        if (s.dead(t)) {
+        if (s.dead(t) || (s.clashing(t) && h.fighter() == s.clashFighter)) {
+            // the clashing player's form met the heavy, not the body: neither strike lands (Rule 10.2). The
+            // world sweeps a player's impact tick only once the heavy is decided, so the clash is known first
             return HitResult.NO_EFFECT;
         }
         boolean openBefore = firstContact(h, s.threadOpen(t));
@@ -480,13 +482,14 @@ public final class Demon implements StrikeMob {
     }
 
     @Override
-    public void clashed(long tick) {
-        record(clamp(tick), DemonEvents.CLASH, 0, 0, 0, 0, 0, 0, 0, 0);
+    public void clashed(long tick, int fighter) {
+        record(clamp(tick), DemonEvents.CLASH, 0, 0, 0, 0, 0, fighter, 0, 0);
     }
 
     @Override
-    public void clashEnded(long tick, boolean lost) {
-        record(clamp(tick), DemonEvents.CLASH_END, 0, 0, 0, 0, 0, 0, 0, lost ? DemonEvents.F_LOST : 0);
+    public void clashEnded(long tick, boolean lost, double postureShare) {
+        long share = Fixed.of(postureShare);
+        record(clamp(tick), DemonEvents.CLASH_END, 0, 0, share, 0, 0, 0, 0, lost ? DemonEvents.F_LOST : 0);
     }
 
     /** Its press, drawn per clash (Rule 10.4, ruling Q12: 380 ± 60 ms). */

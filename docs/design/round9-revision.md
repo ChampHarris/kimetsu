@@ -1,6 +1,6 @@
 # Round 9 revision: what the M1 technical spec changes in the GDD
 
-Status: PROPOSED, except what Champ accepted on 2026-10-20: R9-01, R9-03, R9-08, R9-09, R9-10 and R9-11 (D-026, D-027), and R9-02, R9-04 and R9-05 with the spec (D-032). R9-06 was decided on 2026-10-20 (D-031: the Light Chain and Mushin). R9-07 (M2–M3) was in no open question. Written by Claude for Champ on 2026-10-20 from the `/forge "M1 technical spec"` run; nothing here is in the GDD until Champ merges it. Each item is specified in `docs/design/specs/m1-combat-core.md`; the evidence is in `docs/research/briefs/m1-combat-core-*.md`. Tags: `[canon]` `[prior-art]` `[tech]`; `[sim]` marks `tools/sims/` results. Every number is PROPOSED.
+Status: PROPOSED, except what Champ accepted on 2026-10-20: R9-01, R9-03, R9-08, R9-09, R9-10 and R9-11 (D-026, D-027), and R9-02, R9-04 and R9-05 with the spec (D-032). R9-06 was decided on 2026-10-20 (D-031: the Light Chain and Mushin). R9-07 (M2–M3) was in no open question. R9-12 was decided on 2026-10-21 (D-050: a won clash takes half the demon's Posture); R9-13 (M4) is PROPOSED. Written by Claude for Champ on 2026-10-20 from the `/forge "M1 technical spec"` run; nothing here is in the GDD until Champ merges it. Each item is specified in `docs/design/specs/m1-combat-core.md`; the evidence is in `docs/research/briefs/m1-combat-core-*.md`. Tags: `[canon]` `[prior-art]` `[tech]`; `[sim]` marks `tools/sims/` results. Every number is PROPOSED.
 
 ## Summary
 
@@ -17,6 +17,8 @@ Status: PROPOSED, except what Champ accepted on 2026-10-20: R9-01, R9-03, R9-08,
 | R9-09 | Water's guard-cancel works after any swing, free after a miss | fix (netcode) | M1 | no |
 | R9-10 | Rhythm credits come only from inputs that land or answer; Rhythm decays only when idle | fix (red team; amends R6-04) | M1 | yes (the judge depends on it) |
 | R9-11 | The v0 duel numbers came from a sim bug; the M1 demon is retuned | fix (red team; amends R6-06, R6-07, D-006, D-008) | M1 | yes (the demon's numbers) |
+| R9-12 | A won micro-clash takes half the demon's Posture instead of always breaking it | fix (from the bots; amends R9-08 and the GDD's clash) | M1 | yes (forcing clashes beat honest play) |
+| R9-13 | Bosses scale their HP and Posture with the players fighting them | `[adopt]` (the Night Director's n^0.8, R7-03) | M4 | no |
 
 ---
 
@@ -102,6 +104,28 @@ Found by the canon pass; recorded so they're fixed before those milestones build
   - Ruling Q3's Hardening cost is 10 points, not 29.
 - **Cost.** The average fight lasts about 40 s, not Round 6's 60–100 s; stretching it to 60 s drops casual wins to 22–37%. Chipping the guard stance is free Posture, so the fight's length is the player's choice (the spec's Open Question 11). **Update (2026-10-20, D-028, PROPOSED):** Champ chose the guard counter (D-027). Its review makes the guard pay only when its counter is answered, which needs the demon's Posture-recovery delay at 3 s rather than 2 s; honest play then wins 100 / 99.8 / 59.1 / 93.5% (the spec's Rule 11.4 and Open Question 12).
 - **Decide.** Accept the retune, which restores the fight Round 6 described, with shorter fights.
+
+## R9-12 A won clash takes half the demon's Posture
+- **Problem.** The GDD's clash (and R9-08's) breaks the loser's Posture. Against the M1 demon a break is a Thread, so a player who forms into every white heavy to force clashes wins over half of them (casual bots 59%; Rule 10.4 predicts 53%) and gets a free Thread each time. Bots fighting the real engine (slice 4c) measured how much that pays. Their first measurement, a 34–47% cut in kill time, came with a leak since fixed: a form whose first window had already struck the demon a tick before the impact still clashed, dealing its damage and winning the clash too (D-049 (4)).
+- **Change.** A player who wins a clash takes half the demon's max Posture (150 of 300); it breaks, opening the Thread, only if that empties it, so a clash won against a demon already at half still opens it. A demon that wins still breaks the player's Posture. A form that struck the demon before the impact trades instead of clashing (Rule 7.8). Everything else in R9-08 stands. The share is data (`clash.win_posture_share`; 1.0 restores the break).
+- **Evidence.** `[sim]` Forcing clashes (Pommel every grab and charged red, form into every heavy) against honest play of the same skill, on the fixed engine, 400 fights a row (cut in the time by which half the fights are won; wins in brackets, honest play's 99 / 64 / 93%):
+
+  | Clash win does | Average | Casual | Assist |
+  |---|---|---|---|
+  | breaks Posture (as written) | −16% (97%) | −12% (56%) | −7% (75%) |
+  | **half of max Posture (the change)** | −7% (97%) | slower (45%) | slower (70%) |
+  | 35% | 0% (95%) | slower (41%) | slower (70%) |
+  | 20% (D-048, measured with the leak in) | slower (95%) | slower (32%) | slower (63%) |
+
+  The clasher wins 93 / 79 / 60% of its clashes (expert / average / casual), against Rule 10.4's 93 / 79 / 53%. The table reruns with `./gradlew :core:simMeasure` (`core/build/reports/sim/clash-shares.md`).
+- **Cost.** A clash no longer always opens the Thread. It still pays: half the demon's Posture in one press, and the heavy never lands. Seeking clashes is a gamble that loses casual players fights, not a strategy.
+- **Decide.** Decided by Champ on 2026-10-21 (D-050, replacing D-048's 20%).
+
+## R9-13 Bosses scale with the players fighting them
+- **Problem.** Two players taking turns to form on the M1 demon every other two beats kill it in 18 s (average) or 23.5 s (casual), against 38 s and 85 s for two honest players and 48 s and 116 s alone `[sim: core/ ExploitBotTest]`. It wins on HP damage: about 32 landed forms a minute run the demon to a collapse, then one cuts the neck. None of five fixes measured in the engine changed it (the guard facing the last hitter, flank hits on the guard at half Posture, a second player's hit within 13 ticks or 3 s at half or 30% Posture, aggro on the last hitter, aggro and facing together): the pair still won in 18–29 s.
+- **Change (PROPOSED, M4).** It's co-op play, not a hole (D-048): two people trading forms on one demon is the fight working. M1's demon stays as it is. From M4's first bosses, a boss's HP and Posture scale with the players in its fight, as the Night Director's budget does (n^0.8, R7-03) `[adopt: Left 4 Dead's Director, via R7-03]`, fixed when the fight starts so leaving mid-fight can't lower it.
+- **Evidence.** `[sim]` above. `[prior-art]` Elden Ring scales boss HP with summons, and its players disagree on whether it's enough (`docs/research/briefs/m1-combat-core-prior-art.md`); M4's scout should look wider before the number is set.
+- **Decide.** At M4's boss spec; nothing changes in M1.
 
 ## Sources
 - `docs/design/specs/m1-combat-core.md`

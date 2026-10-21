@@ -77,7 +77,15 @@ live under the config's `m1_rules` key (defaults in M1_RULES below; `--set m1_ru
      opening; at most once per 2 s.
   6. `--strings` (Rule 11.3): the leap and the grab end a string. (Beat-locked strikes one beat apart, a
      deflect not stopping the string, a break cancelling the rest and the Perfect's +8 ticks counting only on
-     the last strike are already the base model.)
+     the last strike are already the base model.) `--follows` adds Rule 11.3's `string_follows`
+     (`m1_rules.string_follows`: no heavy straight after a heavy, which doesn't fit at 13 ticks), and
+     `--white-feints` the engine's feints (Rule 11.5, D-046): white only (a swipe or a heavy by weight), and
+     counted in the string's length, so they open only strings two or more long, at the rate that keeps
+     `--feint-rate` of all strings. Both match the sim to core/'s demon for sim parity (D-044).
+     `--engine-gap` times the gap as core/'s demon does: from when the demon is free (its strike's active ticks,
+     `m1_rules.active_ticks`, then its recovery, a Perfect's stun too), not from the end of the player's opening; and a
+     string a guard counter made overdue lands on the first beat its commit margin (`string_margin_ticks`, the
+     swipe's 12) allows after the counter frees it, instead of one cue beat after the counter's opening.
   7. Assist level 3 under rule 1: `casual+assist3B` (every deflect a Perfect, x0.75 HP and Posture) and
      `casual+assist3C` (x0.75 HP only, Perfects earned) against `casual+assist` (level 2).
   8. Recovery Breath refund: `--rb-refund 0.75` (default 1.0); `thread_no_br%` counts Thread attempts that
@@ -223,6 +231,9 @@ M1_RULES = {
     "clang_cooldown_s": 2.0,
     "pressure_blocks_per_beat": 0,       # opt-in: every N hits its guard blocks bring the next string a beat sooner
     "string_enders": ["leap", "grab"],   # rule 6
+    "string_follows": {"heavy": ["swipe", "leap", "sweep", "grab"]},   # --follows: no heavy after a heavy
+    "active_ticks": {"swipe": 2, "heavy": 3, "leap": 3, "sweep": 2, "grab": 2},   # --engine-gap: core/'s frame data
+    "string_margin_ticks": 12,           # --engine-gap: max(windup_min, cue lead + 2) for the swipe (Rule 7.11)
     "rb_refund": 1.0,                    # rule 8: share of the form's Breath a Recovery Breath refunds
     "thread_breath_reserve": 20,         # a gap form chip keeps this much Breath for the Thread
     "winded_guard_posture_per_s": 6,     # Rule 4.1: held guard while Winded drains Posture instead of Breath
@@ -275,11 +286,14 @@ class Rules:
     strings: bool = False        # 6
     vit_taken: bool = False
     tick_openings: bool = False
+    follows: bool = False        # Rule 11.3's string_follows
+    engine_gap: bool = False     # the gap from when core/'s demon is free
+    white_feints: bool = False   # Rule 11.5 as core/ builds it (D-046)
     guard_rule: str = "first"    # doubletap bot only: "first" (revised Rule 2.6) or "latest" (old)
 
     def active(self) -> bool:
         return any((self.credits, self.dodge, self.gap, self.hit_opening, self.clang, self.strings,
-                    self.vit_taken, self.tick_openings))
+                    self.vit_taken, self.tick_openings, self.follows, self.white_feints, self.engine_gap))
 
 
 def p_within(sigma: float, half: float) -> float:
@@ -681,9 +695,17 @@ class Fight:
                 kata_step = 0
                 if self.result is not None:
                     break
+                free = getattr(self, "_free_at", None)
+                if self.R.engine_gap and free is not None and self.t < free:
+                    self.advance(free - self.t)    # the counter frees the demon as its recovery ends
                 self.advance(math.ceil(self.t / self.P - 1e-9) * self.P - self.t)   # back onto the beat
                 j += int(round((self.t - t0) / self.P))
                 g_floor = j + 1                    # the string waits one cue beat after the counter's opening
+                if self.R.engine_gap and free is not None:
+                    # core/: an overdue string commits as the counter frees it and lands on the first beat its margin
+                    # allows: g counts beats from the gap's start, j the beats run, so the floor is that beat's index
+                    first = math.ceil((free + self.M.get("string_margin_ticks", 12) * TICK_MS) / self.P - 1e-9)
+                    g_floor = j + max(1, first - int(round(self.t / self.P)))
                 if self.M.get("counter_ends_gap"):
                     g_end = j + 1                  # and commits as its recovery ends
                 continue
@@ -798,9 +820,19 @@ class Fight:
             return "block"
         return "hit"
 
+    def allowed(self) -> list[str]:
+        """The attacks that may come next in the string: all, or with --follows those after the last (`_prev`)."""
+        names = list(self.c["m1_demon"]["attacks"])
+        prev = getattr(self, "_prev", None)
+        if self.R.follows and prev is not None:
+            ok = self.M.get("string_follows", M1_RULES["string_follows"]).get(prev)
+            if ok is not None:
+                names = [n for n in names if n in ok]
+        return names
+
     def demon_strike(self) -> tuple[str, dict]:
         d, rng, sk = self.c["m1_demon"], self.rng, self.sk
-        names = list(d["attacks"])
+        names = self.allowed()
         name = rng.choices(names, weights=[d["attacks"][n]["weight"] for n in names])[0]
         a = d["attacks"][name]
         self.stats[f"atk_{a['cue']}"] += 1
@@ -869,6 +901,13 @@ class Fight:
         window = a["recovery_ms"]
         self._hit_ticks = None
         self.stats[outcome] += 1
+        # --engine-gap: when the demon is free again (its active ticks, its recovery, a Perfect's stun); a grab's hold
+        # is advanced inside, so it frees the demon as the hold ends
+        stun = d["perfect_deflect_stun_ms"] if outcome == "perfect" else 0.0
+        active = self.M.get("active_ticks", {}).get(a.get("_name"), 0) * TICK_MS
+        # core/'s brain counts the last tick of a recovery or stun as free (it commits an overdue string then), so free
+        # is a tick before the recovery ends
+        self._free_at = None if outcome == "pinned" else self.t + active + a["recovery_ms"] + stun - TICK_MS
         if outcome == "perfect":
             pd = po["perfect_attacker_pct"] * self.dpost_max * self.mult() * self.post_scale  # Rhythm scales it
             self.dpost -= pd
@@ -1022,8 +1061,14 @@ class Fight:
         Returns the end of the whiff lockout relative to that impact, or None if no guard tap was wasted."""
         d, rng, sk = self.c["m1_demon"], self.rng, self.sk
         names = list(d["attacks"])
-        a = d["attacks"][rng.choices(names, weights=[d["attacks"][n]["weight"] for n in names])[0]]
+        if self.R.white_feints:
+            names = [n for n in names if d["attacks"][n]["cue"] == "white"]
+        name = rng.choices(names, weights=[d["attacks"][n]["weight"] for n in names])[0]
+        a = d["attacks"][name]
+        self._feint_name = name
         self.stats["feints"] += 1
+        if self.R.white_feints:
+            self.stats[f"feint_{a['cue']}"] += 1
         self.hunger = max(0.0, self.hunger - self.feint_hunger)
         if sk.bot == "turtle":                  # guard is held anyway: nothing to bite
             return None
@@ -1051,7 +1096,7 @@ class Fight:
     def locked_strike(self):
         """The strike after a wasted tap whose guard tap would fall inside the lockout."""
         d, rng, sk = self.c["m1_demon"], self.rng, self.sk
-        names = list(d["attacks"])
+        names = self.allowed()
         a = d["attacks"][rng.choices(names, weights=[d["attacks"][n]["weight"] for n in names])[0]]
         self.stats[f"atk_{a['cue']}"] += 1
         if a["cue"] != "white":
@@ -1074,7 +1119,16 @@ class Fight:
             window = 0.0
             hit_ticks = None
             lockout_until = None
-            if self.feint_rate > 0 and self.rng.random() < self.feint_rate:
+            self._prev = None
+            self.stats["strings"] += 1
+            if self.R.white_feints:                 # the feint counts in the length: only strings 2+ long
+                multi = sum(w for k, w in lengths.items() if int(k) >= 2) / sum(lengths.values())
+                if n >= 2 and self.feint_rate > 0 and self.rng.random() < self.feint_rate / multi:
+                    lockout_until = self.feint()
+                    self._prev = self._feint_name
+                    n -= 1
+                    self.advance(self.P)
+            elif self.feint_rate > 0 and self.rng.random() < self.feint_rate:
                 lockout_until = self.feint()
                 self.advance(self.P)                # the string continues one beat later
             for k in range(n):                      # a string: strikes one beat apart, all beat-locked
@@ -1084,6 +1138,9 @@ class Fight:
                     outcome, a = self.locked_strike()
                 else:
                     outcome, a = self.demon_strike()
+                if self._prev == "heavy" and a["_name"] == "heavy":
+                    self.stats["heavy_after_heavy"] += 1
+                self._prev = a["_name"]
                 window = self.resolve(outcome, a)
                 hit_ticks = self._hit_ticks
                 if self.result is not None or self.stats.get("_broke_mid_string"):
@@ -1094,6 +1151,9 @@ class Fight:
             self.stats.pop("_broke_mid_string", None)
             if self.result is None:
                 self.opening(window, hit_ticks)
+                free = getattr(self, "_free_at", None)
+                if self.R.engine_gap and free is not None and self.t < free:
+                    self.advance(free - self.t)    # the gap starts when the demon is free, not when the player is
         if self.result is None:
             self.finish("timeout")
         return self
@@ -1201,7 +1261,8 @@ def build(a) -> tuple[dict, Rules, float]:
     m1 = a.m1_rules
     rules = Rules(credits=m1 or a.credits, dodge=m1 or a.dodge_windows, gap=m1 or a.gap_guard,
                   hit_opening=m1 or a.hit_openings, clang=m1 or a.clang, strings=m1 or a.strings,
-                  vit_taken=a.vitality_damage_taken, tick_openings=a.tick_openings, guard_rule=a.guard_rule)
+                  vit_taken=a.vitality_damage_taken, tick_openings=a.tick_openings, follows=a.follows,
+                  white_feints=a.white_feints, engine_gap=a.engine_gap, guard_rule=a.guard_rule)
     if m1:
         cfg["pulse"]["beat_ticks"] = 13
         cfg["m1_demon"]["attacks"]["grab"]["max_hold_beats"] = 6
@@ -1248,6 +1309,11 @@ def parser() -> argparse.ArgumentParser:
     g.add_argument("--hit-openings", action="store_true", help="rule 4: the opening after you're hit, in ticks")
     g.add_argument("--clang", action="store_true", help="rule 5: the Hardening clang")
     g.add_argument("--strings", action="store_true", help="rule 6: the leap and the grab end a string")
+    g.add_argument("--follows", action="store_true", help="Rule 11.3's string_follows: no heavy after a heavy")
+    g.add_argument("--engine-gap", action="store_true",
+                   help="the gap from when core/'s demon is free, and an overdue string by its commit margin")
+    g.add_argument("--white-feints", action="store_true",
+                   help="Rule 11.5 as core/ builds it: white feints, counted in the string's length (D-046)")
     g.add_argument("--rb-refund", type=float, default=None, help="rule 8: Recovery Breath refund share (1.0)")
     g.add_argument("--vitality-damage-taken", action="store_true",
                    help="vitality coupling counts damage taken this fight instead of current HP")

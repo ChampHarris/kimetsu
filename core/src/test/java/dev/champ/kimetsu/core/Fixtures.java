@@ -213,6 +213,7 @@ public final class Fixtures {
                 13, // Tech lockout: 13 ticks after a missed Jump
                 20, // Knockdown: 20 ticks down
                 8, // ... and 8 to rise
+                40, // ... and with no landing reported, it lands 2 s after the knockdown (Champ, D-051)
                 10, // Juggle cut: 10 Breath
                 3, // Grab: 3 on-beat inputs to escape
                 16); // State history: 16 ticks
@@ -255,7 +256,8 @@ public final class Fixtures {
                 700, // no press 700 ms after the flash: a tie
                 100, // a press within 100 ms of the flash is a false start
                 15, // reactions within 15 ms tie
-                300); // a player clashes at most once in 15 s
+                300, // a player clashes at most once in 15 s
+                0.5); // a win takes half the mob's max Posture (Champ, D-050)
     }
 
     // Bodies (blocks): vanilla's player, and the M1 demon at a zombie's size (slice 3, PROPOSED).

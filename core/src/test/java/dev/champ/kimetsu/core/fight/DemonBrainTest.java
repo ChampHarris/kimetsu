@@ -337,6 +337,86 @@ class DemonBrainTest {
     }
 
     @Test
+    void chippingEveryBeatCantHoldItsStringsOff_anOverdueOneCommitsAsItsCounterEnds() {
+        Arena a = new Arena();
+        Arena.Player p = a.player(1);
+        for (long beat = 8; beat < 150; beat++) {
+            p.press(Input.of(Input.Kind.ATTACK, beat * Arena.BEAT * 50_000L)); // a chip on every beat
+        }
+        demon(a, 2);
+        a.through(2_000);
+        List<Long> commits = new ArrayList<>();
+        for (AttackStarted s : a.all(AttackStarted.class)) {
+            if (!s.attack().equals(Fixtures.COUNTER_ID) && s.strike() == firstOf(a, s.string())) {
+                commits.add(s.commitTick());
+            }
+        }
+        assertTrue(commits.size() >= 12, "strings between counters: " + commits);
+        double mean = (commits.get(commits.size() - 1) - commits.get(0)) / (double) (commits.size() - 1);
+        // a string, a gap, a counter in it: about 8 beats, and never held off for good
+        assertTrue(mean <= 9 * Arena.BEAT, "strings held off: " + commits);
+        for (int i = 1; i < commits.size(); i++) {
+            assertTrue(commits.get(i) - commits.get(i - 1) <= 14 * Arena.BEAT, "strings held off: " + commits);
+        }
+        for (AttackStarted s : a.all(AttackStarted.class)) {
+            if (!s.attack().equals(Fixtures.COUNTER_ID) && s.strike() == firstOf(a, s.string())) {
+                // exactly its margin, or an overdue one on the first beat its margin allows: never a beat more
+                int margin = margin(s.attack());
+                long lead = s.impactTick() - s.commitTick();
+                assertTrue(lead >= margin && lead <= margin + Arena.BEAT - 1, "committed " + lead + " ahead: " + s);
+            }
+        }
+    }
+
+    @Test
+    void aTurnToANewTargetComesABeatBeforeItsStringCommits_evenWhenItTurnsLate() {
+        // player 1 chips every beat, so the demon is often busy (its counters, a flank hit's stun) past the tick a beat
+        // before its next commit; player 2 comes nearer and goes away on a 74-tick cycle
+        Arena a = new Arena();
+        Arena.Player p = a.player(1);
+        for (long beat = 8; beat < 150; beat++) {
+            p.press(Input.of(Input.Kind.ATTACK, beat * Arena.BEAT * 50_000L));
+        }
+        Arena.Player other = a.player(2).stand(MIN, 0, 64, -8, 0);
+        for (long t = 40; t < 2_000; t += 74) {
+            other.stand(t, 0, 64, -1.5, 0).stand(t + 37, 0, 64, -8, 0); // nearer than player 1's 2 blocks
+        }
+        demon(a, 5);
+        a.through(2_000);
+        List<Outbox.Targeting> turns = a.all(Outbox.Targeting.class);
+        int checked = 0;
+        for (AttackStarted s : a.all(AttackStarted.class)) {
+            if (s.attack().equals(Fixtures.COUNTER_ID) || s.strike() != firstOf(a, s.string())) {
+                continue;
+            }
+            Outbox.Targeting last = null;
+            Outbox.Targeting before = null;
+            for (Outbox.Targeting x : turns) {
+                if (x.tick() <= s.commitTick()) {
+                    before = last;
+                    last = x;
+                }
+            }
+            if (last != null && before != null && last.fighter() != before.fighter()) {
+                checked++;
+                assertTrue(
+                        s.commitTick() - last.tick() >= Arena.BEAT,
+                        "turned at " + last.tick() + ", committed at " + s.commitTick() + ": " + s);
+            }
+        }
+        assertTrue(checked >= 3, "strings after a turn: " + checked);
+    }
+
+    private static long firstOf(Arena a, long string) {
+        for (AttackStarted s : a.all(AttackStarted.class)) {
+            if (s.string() == string) {
+                return s.strike();
+            }
+        }
+        return -1;
+    }
+
+    @Test
     void theSameSeedFightsTheSameFight_anotherDoesnt() {
         assertEquals(fight(17), fight(17));
         assertNotEquals(fight(17), fight(18));

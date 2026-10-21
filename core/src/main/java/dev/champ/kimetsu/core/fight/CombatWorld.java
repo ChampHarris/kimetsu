@@ -103,6 +103,9 @@ public final class CombatWorld {
     /** A cancel to log on a player's machine when its next tick begins. */
     private record Queued(int fighter, long strike) {}
 
+    /** A landing the mod reported, to log on a player's machine when its next tick begins. */
+    private record Landing(int fighter, Effect.Surface surface, long micros) {}
+
     /** A micro-clash under way (Rule 10): who, from which impact, when the flash comes and when the mob presses. */
     private static final class Clash {
         final long strike;
@@ -154,6 +157,7 @@ public final class CombatWorld {
     private final List<Mob> mobs = new ArrayList<>();
     private final List<PendingStrike> book = new ArrayList<>();
     private final List<Queued> queued = new ArrayList<>();
+    private final List<Landing> landings = new ArrayList<>();
     private final List<Hold> holds = new ArrayList<>();
     private final List<Clash> clashes = new ArrayList<>();
     private final List<Effect> effects = new ArrayList<>();
@@ -230,6 +234,18 @@ public final class CombatWorld {
     public void add(StrikeMob body, Brain brain) {
         mobs.add(new Mob(body, brain));
         body.joined(this);
+    }
+
+    /**
+     * The mod reports that player {@code fighter}'s knocked-down body met {@code surface} at {@code micros} (Rule 9.2:
+     * the contact its Tech is judged against, and the floor that starts its ticks down). The server works the tick out
+     * from its own collision check on the player's movement, never from the client's on-ground flag, and takes a
+     * client's sub-tick fraction only within that tick (slice 5). Between ticks: when the next tick begins, it's logged
+     * on the player's machine as of its own tick (replaying from there, so what the player did meanwhile is judged
+     * against it), and never later than that next tick.
+     */
+    public void landed(int fighter, Effect.Surface surface, long micros) {
+        landings.add(new Landing(fighter, surface, micros));
     }
 
     /**
@@ -345,6 +361,16 @@ public final class CombatWorld {
             }
         }
         queued.clear();
+        for (int i = 0; i < landings.size(); i++) {
+            Landing l = landings.get(i);
+            Fighter f = fighter(l.fighter());
+            if (f != null) {
+                long micros = Math.min(l.micros(), Micros.ofTicks(n)); // a contact to come hasn't happened
+                long at = Math.max(Micros.stepOf(micros), f.timeline().earliestEffectTick());
+                log(f, new Effect.Contact(l.surface(), micros), at);
+            }
+        }
+        landings.clear();
         for (int i = 0; i < mobs.size(); i++) {
             Mob m = mobs.get(i);
             m.body.beginTick(n);
@@ -1071,8 +1097,9 @@ public final class CombatWorld {
 
     /**
      * Whether player {@code f}'s form lands on strike {@code s}'s attacker as the strike lands on it, at the impact
-     * {@code tick} (Rule 10.1), judged from both sides' state then: its form in its active frames, its sweep then
-     * touching the attacker, the strike's sweep touching it, and no clash of its own in the cooldown.
+     * {@code tick} (Rule 10.1), judged from both sides' state then: its form in its active frames and not yet having
+     * touched the attacker (its ticks before the impact are swept by now), its sweep then touching the attacker, the
+     * strike's sweep touching it, and no clash of its own in the cooldown.
      */
     private boolean clashWith(PendingStrike s, Fighter f, long tick) {
         if (f.lastClash != NONE && tick - f.lastClash < strikes.clash().cooldownTicks()) {
@@ -1087,6 +1114,9 @@ public final class CombatWorld {
                 || a.sweep() == null
                 || c.phase(tick) != Phase.ACTIVE) {
             return false;
+        }
+        if (f.track.swing() == c.attackId() && f.track.touched(s.attacker())) {
+            return false; // its form struck the attacker before the impact: the blades didn't meet, a trade (Rule 7.8)
         }
         verdicts.judge(
                 view,
@@ -1167,7 +1197,7 @@ public final class CombatWorld {
                 drop(t, "clash", impact); // its beats fall inside the freeze
             }
         }
-        m.body.clashed(impact);
+        m.body.clashed(impact, f.id());
         clashes.add(new Clash(s.id(), m, f, impact, flash, flash + reaction));
         outbox.add(new Outbox.ClashStarted(s.id(), m.body.id(), f.id(), impact, flash));
     }
@@ -1229,7 +1259,8 @@ public final class CombatWorld {
         if (outcome == Outbox.ClashOutcome.MOB) {
             log(c.f, new Effect.PostureDamage(BREAKS_ANY_POSTURE, true), tick); // STAGGER
         }
-        c.mob.body.clashEnded(tick, outcome == Outbox.ClashOutcome.PLAYER);
+        c.mob.body.clashEnded(
+                tick, outcome == Outbox.ClashOutcome.PLAYER, strikes.clash().winPostureShare());
         outbox.add(new Outbox.ClashEnded(c.strike, c.mob.body.id(), c.f.id(), tick, outcome));
     }
 

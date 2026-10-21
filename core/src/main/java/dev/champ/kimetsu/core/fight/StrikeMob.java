@@ -83,13 +83,17 @@ public interface StrikeMob {
     void cancelled(long strike, long tick);
 
     /**
-     * It's frozen in a micro-clash from tick {@code tick} (Rule 10.2): its strikes to come are cancelled, its guard is
-     * down, and hits on it don't stun it until {@link #clashEnded}.
+     * It's frozen in a micro-clash with player {@code fighter} from tick {@code tick} (Rule 10.2): its strikes to come
+     * are cancelled, its guard is down, hits on it don't stun it, and that player's own hits come to nothing (its form
+     * met the heavy, not the body) until {@link #clashEnded}.
      */
-    default void clashed(long tick) {}
+    default void clashed(long tick, int fighter) {}
 
-    /** The clash ended at tick {@code tick}: {@code lost}, its Posture breaks then (Rule 10.3). */
-    default void clashEnded(long tick, boolean lost) {}
+    /**
+     * The clash ended at tick {@code tick}: {@code lost}, it loses {@code postureShare} of its max Posture then (D-050:
+     * half; 1.0 breaks it, as Rule 10.3 was written).
+     */
+    default void clashEnded(long tick, boolean lost, double postureShare) {}
 
     /** Its press in a clash, this long after the flash (Rule 10.4: drawn per clash, from its profile). */
     long clashReactionMicros();

@@ -10,9 +10,17 @@ package dev.champ.kimetsu.core.data;
  * @param falseStartMs a press before the flash, or within this after it, is a false start and loses (Rule 10.3: 100 ms)
  * @param tieMs two reactions within this of each other tie (Rule 10.3: 15 ms)
  * @param cooldownTicks a player who clashed can't clash again for this long (Rule 10.1: 15 s); mobs have none
+ * @param winPostureShare the share of its max Posture a player's win takes from the mob (Champ, D-050: half; 1.0 breaks
+ *     it, as Rule 10.3 was written, when forcing clashes cut kill time by up to 16%)
  */
 public record ClashRules(
-        int flashHalfBeats, int flashMarginMs, int windowMs, int falseStartMs, int tieMs, int cooldownTicks) {
+        int flashHalfBeats,
+        int flashMarginMs,
+        int windowMs,
+        int falseStartMs,
+        int tieMs,
+        int cooldownTicks,
+        double winPostureShare) {
 
     public ClashRules {
         Check.positive("clash.flash_half_beats", flashHalfBeats);
@@ -22,5 +30,6 @@ public record ClashRules(
         Check.atLeast("clash.tie_ms", tieMs, 0);
         Check.atLeast("clash.cooldown_ticks", cooldownTicks, 0);
         Check.that(falseStartMs < windowMs, "clash.false_start_ms must be below clash.window_ms");
+        Check.between("clash.win_posture_share", winPostureShare, 0.0, 1.0);
     }
 }

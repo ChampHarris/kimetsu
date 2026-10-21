@@ -6,6 +6,7 @@ import dev.champ.kimetsu.core.clock.PulseSchedule;
 import dev.champ.kimetsu.core.data.DemonProfile;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.Moveset;
+import dev.champ.kimetsu.core.data.StrikeRules;
 import dev.champ.kimetsu.core.demon.Demon;
 import dev.champ.kimetsu.core.hit.Ground;
 import dev.champ.kimetsu.core.hit.Sight;
@@ -151,8 +152,16 @@ final class Arena {
     }
 
     Arena(Sight sight, Ground ground) {
-        world = new CombatWorld(
-                Fixtures.hits(), Fixtures.strikes(), Fixtures.timing(), Fixtures.rhythm(), WATER, sight, ground);
+        this(sight, ground, Fixtures.strikes());
+    }
+
+    /** On strike rules {@code strikes} (a variant). */
+    Arena(StrikeRules strikes) {
+        this(Sight.OPEN, Ground.OPEN, strikes);
+    }
+
+    private Arena(Sight sight, Ground ground, StrikeRules strikes) {
+        world = new CombatWorld(Fixtures.hits(), strikes, Fixtures.timing(), Fixtures.rhythm(), WATER, sight, ground);
     }
 
     Player player(int id, int latencyTicks) {

@@ -27,7 +27,7 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.named('test', Test) {
     useJUnitPlatform {
-        excludeTags 'hot-path'
+        excludeTags 'hot-path', 'sim', 'measure'
     }
     testLogging {
         exceptionFormat = 'full' // CI's log then shows each failed assertion's message
@@ -53,6 +53,39 @@ def hotPathTest = tasks.register('hotPathTest', Test) {
     }
 }
 
+// The bots (spec Tests, "Sim parity" and "Exploit bots"; D-044): fights through the real engine against the duel sim's
+// reference rates (`tools/sims/parity_reference.py`) and against honest play. Their numbers are player models, not
+// balance, so they live in the test sources; `check` runs them, and their report goes to build/reports/sim/.
+def simTest = tasks.register('simTest', Test) {
+    description = 'Runs the bot fights: sim parity, the exploit bots and determinism.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'sim'
+    }
+    mustRunAfter hotPathTest // it uses every core, and the allocation measurements want them quiet
+    systemProperty 'kimetsu.sim.report', layout.buildDirectory.dir('reports/sim').get().asFile.path
+    testLogging {
+        showStandardStreams = true
+        exceptionFormat = 'full'
+    }
+}
+
+// Measurements behind decisions, rerun on demand (not in check): today the clash win's Posture share (D-050, R9-12).
+tasks.register('simMeasure', Test) {
+    description = 'Reruns the bot measurements behind decisions; reports go to build/reports/sim/.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'measure'
+    }
+    systemProperty 'kimetsu.sim.report', layout.buildDirectory.dir('reports/sim').get().asFile.path
+    outputs.upToDateWhen { false }
+}
+
 tasks.named('check') {
     dependsOn hotPathTest
+    dependsOn simTest
 }

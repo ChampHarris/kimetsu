@@ -93,9 +93,26 @@ class KnockdownTest {
     void aContactFromBeforeTheLaunchIsIgnored() {
         Rig r = launched()
                 .effect(new Effect.Contact(Effect.Surface.FLOOR, Rig.ms(400)), 12)
-                .through(80);
+                .through(49);
         assertEquals(State.KNOCKDOWN, r.c.state());
         assertTrue(r.c.airborne());
+    }
+
+    @Test
+    void withNoLandingReported_itMeetsTheFloorAtTheAirTimeLimit_andALateReportChangesNothing() {
+        // knocked down at 10, the limit 40 ticks: down at 50, up 28 ticks later (D-049)
+        Rig r = launched().through(49);
+        assertTrue(r.c.airborne());
+        r.through(50);
+        assertFalse(r.c.airborne());
+        assertEquals(State.KNOCKDOWN, r.c.state());
+        r.effect(new Effect.Contact(Effect.Surface.FLOOR, Rig.ms(2_900)), 59).through(77);
+        assertEquals(State.KNOCKDOWN, r.c.state()); // the late report didn't restart its ticks down
+        r.through(78);
+        assertEquals(State.NEUTRAL, r.c.state());
+
+        Rig teched = launched().press(Input.Kind.JUMP, Rig.ms(2_400)).through(50); // 2 ticks before the limit's contact
+        assertEquals(State.NEUTRAL, teched.c.state());
     }
 
     @Test

@@ -33,9 +33,11 @@ import org.jspecify.annotations.Nullable;
  *   <li><b>Its strings</b> ({@link StringDraw}): the next one's first impact falls on the beat {@code gap ± spread}
  *       after the beat it became free on with a target. The gap runs on through hitstun, a clang's recoil and its guard
  *       counter (Rule 11.4), and starts again after a Posture break, a collapse, a knockdown or a clash. A string commits
- *       exactly its margin before its beat (Rule 7.11), and only with its target in reach; busy or out of reach over
- *       that tick, it commits exactly its margin before the next beat it can make. A string with a leap that the Hunger
- *       regeneration burns by then could leave unpaid is drawn again; one the scheduler refuses waits a fresh gap.
+ *       exactly its margin before its beat (Rule 7.11), and only with its target in reach: out of reach, it commits
+ *       exactly its margin before the next beat it can make; busy over its commit tick, it commits as it's free again,
+ *       on the first beat its margin allows (Rule 11.4), so chipping into counters can't hold a string off. A string with
+ *       a leap that the Hunger regeneration burns by then could leave unpaid is drawn again; one the scheduler refuses
+ *       waits a fresh gap.
  *   <li>{@code /tick sprint} ({@link #pause}): it commits nothing.
  * </ul>
  *
@@ -109,7 +111,11 @@ public final class DemonBrain implements Brain {
         if (state == State.STAGGER || state == State.COLLAPSED || state == State.KNOCKDOWN || state == State.CLASH) {
             impactMicros = NONE; // its next string waits a fresh gap
         }
-        boolean busy = striking(w) || !d.canMove(n);
+        // free on the last tick of its recovery or stun: an overdue string commits as that ends (Rule 11.4).
+        // A tick later misses the beat its margin just reaches whenever a recovery and the margin make whole
+        // beats (the guard counter's do), and a chip in that beat asks for another counter. A hit on that last
+        // tick meets the committed string's super armour, so it doesn't stretch the stun (D-049)
+        boolean busy = striking(w) || !d.canMove(n + 1);
         if (!busy) {
             if (sees(n, w, w.fighter(d.target()))) {
                 noTargetSince = NONE;
@@ -147,13 +153,18 @@ public final class DemonBrain implements Brain {
             if (next != null && next != t) {
                 d.target(next.id());
                 tellTargeted(n, w);
-                impactMicros = next.pulse().beatMicros(beatAtOrAfter(next.pulse(), impactMicros)); // on its grid
+                // on its grid, and a full beat's warning before it commits even if it turns late (busy until now)
+                long earliest = Micros.ofTicks(n + beatTicks(next) + margin);
+                impactMicros = next.pulse().beatMicros(beatAtOrAfter(next.pulse(), Math.max(impactMicros, earliest)));
                 return;
             }
         }
-        if (n > commitTick) { // busy over it: the next beat it can commit exactly its margin before
-            impactMicros = committable(t.pulse(), n, margin);
-            commitTick = Micros.tickOf(impactMicros) - margin;
+        if (n > commitTick) {
+            // overdue, busy over its commit tick (its guard counter, hitstun, a clang's recoil): it commits
+            // now, as that ends (Rule 11.4: "that string commits as the recovery ends"), on the first beat its
+            // margin allows, so a chip meanwhile can't ask for another counter and hold the string off for good
+            impactMicros = t.pulse().beatMicros(beatAtOrAfter(t.pulse(), Micros.ofTicks(n + margin)));
+            commitTick = n;
         }
         if (n < commitTick) {
             return;

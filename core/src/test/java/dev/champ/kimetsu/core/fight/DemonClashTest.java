@@ -1,17 +1,22 @@
 package dev.champ.kimetsu.core.fight;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.champ.kimetsu.core.Fixtures;
 import dev.champ.kimetsu.core.clock.Micros;
+import dev.champ.kimetsu.core.data.ClashRules;
 import dev.champ.kimetsu.core.data.DemonProfile;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.PostureRules;
+import dev.champ.kimetsu.core.data.StrikeRules;
 import dev.champ.kimetsu.core.demon.Demon;
 import dev.champ.kimetsu.core.fight.Outbox.ClashEnded;
 import dev.champ.kimetsu.core.fight.Outbox.ClashOutcome;
 import dev.champ.kimetsu.core.fight.Outbox.ClashStarted;
+import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.Input;
 import dev.champ.kimetsu.core.machine.State;
 import dev.champ.kimetsu.core.strike.Verdict.Kind;
@@ -88,24 +93,105 @@ class DemonClashTest {
         assertEquals(State.CLASH, held.state(117));
         assertEquals(List.of(new Outbox.AttackCancelled(1, 117, "clash")), a.all(Outbox.AttackCancelled.class));
         assertTrue(a.results(1).isEmpty());
+        assertEquals(100, held.hp(), 1e-9); // the form met the heavy, not its body: neither strike lands
+        assertEquals(300, held.posture(117), 1e-9);
+        // and the player is told so: its swing touched nothing, scored nothing, pushed nothing
+        for (Outbox.SwingLanded l : a.all(Outbox.SwingLanded.class)) {
+            assertEquals(HitResult.NO_EFFECT, l.result(), "" + l);
+        }
+        assertTrue(a.all(Outbox.SwingDealt.class).isEmpty());
+        assertTrue(a.all(Outbox.Pushed.class).isEmpty());
+        for (Outbox.PlayerEffect e : a.all(Outbox.PlayerEffect.class)) {
+            assertFalse(e.effect() instanceof Effect.Credit || e.effect() instanceof Effect.Connected, "" + e);
+        }
     }
 
     @Test
-    void theFirstValidPressWins_breakingTheDemonsPosture() {
+    void aFormThatStruckTheDemonBeforeTheImpactTrades_itDoesntClash() {
+        // released to start at 110, active from 116: its first window lands on the heavy's super armour a tick before
+        // the impact, so the blades didn't meet (D-049): both hits apply (Rule 7.8)
         Arena a = new Arena();
         Arena.Player p = a.player(1);
+        form(p, 0, 110);
+        held = a.demon(10, profile(380, 0), DemonFightTest.guarding(1, new Arena.Script().at(100, 1, HEAVY)));
+        a.through(125);
+        assertTrue(a.all(ClashStarted.class).isEmpty());
+        assertEquals(Kind.HIT, a.result(1, 1).kind());
+        assertTrue(held.hp() < 100, "hp " + held.hp());
+    }
+
+    @Test
+    void anAllysHitsLandOnTheFrozenDemon_unguarded_andDontStunIt() {
+        Arena a = new Arena();
+        Arena.Player p = a.player(1).stand(MIN, -0.4, 64, 2, 180);
         form(p, 0, 111);
+        Arena.Player ally = a.player(2).stand(MIN, 0.4, 64, 2, 180);
         held = a.demon(10, profile(380, 0), DemonFightTest.guarding(1, new Arena.Script().at(100, 1, HEAVY)));
         a.through(117);
-        long flash = started(a).flashMicros();
-        p.press(Input.of(Input.Kind.ATTACK, flash + 250_000)); // 250 ms: before the demon's 380
-        a.through(Micros.tickOf(flash) + 20);
-        ClashEnded end = a.all(ClashEnded.class).get(0);
-        assertEquals(ClashOutcome.PLAYER, end.outcome());
-        assertEquals(Micros.stepOf(flash + 250_000), end.tick());
-        assertEquals(State.STAGGER, held.state(end.tick()));
-        assertTrue(held.threadUntil(end.tick()) > end.tick()); // its Thread opens
-        assertEquals(State.NEUTRAL, p.now().state());
+        ally.press(Input.of(Input.Kind.ATTACK, at(119, 0)));
+        a.through(126);
+        assertEquals(State.CLASH, held.state(126));
+        assertTrue(held.hp() < 100, "hp " + held.hp()); // D-047: its own clash doesn't shield it from an ally
+        boolean dealt = false;
+        for (Outbox.SwingDealt d : a.all(Outbox.SwingDealt.class)) {
+            assertEquals(2, d.fighter(), "only the ally's swing deals anything: " + d);
+            dealt = true;
+        }
+        assertTrue(dealt);
+    }
+
+    @Test
+    void theFirstValidPressWins_takingHalfTheDemonsPosture_notBreakingIt() {
+        // Champ, D-050: a win takes half its max Posture; breaking it (Rule 10.3 as written) let forcing clashes cut
+        // kill time by up to 16%
+        for (double share : new double[] {0.5, 1.0}) {
+            Arena a = new Arena(share < 1 ? Fixtures.strikes() : asWritten());
+            Arena.Player p = a.player(1);
+            form(p, 0, 111);
+            held = a.demon(10, profile(380, 0), DemonFightTest.guarding(1, new Arena.Script().at(100, 1, HEAVY)));
+            a.through(117);
+            long flash = started(a).flashMicros();
+            p.press(Input.of(Input.Kind.ATTACK, flash + 250_000)); // 250 ms: before the demon's 380
+            a.through(Micros.tickOf(flash) + 20);
+            ClashEnded end = a.all(ClashEnded.class).get(0);
+            assertEquals(ClashOutcome.PLAYER, end.outcome());
+            assertEquals(Micros.stepOf(flash + 250_000), end.tick());
+            assertEquals(State.NEUTRAL, p.now().state());
+            if (share < 1) {
+                assertEquals(150, held.posture(end.tick()), 1e-9); // 300 less half; its form met the heavy
+                assertNotEquals(State.STAGGER, held.state(end.tick()));
+                assertEquals(Long.MIN_VALUE, held.threadUntil(end.tick()));
+            } else {
+                assertEquals(State.STAGGER, held.state(end.tick())); // as written: its Posture breaks
+                assertTrue(held.threadUntil(end.tick()) > end.tick());
+            }
+        }
+    }
+
+    /** The combat rules with a clash win that takes all its Posture, breaking it, as Rule 10.3 was written. */
+    private static StrikeRules asWritten() {
+        StrikeRules s = Fixtures.strikes();
+        ClashRules c = s.clash();
+        return new StrikeRules(
+                s.strikesPerTargetPerBeat(),
+                s.minCueLeadTicks(),
+                s.commitMarginTicks(),
+                s.guardArcDeg(),
+                s.deflectDefenderPosture(),
+                s.deflectAttackerPosture(),
+                s.perfectAttackerShare(),
+                s.perfectRecoveryTicks(),
+                s.pommelStunTicks(),
+                s.grabHoldBeats(),
+                s.throwDamage(),
+                new ClashRules(
+                        c.flashHalfBeats(),
+                        c.flashMarginMs(),
+                        c.windowMs(),
+                        c.falseStartMs(),
+                        c.tieMs(),
+                        c.cooldownTicks(),
+                        1.0));
     }
 
     @Test

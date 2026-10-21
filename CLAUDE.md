@@ -40,6 +40,8 @@ When sources disagree on a design fact: `docs/gdd/` > `docs/decisions.md` > R6 a
 ./gradlew spotlessApply               # format Java with palantir-java-format before committing
 GRADLE_USER_HOME="$(mktemp -d)" ./gradlew --write-verification-metadata sha256 help spotlessCheck build runGameTestServer   # after any dependency, plugin or Gradle change, from an empty Gradle home (D-033); delete that folder after
 ./gradlew :core:test                  # fast rules tests (no Minecraft)
+./gradlew :core:simTest               # the bots through the engine: sim parity, exploit bots, determinism (part of check)
+./gradlew :core:simMeasure            # rerun the bot measurements behind decisions (the clash share, D-050)
 ./gradlew runGameTestServer           # in-world tests; exit code = failed required tests
 ./gradlew runClient                   # dev client (Lens scenarios run here; MCTest drives it)
 python tools/check_spec.py docs/design/specs/*.md
