@@ -29,6 +29,11 @@ tasks.named('compileJava') {
     dependsOn ':core:compileJava'
 }
 
+// The mod's own JUnit tests: plain JUnit with Minecraft's libraries (DFU, Gson) on the classpath and no game bootstrap,
+// so they run in seconds. They compile core/'s Fixtures (its test fixtures) next to them: the combat JSON is checked
+// against the spec's values there, so the two can't drift (D-052).
+sourceSets.test.java.srcDir('core/src/testFixtures/java')
+
 sourceSets.main.resources {
     srcDir('src/generated/resources')   // datagen output: runData purges this folder, so never hand-place files in it
     srcDir('src/generated/scope')       // the vanilla-scope pack, written only by tools/vanilla_scope.py (R7-01)
@@ -90,6 +95,15 @@ neoForge {
             sourceSet(sourceSets.main)
         }
     }
+
+    addModdingDependenciesTo(sourceSets.test)
+}
+
+tasks.named('test', Test) {
+    useJUnitPlatform()
+    testLogging {
+        exceptionFormat = 'full'
+    }
 }
 
 // localRuntime: dev runs only, never in the jar.
@@ -103,6 +117,10 @@ dependencies {
     localRuntime("maven.modrinth:spark:HwHxykP9")        // spark 1.10.187 (NeoForge 26.x)
     localRuntime("maven.modrinth:jei:wSzwAzVB")          // JEI 31.16.0.84, beta
     localRuntime("maven.modrinth:worldedit:ByRNkO83")    // WorldEdit 7.4.6
+
+    testImplementation platform("org.junit:junit-bom:${junit_version}")
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     // Chunky (maven.modrinth:chunky:EyCqftOK, 1.5.4) joins at M5 for the worldgen review: until then its deprecated
     // logoFile property puts NeoForge's loading-warning screen in front of every dev launch.
 }

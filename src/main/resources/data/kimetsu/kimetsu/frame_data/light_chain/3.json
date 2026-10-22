@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "class": "light",
+  "timing": {
+    "windup": 3,
+    "active": 2,
+    "recovery": 6
+  },
+  "hits": [
+    {
+      "from": 0,
+      "to": 1,
+      "damage": 3.0,
+      "posture": 10.0,
+      "hitstun": 8
+    }
+  ],
+  "sweep": {
+    "shape": "obb",
+    "center": [
+      0.0,
+      1.2,
+      1.5
+    ],
+    "half": [
+      0.9,
+      0.6,
+      1.1
+    ],
+    "pitch": "look"
+  },
+  "cancels": [
+    {
+      "into": "step",
+      "phase": "recovery"
+    }
+  ],
+  "displacement": [
+    {
+      "phase": "active",
+      "from": 0,
+      "to": 1,
+      "forward": 0.15
+    }
+  ],
+  "meta": {
+    "status": "PROPOSED",
+    "source": "docs/design/specs/m1-combat-core.md#numbers"
+  }
+}

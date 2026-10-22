@@ -1,0 +1,169 @@
+{
+  "body": {
+    "half_width": 0.3,
+    "height": 1.95,
+    "eye": 1.74
+  },
+  "max_hp": 100,
+  "posture": {
+    "max": 300,
+    "regen_per_s": 12.0,
+    "delay_ticks": 60,
+    "credit_restore": 0,
+    "stagger_ticks": 30,
+    "reset_fraction": 0.5,
+    "vitality_floor": 0.25
+  },
+  "hunger": {
+    "max": 100,
+    "per_hp": 1,
+    "leap_cost": 5,
+    "rise_cost": 25,
+    "hardening_above": 0.25
+  },
+  "regen": {
+    "hp_per_s": 1.0,
+    "pause_ticks": 0,
+    "pause_on": "nichirin"
+  },
+  "neck": {
+    "center": [
+      0.0,
+      1.5,
+      0.0
+    ],
+    "half": [
+      0.18,
+      0.18,
+      0.18
+    ]
+  },
+  "neck_collapsed": {
+    "center": [
+      0.0,
+      0.95,
+      0.15
+    ],
+    "half": [
+      0.18,
+      0.18,
+      0.18
+    ]
+  },
+  "clang": {
+    "damage_mult": 1.0,
+    "recoil_ticks": 6,
+    "interval_ticks": 40
+  },
+  "thread_ticks": 30,
+  "collapse": {
+    "ticks": 100,
+    "floor_hp": 0.5,
+    "rise_fraction": 0.25
+  },
+  "outside_floor": 0.25,
+  "knockdown": {
+    "down_ticks": 20,
+    "rise_ticks": 8,
+    "splat_damage": 2.0,
+    "splat_window_ticks": 10
+  },
+  "knockback_ticks": 4,
+  "guard": {
+    "arc_deg": 120.0,
+    "turn_deg_per_tick": 15.0,
+    "chain_block_posture": 8.0,
+    "form_block_posture": 20.0,
+    "blocks_score": false,
+    "blocks_restart_recovery": false,
+    "counter": {
+      "after_blocks": 1,
+      "attack": "kimetsu:m1_demon/guard_counter",
+      "stake": true,
+      "opens": "answered"
+    }
+  },
+  "strings": {
+    "length_weights": [
+      45,
+      35,
+      20
+    ],
+    "gap_beats": 4,
+    "gap_spread": 1,
+    "gap_min_beats": 2,
+    "weights": {
+      "kimetsu:m1_demon/grab": 10,
+      "kimetsu:m1_demon/heavy": 18,
+      "kimetsu:m1_demon/leap": 11,
+      "kimetsu:m1_demon/sweep": 9,
+      "kimetsu:m1_demon/swipe": 52
+    },
+    "string_follows": {
+      "kimetsu:m1_demon/grab": [
+        "kimetsu:m1_demon/swipe",
+        "kimetsu:m1_demon/heavy",
+        "kimetsu:m1_demon/leap",
+        "kimetsu:m1_demon/sweep",
+        "kimetsu:m1_demon/grab"
+      ],
+      "kimetsu:m1_demon/heavy": [
+        "kimetsu:m1_demon/swipe",
+        "kimetsu:m1_demon/leap",
+        "kimetsu:m1_demon/sweep",
+        "kimetsu:m1_demon/grab"
+      ],
+      "kimetsu:m1_demon/leap": [
+        "kimetsu:m1_demon/swipe",
+        "kimetsu:m1_demon/heavy",
+        "kimetsu:m1_demon/leap",
+        "kimetsu:m1_demon/sweep",
+        "kimetsu:m1_demon/grab"
+      ],
+      "kimetsu:m1_demon/sweep": [
+        "kimetsu:m1_demon/swipe",
+        "kimetsu:m1_demon/heavy",
+        "kimetsu:m1_demon/leap",
+        "kimetsu:m1_demon/sweep",
+        "kimetsu:m1_demon/grab"
+      ],
+      "kimetsu:m1_demon/swipe": [
+        "kimetsu:m1_demon/swipe",
+        "kimetsu:m1_demon/heavy",
+        "kimetsu:m1_demon/leap",
+        "kimetsu:m1_demon/sweep",
+        "kimetsu:m1_demon/grab"
+      ]
+    },
+    "enders": [
+      "kimetsu:m1_demon/leap",
+      "kimetsu:m1_demon/grab"
+    ],
+    "leap": "kimetsu:m1_demon/leap",
+    "feint_chance": 0.08,
+    "feint_break_ticks": 5,
+    "lunge_standoff": 1.1,
+    "commit_range": 3.5
+  },
+  "senses": {
+    "target_range": 24.0,
+    "idle_ticks": 200,
+    "targeted_every_ticks": 20
+  },
+  "escape_recovery_ticks": 12,
+  "clash": {
+    "reaction_mean_ms": 380.0,
+    "reaction_sd_ms": 60.0
+  },
+  "movement": {
+    "walk_speed": 0.3,
+    "circle_share": 0.25,
+    "close_min": 2.5,
+    "close_max": 3.5
+  },
+  "kind": "demon",
+  "meta": {
+    "status": "PROPOSED",
+    "source": "docs/design/specs/m1-combat-core.md#numbers"
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "class": "heavy",
+  "timing": {
+    "windup": 7,
+    "active": 4,
+    "recovery": 15
+  },
+  "cost": {
+    "breath": 25.0
+  },
+  "rhythm": {
+    "judge": "release"
+  },
+  "hits": [
+    {
+      "from": 0,
+      "to": 3,
+      "damage": 7.0,
+      "posture": 18.0,
+      "hitstun": 8,
+      "knockback": 0.35
+    }
+  ],
+  "sweep": {
+    "shape": "obb",
+    "center": [
+      0.0,
+      1.2,
+      1.5
+    ],
+    "half": [
+      0.5,
+      1.0,
+      1.1
+    ],
+    "pitch": "look"
+  },
+  "armour": {
+    "active": "light"
+  },
+  "cancels": [
+    {
+      "into": "feint",
+      "phase": "windup",
+      "until": 3
+    },
+    {
+      "into": "step",
+      "phase": "recovery"
+    }
+  ],
+  "recovery_breath": true,
+  "displacement": [
+    {
+      "phase": "active",
+      "from": 0,
+      "to": 3,
+      "forward": 0.3
+    }
+  ],
+  "meta": {
+    "status": "PROPOSED",
+    "source": "docs/design/specs/m1-combat-core.md#numbers"
+  }
+}

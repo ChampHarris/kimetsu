@@ -1,0 +1,73 @@
+package dev.champ.kimetsu.combat;
+
+import dev.champ.kimetsu.Kimetsu;
+import dev.champ.kimetsu.entity.M1Demon;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.DamageTypeTags;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.damagesource.DamageType;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.neoforged.neoforge.common.damagesource.DamageContainer;
+import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
+import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
+import org.jspecify.annotations.Nullable;
+
+/**
+ * Rule 12, the engine's damage in the game. The engine decides every hit first; a landed one reaches a player (or the
+ * test dummy, which plays one) through {@code hurtServer} with the mod's own damage types, which the bypass tags in
+ * {@code data/minecraft/tags/damage_type/} take past armour, shields, enchantments, effects and the damage cooldown.
+ * A demon's HP is the engine's: vanilla damage on it becomes the engine's outside damage (Rule 8.6). Slice 5c adds the
+ * rest (healing in combat, death-proofing's safety net, telemetry).
+ */
+public final class DamagePath {
+    public static final ResourceKey<DamageType> NICHIRIN = key("nichirin");
+    public static final ResourceKey<DamageType> DEMON_CLAW = key("demon_claw");
+
+    private DamagePath() {}
+
+    private static ResourceKey<DamageType> key(String path) {
+        return ResourceKey.create(Registries.DAMAGE_TYPE, Identifier.fromNamespaceAndPath(Kimetsu.MOD_ID, path));
+    }
+
+    /** The mod's own damage. */
+    public static boolean isMod(DamageSource source) {
+        return source.is(NICHIRIN) || source.is(DEMON_CLAW);
+    }
+
+    /** The engine's {@code amount} on {@code target}, dealt by {@code by} (null when it's gone). */
+    public static boolean hurt(LivingEntity target, ResourceKey<DamageType> type, double amount, @Nullable Entity by) {
+        if (!(target.level() instanceof ServerLevel level) || amount <= 0) {
+            return false;
+        }
+        return target.hurtServer(level, level.damageSources().source(type, by, by), (float) amount);
+    }
+
+    /**
+     * Rule 12.3 and 12.7: mod damage leaves no cooldown to shield the target from the next vanilla hit, and absorption
+     * hearts don't soak it.
+     */
+    public static void onIncomingDamage(LivingIncomingDamageEvent event) {
+        if (isMod(event.getSource())) {
+            event.setInvulnerabilityTicks(0);
+            event.addReductionModifier(DamageContainer.Reduction.ABSORPTION, (container, reduction) -> 0f);
+        }
+    }
+
+    /**
+     * Rule 8.6: vanilla damage on a demon goes to the engine instead of its health. Here, after vanilla's own damage
+     * cooldown, so lava or a cactus reach the engine as often as they'd hurt a vanilla mob, not every tick; the health
+     * the entity loses is none (the engine's mirror sets it).
+     */
+    public static void onDamagePre(LivingDamageEvent.Pre event) {
+        DamageSource source = event.getSource();
+        if (!isMod(source)
+                && event.getEntity() instanceof M1Demon demon
+                && demon.outsideDamage(event.getNewDamage(), source.is(DamageTypeTags.BYPASSES_INVULNERABILITY))) {
+            event.setNewDamage(0);
+        }
+    }
+}

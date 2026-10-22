@@ -3,6 +3,7 @@
 // The one exception is JSpecify's nullness annotations, compile-only, added by gradle/quality.gradle (D-033).
 plugins {
     id 'java'
+    id 'java-test-fixtures' // Fixtures: the spec's values, shared with the mod's tests, which check the JSON against them
     id 'com.diffplug.spotless'
     id 'net.ltgt.errorprone'
 }
@@ -16,6 +17,7 @@ repositories {
 }
 
 dependencies {
+    testFixturesCompileOnly "org.jspecify:jspecify:${jspecify_version}"
     testImplementation platform("org.junit:junit-bom:${junit_version}")
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'

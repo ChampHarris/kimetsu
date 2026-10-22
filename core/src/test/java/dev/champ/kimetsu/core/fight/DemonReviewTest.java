@@ -291,7 +291,7 @@ class DemonReviewTest {
         chain(a.player(2).stand(MIN, 0, 64, -2, 0), 194); // behind it: lands at 197
         a.demon(10, still(), DemonFightTest.guarding(1, new Arena.Script().at(100, 1, GRAB)));
         a.through(205);
-        assertEquals(List.of(new HoldEnded(1, 1, 195, Release.THROWN, 1.0)), a.all(HoldEnded.class));
+        assertEquals(List.of(new HoldEnded(1, 10, 1, 195, Release.THROWN, 1.0)), a.all(HoldEnded.class));
     }
 
     @Test
@@ -302,7 +302,7 @@ class DemonReviewTest {
         a.through(149);
         a.world.remove(1);
         a.through(151);
-        assertEquals(List.of(new HoldEnded(1, 1, 150, Release.THROWN, 1.0)), a.all(HoldEnded.class));
+        assertEquals(List.of(new HoldEnded(1, 10, 1, 150, Release.THROWN, 1.0)), a.all(HoldEnded.class));
     }
 
     @Test
@@ -317,8 +317,8 @@ class DemonReviewTest {
         a.through(196);
         assertEquals(Kind.GRAB, a.result(1, 2).kind());
         List<HoldEnded> ended = a.all(HoldEnded.class);
-        assertEquals(new HoldEnded(1, 1, 156, Release.ESCAPED, 0), ended.get(0));
-        assertEquals(new HoldEnded(1, 2, 195, Release.THROWN, 1.0), ended.get(1));
+        assertEquals(new HoldEnded(1, 10, 1, 156, Release.ESCAPED, 0), ended.get(0));
+        assertEquals(new HoldEnded(1, 10, 2, 195, Release.THROWN, 1.0), ended.get(1));
         assertEquals(State.ATTACK, d.state(170)); // still holding player 2 after player 1's escape
     }
 

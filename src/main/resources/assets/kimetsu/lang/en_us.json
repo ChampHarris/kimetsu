@@ -4,5 +4,13 @@
   "advancements.kimetsu.corps.first_thread.title": "The First Thread",
   "advancements.kimetsu.corps.first_thread.description": "Kill your first demon and watch it turn to ash",
   "advancements.kimetsu.corps.flow.title": "Flow",
-  "advancements.kimetsu.corps.flow.description": "Reach Flow, the fifth tier of Rhythm"
+  "advancements.kimetsu.corps.flow.description": "Reach Flow, the fifth tier of Rhythm",
+  "death.attack.kimetsu.nichirin": "%1$s was cut down by %2$s",
+  "death.attack.kimetsu.nichirin.item": "%1$s was cut down by %2$s using %3$s",
+  "death.attack.kimetsu.nichirin.player": "%1$s was cut down by %2$s",
+  "death.attack.kimetsu.demon_claw": "%1$s was torn apart by %2$s",
+  "death.attack.kimetsu.demon_claw.item": "%1$s was torn apart by %2$s",
+  "death.attack.kimetsu.demon_claw.player": "%1$s was torn apart by %2$s",
+  "entity.kimetsu.m1_demon": "Demon",
+  "entity.kimetsu.test_dummy": "Test Dummy"
 }

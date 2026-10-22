@@ -454,7 +454,7 @@ class DemonFightTest {
         assertEquals(State.GRABBED, p.now().state());
         assertEquals(State.ATTACK, d.state(194)); // holding
         a.through(196);
-        assertEquals(List.of(new HoldEnded(1, 1, 195, Release.THROWN, 1.0)), a.all(HoldEnded.class));
+        assertEquals(List.of(new HoldEnded(1, 10, 1, 195, Release.THROWN, 1.0)), a.all(HoldEnded.class));
         assertEquals(State.KNOCKDOWN, p.now().state());
         assertEquals(State.GUARD, d.state(196)); // no opening
     }
@@ -469,7 +469,7 @@ class DemonFightTest {
         chain(p, 158); // active 161: in its reel
         Demon d = a.demon(10, still(), guarding(1, new Arena.Script().at(100, 1, GRAB)));
         a.through(165);
-        assertEquals(List.of(new HoldEnded(1, 1, 156, Release.ESCAPED, 0)), a.all(HoldEnded.class));
+        assertEquals(List.of(new HoldEnded(1, 10, 1, 156, Release.ESCAPED, 0)), a.all(HoldEnded.class));
         assertEquals(State.HITSTUN, d.state(167));
         assertEquals(List.of(HitResult.LANDED), results(a, 1));
     }
@@ -481,7 +481,7 @@ class DemonFightTest {
         chain(a.player(2).stand(MIN, 0, 64, -2, 0), 130); // behind it: lands at 133
         Demon d = a.demon(10, still(), guarding(1, new Arena.Script().at(100, 1, GRAB)));
         a.through(134);
-        assertEquals(List.of(new HoldEnded(1, 1, 133, Release.FREED, 0)), a.all(HoldEnded.class));
+        assertEquals(List.of(new HoldEnded(1, 10, 1, 133, Release.FREED, 0)), a.all(HoldEnded.class));
         assertEquals(State.NEUTRAL, held.now().state());
         assertEquals(State.HITSTUN, d.state(134));
     }

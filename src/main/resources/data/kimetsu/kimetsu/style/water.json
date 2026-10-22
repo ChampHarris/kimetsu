@@ -1,0 +1,27 @@
+{
+  "beat_ticks": 13,
+  "step": "kimetsu:water/step",
+  "light_chain": [
+    "kimetsu:light_chain/1",
+    "kimetsu:light_chain/2",
+    "kimetsu:light_chain/3"
+  ],
+  "radial": [
+    "kimetsu:water/first_form",
+    "kimetsu:water/second_form",
+    "kimetsu:water/fourth_form",
+    "kimetsu:water/eighth_form"
+  ],
+  "contextual": {
+    "falling": "kimetsu:water/eighth_form"
+  },
+  "guard_cancel": {
+    "after_miss": 0.0,
+    "after_hit": 5.0
+  },
+  "pommel": "kimetsu:pommel",
+  "meta": {
+    "status": "PROPOSED",
+    "source": "docs/design/specs/m1-combat-core.md#numbers"
+  }
+}

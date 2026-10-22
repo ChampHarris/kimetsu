@@ -1,0 +1,33 @@
+{
+  "hp": 20.0,
+  "body": {
+    "half_width": 0.3,
+    "height": 1.8,
+    "eye": 1.62
+  },
+  "style": "kimetsu:water",
+  "posture": {
+    "max": 100,
+    "regen_per_s": 12.0,
+    "delay_ticks": 30,
+    "credit_restore": 4,
+    "stagger_ticks": 30,
+    "reset_fraction": 0.5,
+    "vitality_floor": 1.0
+  },
+  "breath": {
+    "max": 100,
+    "regen_idle_per_s": 10.0,
+    "regen_combat_per_s": 4.0,
+    "on_beat_inhale": 6,
+    "held_guard_per_s": 6.0,
+    "winded_ticks": 40,
+    "winded_guard_posture_per_s": 6.0,
+    "recovery_refund_share": 1.0
+  },
+  "kind": "slayer",
+  "meta": {
+    "status": "PROPOSED",
+    "source": "docs/design/specs/m1-combat-core.md#numbers"
+  }
+}

@@ -11,6 +11,10 @@ description='''
 A lore-accurate, skill-first Demon Slayer action RPG for Slayers and demons.
 '''
 
+# The run loop's backlog-drop marker, read by the combat clock (Rule 1.8).
+[[accessTransformers]]
+file="META-INF/accesstransformer.cfg"
+
 # AFTER puts this mod's data pack above NeoForge's: mod packs stack in mod order, later ones win. NeoForge ships its
 # own copies of 446 vanilla recipes; stacked above ours (as they were while kimetsu sorted first), they shadowed 36 of
 # the vanilla-scope pack's neoforge:never overrides (every sword, the bow, netherite). The GameTests check that every

@@ -7,6 +7,7 @@ import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.StrikeRules;
 import dev.champ.kimetsu.core.demon.Demon;
 import dev.champ.kimetsu.core.demon.DemonBrain;
+import dev.champ.kimetsu.core.fight.Audience;
 import dev.champ.kimetsu.core.fight.CombatWorld;
 import dev.champ.kimetsu.core.fight.Fighter;
 import dev.champ.kimetsu.core.fight.Outbox;
@@ -310,7 +311,7 @@ final class Duel {
                     default -> {}
                 }
                 for (Player p : players) {
-                    if (!p.down && reaches(e, p.f.id())) {
+                    if (!p.down && Audience.reaches(e, p.f.id(), true, true)) {
                         p.inbox.addLast(new Object[] {n + p.seat.latencyTicks(), e});
                     }
                 }
@@ -446,15 +447,6 @@ final class Duel {
         if (landed != Long.MIN_VALUE) {
             p.landings.add(new long[] {n + p.seat.latencyTicks(), landed});
         }
-    }
-
-    /** Whether event {@code e} goes to player {@code fighter}'s client: need-to-know, as slice 5 routes it. */
-    private static boolean reaches(Outbox.Event e, int fighter) {
-        return switch (e) {
-            case Outbox.PlayerEffect pe -> pe.fighter() == fighter;
-            case Outbox.SwingDealt sd -> sd.fighter() == fighter;
-            default -> true;
-        };
     }
 
     private static void tally(

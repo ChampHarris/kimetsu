@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "class": "light",
+  "timing": {
+    "windup": 10,
+    "active": 2,
+    "recovery": 13,
+    "beat_lock": {
+      "windup_min": 9,
+      "max_stretch_beats": 1,
+      "hold_frame": 3
+    }
+  },
+  "cue": {
+    "type": "white",
+    "lead": 10
+  },
+  "hits": [
+    {
+      "from": 0,
+      "to": 1,
+      "damage": 1.25,
+      "hitstun": 6,
+      "block_posture": 8.0
+    }
+  ],
+  "sweep": {
+    "shape": "obb",
+    "center": [
+      0.0,
+      1.1,
+      1.3
+    ],
+    "half": [
+      1.1,
+      0.6,
+      1.2
+    ],
+    "pitch": "level"
+  },
+  "armour": {
+    "windup": "all"
+  },
+  "displacement": [
+    {
+      "phase": "windup",
+      "from": 6,
+      "to": 9,
+      "forward": 0.25
+    }
+  ],
+  "meta": {
+    "status": "PROPOSED",
+    "source": "docs/design/specs/m1-combat-core.md#numbers"
+  }
+}

@@ -48,8 +48,12 @@ public final class Outbox {
     /** A strike won't land: {@code tick} is the tick its cancel takes effect in. */
     public record AttackCancelled(long strike, long tick, String why) implements Event {}
 
-    /** A strike's verdict on one player, and the damage the mod applies for a hit (Rule 12). */
-    public record StrikeResult(long strike, int fighter, Verdict.Kind kind, double damage) implements Event {}
+    /**
+     * A strike's verdict on one player, and the damage the mod applies for a hit (Rule 12). It names both sides, since
+     * the trackers of either see it (spec Netcode) and the damage has a dealer.
+     */
+    public record StrikeResult(long strike, int attacker, int fighter, Verdict.Kind kind, double damage)
+            implements Event {}
 
     /**
      * What the loop logged on player {@code fighter}'s machine at {@code tick}, in the order it logged them: the
@@ -79,8 +83,12 @@ public final class Outbox {
      */
     public record HoldStarted(long strike, int mob, int fighter, long tick, long throwTick) implements Event {}
 
-    /** The hold ended at {@code tick}, {@code how}; a throw deals {@code damage} (the mod applies it, Rule 12). */
-    public record HoldEnded(long strike, int fighter, long tick, Release how, double damage) implements Event {}
+    /**
+     * Mob {@code mob}'s hold ended at {@code tick}, {@code how}; a throw deals {@code damage} (the mod applies it,
+     * Rule 12).
+     */
+    public record HoldEnded(long strike, int mob, int fighter, long tick, Release how, double damage)
+            implements Event {}
 
     /** How a micro-clash ended (Rule 10.3): the player won, the mob won, or a tie, whose shockwave pushes both apart. */
     public enum ClashOutcome {

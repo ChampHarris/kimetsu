@@ -49,8 +49,8 @@ import org.jspecify.annotations.Nullable;
  * The server's fight loop, one tick at a time in the spec's order (Rule 3, "Order inside a server tick", with D-034):
  *
  * <ol>
- *   <li>players' presses arrive and their machines advance ({@code Timeline.beginTick}: steps 1 and 3); cancels queued
- *       between ticks reach their machines; mobs report where they stand;
+ *   <li>players' presses arrive and their machines advance ({@code Timeline.beginTick}: steps 1 and 3); cancels,
+ *       landings and the mod's own effects queued between ticks reach their machines; mobs report where they stand;
  *   <li>mobs' brains commit strings ({@link #commit}): each is scheduled onto its target's beat and told to it;
  *   <li>cues that fire lock their strike's direction and its path (Rule 7.13: from then the attacker moves only by
  *       the strike's own displacement, {@link #strikePose}), and players within reach of where its sweep will be at
@@ -106,6 +106,9 @@ public final class CombatWorld {
     /** A landing the mod reported, to log on a player's machine when its next tick begins. */
     private record Landing(int fighter, Effect.Surface surface, long micros) {}
 
+    /** An effect of the mod's own on a player, to log when its next tick begins. */
+    private record Applied(int fighter, Effect effect) {}
+
     /** A micro-clash under way (Rule 10): who, from which impact, when the flash comes and when the mob presses. */
     private static final class Clash {
         final long strike;
@@ -158,6 +161,7 @@ public final class CombatWorld {
     private final List<PendingStrike> book = new ArrayList<>();
     private final List<Queued> queued = new ArrayList<>();
     private final List<Landing> landings = new ArrayList<>();
+    private final List<Applied> applied = new ArrayList<>();
     private final List<Hold> holds = new ArrayList<>();
     private final List<Clash> clashes = new ArrayList<>();
     private final List<Effect> effects = new ArrayList<>();
@@ -183,7 +187,7 @@ public final class CombatWorld {
     private int[] stopped = new int[4];
     private int stoppedCount;
     private long nextStrike = 1;
-    private long nextString = 1;
+    private long nextString = 1; // both carried on by a world built to replace this one (idsFrom)
     private long now = NONE;
     private boolean committing;
 
@@ -215,6 +219,29 @@ public final class CombatWorld {
         this.stepBound = fastestTick(moves.step());
     }
 
+    /** The id its next strike gets. */
+    public long nextStrikeId() {
+        return nextStrike;
+    }
+
+    /** The id its next string gets. */
+    public long nextStringId() {
+        return nextString;
+    }
+
+    /**
+     * Before its first commit: its strike and string ids carry on from {@code strike} and {@code string}, the next ids
+     * of the world it replaces (a data reload's), so no client that saw the old world's strikes meets an id twice.
+     */
+    public void idsFrom(long strike, long string) {
+        if (strike < nextStrike || string < nextString) {
+            throw new IllegalArgumentException(
+                    "ids can only move on: " + strike + "/" + string + " is behind " + nextStrike + "/" + nextString);
+        }
+        nextStrike = strike;
+        nextString = string;
+    }
+
     /** The farthest an attack's own displacement carries its user in one tick (blocks). */
     private static double fastestTick(FrameData f) {
         double fastest = 0;
@@ -224,15 +251,45 @@ public final class CombatWorld {
         return fastest;
     }
 
-    /** A player joins, its Timeline at the tick it's about to begin. Add players in id order. */
+    /**
+     * A player joins, its Timeline at the tick it's about to begin. Players are kept in id order, which the loop follows
+     * (so a fight's outcome doesn't depend on who joined first): a respawn rejoins with its old id after newer ones.
+     * An id still in the fight, leaving included, can't join again until it has left.
+     */
     public Fighter add(Fighter f) {
-        fighters.add(f);
+        if (fighter(f.id()) != null) {
+            throw new IllegalStateException("player " + f.id() + " is already in the fight");
+        }
+        int at = fighters.size();
+        while (at > 0 && fighters.get(at - 1).id() > f.id()) {
+            at--;
+        }
+        fighters.add(at, f);
         return f;
     }
 
-    /** A mob joins with its brain. Add mobs in id order. */
+    /**
+     * Between ticks: the mod's own effect on player {@code fighter} (it went in or out of combat, its assist level
+     * changed), logged on its machine when the next tick begins and sent like the world's effects. Dropped if the
+     * player is leaving or gone by then.
+     */
+    public void apply(int fighter, Effect e) {
+        applied.add(new Applied(fighter, e));
+    }
+
+    /**
+     * A mob joins with its brain. Mobs are kept in id order, which the loop follows, as players are: a rebuilt world
+     * takes them in whatever order its members come.
+     */
     public void add(StrikeMob body, Brain brain) {
-        mobs.add(new Mob(body, brain));
+        if (find(body.id()) != null) {
+            throw new IllegalStateException("mob " + body.id() + " is already in the fight");
+        }
+        int at = mobs.size();
+        while (at > 0 && mobs.get(at - 1).body.id() > body.id()) {
+            at--;
+        }
+        mobs.add(at, new Mob(body, brain));
         body.joined(this);
     }
 
@@ -327,7 +384,10 @@ public final class CombatWorld {
      * Pommel's target and the box players' swings hit agree, on the server and on every client.
      */
     public boolean strikePose(int mob, long tick, Pose out) {
-        Mob m = mob(mob);
+        Mob m = find(mob);
+        if (m == null) {
+            return false; // gone: a mob that died this tick is buried at its end
+        }
         PendingStrike s = m.path;
         if (s == null || tick < s.cueTick() || tick >= m.pathEnd) {
             return false;
@@ -371,6 +431,14 @@ public final class CombatWorld {
             }
         }
         landings.clear();
+        for (int i = 0; i < applied.size(); i++) {
+            Applied e = applied.get(i);
+            Fighter f = fighter(e.fighter());
+            if (f != null && !f.leaving) {
+                log(f, e.effect(), n);
+            }
+        }
+        applied.clear();
         for (int i = 0; i < mobs.size(); i++) {
             Mob m = mobs.get(i);
             m.body.beginTick(n);
@@ -509,7 +577,6 @@ public final class CombatWorld {
             }
             insert(s);
             mob(mob).body.scheduled(s);
-            tell(s, t, now);
             outbox.add(new Outbox.AttackStarted(
                     s.id(),
                     mob,
@@ -521,6 +588,7 @@ public final class CombatWorld {
                     slot.impactTick(),
                     sid,
                     s.last()));
+            tell(s, t, now); // after the schedule it names, so no client hears of a strike before it's described
         }
         log(t, Effect.TARGETED, now); // Rhythm's idle clock: something targets it (Rule 4.3)
         return p;
@@ -1303,7 +1371,7 @@ public final class CombatWorld {
         f.timeline().resolve(s.id());
         s.answer(verdict.kind(), verdict.attackerPosture(), verdict.attackerRecoveryTicks());
         s.decideFor(j);
-        outbox.add(new Outbox.StrikeResult(s.id(), f.id(), verdict.kind(), damage));
+        outbox.add(new Outbox.StrikeResult(s.id(), s.attacker(), f.id(), verdict.kind(), damage));
         if (verdict.kind() == Verdict.Kind.GRAB) {
             hold(s, f, tick);
         }
@@ -1379,7 +1447,7 @@ public final class CombatWorld {
         Hold h = holds.remove(i);
         h.mob.body.released(h.strike, tick, how);
         double damage = how == Release.THROWN ? strikes.throwDamage() : 0;
-        outbox.add(new Outbox.HoldEnded(h.strike, h.f.id(), tick, how, damage));
+        outbox.add(new Outbox.HoldEnded(h.strike, h.mob.body.id(), h.f.id(), tick, how, damage));
     }
 
     /** Logs the verdict's effects on {@code f} at the impact tick ({@link Verdicts#effects}); returns the HP damage. */
@@ -1478,11 +1546,19 @@ public final class CombatWorld {
     }
 
     private Mob mob(int id) {
+        Mob m = find(id);
+        if (m == null) {
+            throw new IllegalArgumentException("no mob " + id);
+        }
+        return m;
+    }
+
+    private @Nullable Mob find(int id) {
         for (int i = 0; i < mobs.size(); i++) {
             if (mobs.get(i).body.id() == id) {
                 return mobs.get(i);
             }
         }
-        throw new IllegalArgumentException("no mob " + id);
+        return null;
     }
 }

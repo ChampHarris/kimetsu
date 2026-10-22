@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "class": "step",
+  "timing": {
+    "windup": 0,
+    "active": 6,
+    "recovery": 0
+  },
+  "cost": {
+    "breath": 7.5
+  },
+  "displacement": [
+    {
+      "phase": "active",
+      "from": 0,
+      "to": 0,
+      "forward": 0.7
+    },
+    {
+      "phase": "active",
+      "from": 1,
+      "to": 1,
+      "forward": 0.6
+    },
+    {
+      "phase": "active",
+      "from": 2,
+      "to": 2,
+      "forward": 0.5
+    },
+    {
+      "phase": "active",
+      "from": 3,
+      "to": 3,
+      "forward": 0.5
+    },
+    {
+      "phase": "active",
+      "from": 4,
+      "to": 4,
+      "forward": 0.4
+    },
+    {
+      "phase": "active",
+      "from": 5,
+      "to": 5,
+      "forward": 0.3
+    }
+  ],
+  "meta": {
+    "status": "PROPOSED",
+    "source": "docs/design/specs/m1-combat-core.md#numbers"
+  }
+}
