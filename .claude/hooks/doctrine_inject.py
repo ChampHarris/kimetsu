@@ -6,9 +6,9 @@ Cheap keyword triage, no model call. Design prompts get the full doctrine remind
 implementation prompts get a short coding reminder (java.md and the hooks carry the details); everything else gets
 nothing, so ordinary turns stay lean. Opt out for one prompt with "[quick]" anywhere in it.
 
-Context nudge (ADR 0003): once the context passes 200k tokens, and again at 400k, Claude is told once to finish the
-current step and suggest /session-close then /clear, because answers degrade in very long contexts and a compaction
-loses detail. The token count comes from the status line's .claude/.state/context/<session>.json, else from the
+Context nudge (ADR 0003): once the context passes 200k tokens, and again at 400k, Claude is told once to reach a
+natural break, run /session-close itself (the handoff into docs/state.md) and ask Champ to type /clear, because answers
+degrade in very long contexts and a compaction loses detail. Claude can't clear its own context; /clear is Champ's. The token count comes from the status line's .claude/.state/context/<session>.json, else from the
 last usage entry in the transcript.
 """
 from __future__ import annotations
@@ -43,11 +43,14 @@ For a substantial feature, run /forge <topic> (or the /design-forge workflow) an
 CODE_CONTEXT = """IMPLEMENTATION REQUEST. For a new system or a non-trivial change: first name at least two concrete risks in the approach (tick or frame budget, desync, Mixin risk, an API missing in 26.3), then the critique, the baseline fix and the better design (D-018). Confirm every unfamiliar 26.x signature in ref-src/ or with /verify-api before writing the call. Stay in scope: don't refactor, rename or "improve" code the task doesn't need; list those under "Unasked but important" instead. Done = receipts: run the targeted tests and show the command and its result (the Stop hook checks the test results on disk). After two honest attempts that fail the same way, stop and use /blocked; never switch off, skip or loosen a test or a check to get green."""
 
 
-NUDGES = ((400_000, "Context is past 400k tokens. Answers get less reliable this deep. Finish the step you're on, "
-                    "then tell Champ in one line: run /session-close, then /clear, and pick the work up in a fresh "
-                    "session (state.md and the session-start hook carry it over)."),
-          (200_000, "Context is past 200k tokens. When the current task reaches a natural break, suggest to Champ in "
-                    "one line: /session-close, then /clear for the next task. Don't start a new task in this session."))
+NUDGES = ((400_000, "Context is past 400k tokens. Answers get less reliable this deep. Finish the step you're on and "
+                    "don't start another. Then run the /session-close skill yourself (the handoff into docs/state.md), "
+                    "and end your reply with one line for Champ: the handoff is saved, type /clear to continue in a "
+                    "fresh session."),
+          (200_000, "Context is past 200k tokens. Don't start a new task in this session. At the next natural break "
+                    "(the current task or slice step done, nothing half-written), run the /session-close skill "
+                    "yourself, then end your reply with one line for Champ: the handoff is saved, type /clear for the "
+                    "next task. Don't stop mid-task just for this."))
 STATE = "context_nudge.json"
 
 

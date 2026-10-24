@@ -1012,6 +1012,7 @@ put(R, ".claude/.state/context/n1.json", json.dumps({"tokens": 210000, "at": tim
 o1 = ctx(run(R, "doctrine_inject.py", {"session_id": "n1", "prompt": "hello there"})[1])
 o2 = run(R, "doctrine_inject.py", {"session_id": "n1", "prompt": "hello again"})[1]
 case("nudge at 200k, once", "past 200k" in o1 and o2 == "", (o1, o2))
+case("the nudge has Claude run /session-close itself and leaves /clear to Champ", "/session-close skill yourself" in o1 and "type /clear" in o1, o1)
 put(R, ".claude/.state/context/n1.json", json.dumps({"tokens": 410000, "at": time.time()}))
 o3 = ctx(run(R, "doctrine_inject.py", {"session_id": "n1", "prompt": "fix the parser bug"})[1])
 case("nudge again at 400k, with the coding reminder", "past 400k" in o3 and "IMPLEMENTATION REQUEST" in o3, o3)
