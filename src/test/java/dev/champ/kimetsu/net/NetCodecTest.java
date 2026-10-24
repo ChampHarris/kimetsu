@@ -110,7 +110,7 @@ class NetCodecTest {
     @Test
     void everyEffectRoundTrips() throws ReflectiveOperationException {
         List<Class<?>> types = records(Effect.class);
-        assertEquals(20, types.size(), "the engine's effects");
+        assertEquals(19, types.size(), "the engine's effects"); // InCombat went: Rule 13.1's flag is the machine's
         for (int seed = 0; seed < 3; seed++) {
             for (Class<?> t : types) {
                 Effect e = (Effect) sample(t, seed);
@@ -173,7 +173,8 @@ class NetCodecTest {
                 true,
                 new Segment(55_000, 120, 390, 60_000),
                 14,
-                2);
+                2,
+                690);
         PlayerIntake.Frame f = new PlayerIntake.Frame(
                 9,
                 61_000_000,

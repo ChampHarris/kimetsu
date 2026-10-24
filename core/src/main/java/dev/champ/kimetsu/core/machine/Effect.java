@@ -55,8 +55,6 @@ public sealed interface Effect {
     /** Its swing in progress connected (landed or was blocked): Water's guard-cancel then costs Breath (R9-09). */
     record Connected() implements Effect {}
 
-    record InCombat(boolean value) implements Effect {}
-
     record Targeted() implements Effect {}
 
     /**

@@ -825,29 +825,45 @@ class FrameDataTest {
 
     @Test
     void machineRulesRejectBadValues() {
-        rejects(() -> new MachineRules(-1, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16), "buffer_ticks");
-        rejects(() -> new MachineRules(3, 0, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16), "radial_hold_ms");
-        rejects(() -> new MachineRules(3, 150, 0, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16), "radial_limit_beats");
-        rejects(() -> new MachineRules(3, 150, 2, -1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16), "guard_hold_ticks");
-        rejects(() -> new MachineRules(3, 150, 2, 1, -1, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16), "feint_breath");
+        rejects(() -> new MachineRules(-1, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300), "buffer_ticks");
+        rejects(() -> new MachineRules(3, 0, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300), "radial_hold_ms");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, -1, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16),
+                () -> new MachineRules(3, 150, 0, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300),
+                "radial_limit_beats");
+        rejects(
+                () -> new MachineRules(3, 150, 2, -1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300),
+                "guard_hold_ticks");
+        rejects(() -> new MachineRules(3, 150, 2, 1, -1, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300), "feint_breath");
+        rejects(
+                () -> new MachineRules(3, 150, 2, 1, 10, -1, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300),
                 "feint_doubling_ticks");
-        rejects(() -> new MachineRules(3, 150, 2, 1, 10, 60, -1, 4, 1, 13, 20, 8, 40, 10, 3, 16), "stumble_ticks");
-        rejects(() -> new MachineRules(3, 150, 2, 1, 10, 60, 6, -1, 1, 13, 20, 8, 40, 10, 3, 16), "tech_before_ticks");
-        rejects(() -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, -1, 13, 20, 8, 40, 10, 3, 16), "tech_after_ticks");
-        rejects(() -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, -1, 20, 8, 40, 10, 3, 16), "tech_lockout_ticks");
+        rejects(() -> new MachineRules(3, 150, 2, 1, 10, 60, -1, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300), "stumble_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, -1, 8, 40, 10, 3, 16),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, -1, 1, 13, 20, 8, 40, 10, 3, 16, 300),
+                "tech_before_ticks");
+        rejects(
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, -1, 13, 20, 8, 40, 10, 3, 16, 300),
+                "tech_after_ticks");
+        rejects(
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, -1, 20, 8, 40, 10, 3, 16, 300),
+                "tech_lockout_ticks");
+        rejects(
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, -1, 8, 40, 10, 3, 16, 300),
                 "knockdown_down_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, -1, 40, 10, 3, 16),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, -1, 40, 10, 3, 16, 300),
                 "knockdown_rise_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 0, 10, 3, 16),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 0, 10, 3, 16, 300),
                 "knockdown_max_air_ticks");
-        rejects(() -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, -1, 3, 16), "juggle_cut_breath");
-        rejects(() -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 0, 16), "grab_escape_inputs");
-        rejects(() -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 1), "history_ticks");
+        rejects(
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, -1, 3, 16, 300),
+                "juggle_cut_breath");
+        rejects(
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 0, 16, 300),
+                "grab_escape_inputs");
+        rejects(() -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 1, 300), "history_ticks");
+        rejects(() -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 0), "in_combat_ticks");
+        rejects(() -> new FightRules(0.5), "engage_blocks");
     }
 }

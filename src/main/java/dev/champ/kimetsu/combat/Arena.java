@@ -115,6 +115,25 @@ public final class Arena {
         listeners.add(listener);
     }
 
+    /**
+     * Whether a hostile combatant of this arena's stands alive within {@code blocks} of {@code e}, in its level: a walk
+     * over its few members, asked only on a click (D-055).
+     */
+    @SuppressWarnings("ReferenceEquality") // the very level instance: one per dimension
+    public boolean hostileWithin(Entity e, double blocks) {
+        double limit = blocks * blocks;
+        for (int i = 0; i < members.size(); i++) {
+            if (members.get(i) instanceof Entity m
+                    && members.get(i).hostile()
+                    && m.isAlive()
+                    && m.level() == e.level()
+                    && m.distanceToSqr(e) <= limit) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** The entity with engine id {@code id} (an engine id is the entity's id), or null once it's gone. */
     public @Nullable Entity entity(int id) {
         return level.getEntity(id);

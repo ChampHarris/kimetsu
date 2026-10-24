@@ -284,6 +284,7 @@ public final class NetCodec {
         writeSegment(buf, s.posture());
         Wire.writeInt(buf, s.rhythmPoints());
         Wire.writeInt(buf, s.rhythmTier());
+        Wire.writeLong(buf, s.combatUntil());
     }
 
     private static NetMessage.Snapshot readSnapshot(FriendlyByteBuf buf) {
@@ -297,6 +298,7 @@ public final class NetCodec {
                 buf.readBoolean(),
                 readSegment(buf),
                 Wire.readInt(buf),
-                Wire.readInt(buf));
+                Wire.readInt(buf),
+                Wire.readLong(buf));
     }
 }

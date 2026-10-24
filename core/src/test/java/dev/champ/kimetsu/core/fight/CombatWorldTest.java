@@ -609,7 +609,10 @@ class CombatWorldTest {
         assertEquals(List.of(new AttackCancelled(1, 116, "epoch")), a.all(AttackCancelled.class));
         assertTrue(a.world.pending().isEmpty());
         assertEquals(0, p.now().pendingFeint());
-        assertEquals(before + Fixed.of(0.5 - 10), p.now().breath().at(116)); // nothing answered it
+        // nothing answered it; in combat since strike 1 was committed on it (Rule 13.1), so it regenerated at 4/s
+        assertEquals(
+                before + Fixed.of(Fixtures.breath().regenCombatPerS() / 20 - 10),
+                p.now().breath().at(116));
         assertFalse(p.now().deflects().holds(1));
         a.through(125);
         assertTrue(a.results(1).isEmpty());

@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Pose;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -49,6 +50,8 @@ public final class PlayerSession implements ArenaMember {
     private static final long ECHO_GIVE_UP_NANOS = 5_000_000_000L; // an echo held back this long is replaced
 
     private final Sessions sessions;
+    private final @Nullable Consumer<NetMessage> testOut; // a test's session: what it sends goes here, not on the wire
+    private final @Nullable Arena chosen; // a test's session fights in the test's arena
     private final String name;
     private ServerPlayer player;
     final RecordPush push;
@@ -78,7 +81,20 @@ public final class PlayerSession implements ArenaMember {
     private NetMessage.@Nullable Snapshot due; // a newer one, for this step's Tick
 
     PlayerSession(Sessions sessions, ServerPlayer player, CombatData data, int epoch) {
+        this(sessions, player, data, epoch, null, null);
+    }
+
+    /** A test's session ({@link Sessions#openForTest}): its messages go to {@code testOut}, it fights in {@code chosen}. */
+    PlayerSession(
+            Sessions sessions,
+            ServerPlayer player,
+            CombatData data,
+            int epoch,
+            @Nullable Consumer<NetMessage> testOut,
+            @Nullable Arena chosen) {
         this.sessions = sessions;
+        this.testOut = testOut;
+        this.chosen = chosen;
         this.name = player.getScoreboardName();
         this.player = player;
         this.push = new RecordPush(data.rules().clock());
@@ -110,6 +126,22 @@ public final class PlayerSession implements ArenaMember {
 
     public @Nullable Fighter fighter() {
         return fighter;
+    }
+
+    /** The arena it fights in, or null while it isn't in a fight. */
+    @Nullable
+    Arena arena() {
+        return arena;
+    }
+
+    /** Whether its player is in combat (Rule 13.1): its fighter's flag as of the last step; false out of the fight. */
+    public boolean inCombat() {
+        Fighter f = fighter;
+        if (f == null) {
+            return false;
+        }
+        Timeline t = f.timeline();
+        return t.live().inCombat(t.current());
     }
 
     public PlayerIntake intake() {
@@ -328,8 +360,8 @@ public final class PlayerSession implements ArenaMember {
             send(new NetMessage.ServerEcho(nowNanos));
         }
         if (fighter == null && ready && echoed && !dead && player.isAlive() && !player.isSpectator()) {
-            Arena a = sessions.server().arenaFor(player.level());
-            if (a.world().fighter(player.getId()) == null) { // a respawn waits until its old self has left
+            Arena a = chosen != null ? chosen : sessions.server().arenaFor(player.level());
+            if (!a.closed() && a.world().fighter(player.getId()) == null) { // a respawn waits for its old self to leave
                 a.add(this);
             }
         }
@@ -376,7 +408,13 @@ public final class PlayerSession implements ArenaMember {
     }
 
     void send(NetMessage m) {
-        if (!closed) {
+        if (closed) {
+            return;
+        }
+        Consumer<NetMessage> out = testOut;
+        if (out != null) {
+            out.accept(m);
+        } else {
             PacketDistributor.sendToPlayer(player, m);
         }
     }
@@ -501,7 +539,8 @@ public final class PlayerSession implements ArenaMember {
                 c.breath().winded(settled),
                 c.posture().segment(),
                 c.rhythm().points(),
-                c.rhythm().tier());
+                c.rhythm().tier(),
+                c.combatUntil());
         shown = s;
         due = s;
     }
@@ -518,7 +557,8 @@ public final class PlayerSession implements ArenaMember {
                 && c.breath().winded(tick) == last.winded()
                 && posture.equals(last.posture())
                 && c.rhythm().points() == last.rhythmPoints()
-                && c.rhythm().tier() == last.rhythmTier();
+                && c.rhythm().tier() == last.rhythmTier()
+                && c.combatUntil() == last.combatUntil();
     }
 
     @Override

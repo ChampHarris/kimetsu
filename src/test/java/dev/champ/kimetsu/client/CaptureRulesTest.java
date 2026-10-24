@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import dev.champ.kimetsu.client.CaptureRules.Action;
 import org.junit.jupiter.api.Test;
 
-/** The capture's decision (spec Netcode, "Input capture"; the key table; D-055 until 5c). */
+/** The capture's decision (spec Netcode, "Input capture"; the key table; D-055). */
 class CaptureRulesTest {
     @Test
     void withTheBladeAMouseCombatPressIsTakenAndVanillaNeverSeesIt() {
@@ -34,6 +34,16 @@ class CaptureRulesTest {
         assertEquals(Action.PASS, CaptureRules.press(true, false, true, false, false, true)); // back from alt-tab
         assertEquals(Action.PASS, CaptureRules.press(true, false, true, true, false, true));
         assertEquals(Action.TAKE, CaptureRules.press(true, false, false, false, false, true)); // keys don't grab
+    }
+
+    /** D-055: away from fights the attack key on a block mines; fighting, off a block, or another key, it's the Attack. */
+    @Test
+    void theAttackKeyMinesOnABlockOnlyAwayFromFights() {
+        assertTrue(CaptureRules.mines(true, true, false));
+        assertFalse(CaptureRules.mines(true, true, true)); // in combat, or a demon within 32 blocks
+        assertFalse(CaptureRules.mines(true, false, false)); // in the air: a practice swing
+        assertFalse(
+                CaptureRules.mines(false, true, false)); // the mod's Attack bound to a key vanilla doesn't attack with
     }
 
     @Test

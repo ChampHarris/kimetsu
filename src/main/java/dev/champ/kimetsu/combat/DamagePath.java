@@ -6,6 +6,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageType;
@@ -13,6 +14,8 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.neoforged.neoforge.common.damagesource.DamageContainer;
 import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
+import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
+import net.neoforged.neoforge.event.entity.living.LivingHealEvent;
 import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
 import org.jspecify.annotations.Nullable;
 
@@ -20,8 +23,9 @@ import org.jspecify.annotations.Nullable;
  * Rule 12, the engine's damage in the game. The engine decides every hit first; a landed one reaches a player (or the
  * test dummy, which plays one) through {@code hurtServer} with the mod's own damage types, which the bypass tags in
  * {@code data/minecraft/tags/damage_type/} take past armour, shields, enchantments, effects and the damage cooldown.
- * A demon's HP is the engine's: vanilla damage on it becomes the engine's outside damage (Rule 8.6). Slice 5c adds the
- * rest (healing in combat, death-proofing's safety net, telemetry).
+ * A demon's HP is the engine's: vanilla damage on it becomes the engine's outside damage (Rule 8.6), and a death the
+ * engine didn't decide is caught (Rule 12.5). A player in combat heals by nothing vanilla (Rule 12.7). The fight log's
+ * telemetry is still to come (slice 5c-2).
  */
 public final class DamagePath {
     public static final ResourceKey<DamageType> NICHIRIN = key("nichirin");
@@ -54,6 +58,24 @@ public final class DamagePath {
         if (isMod(event.getSource())) {
             event.setInvulnerabilityTicks(0);
             event.addReductionModifier(DamageContainer.Reduction.ABSORPTION, (container, reduction) -> 0f);
+        }
+    }
+
+    /**
+     * Rule 12.7: no vanilla healing in mod fights. Every heal reaches {@code LivingEntity.heal} (food saturation, golden
+     * apples, potions, regeneration, Peaceful's), and the mod has none of its own for players: for a player in combat
+     * (Rule 13.1) it's cancelled.
+     */
+    public static void onHeal(LivingHealEvent event) {
+        if (event.getEntity() instanceof ServerPlayer p && CombatServer.inCombat(p)) {
+            event.setCanceled(true);
+        }
+    }
+
+    /** Rule 12.5: a demon's death the engine didn't decide is cancelled ({@link M1Demon#deathNet}). */
+    public static void onDeath(LivingDeathEvent event) {
+        if (event.getEntity() instanceof M1Demon demon && demon.deathNet(event.getSource())) {
+            event.setCanceled(true);
         }
     }
 

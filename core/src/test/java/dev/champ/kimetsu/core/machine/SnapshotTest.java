@@ -82,8 +82,7 @@ class SnapshotTest {
             case 9 -> new Effect.ClashEnd();
             case 10 -> new Effect.Credit(n / Rig.BEAT_TICKS);
             case 11 -> new Effect.RhythmDelta(rnd.nextInt(9) - 2);
-            case 12 -> new Effect.Connected();
-            case 13 -> new Effect.InCombat(rnd.nextBoolean());
+            case 12, 13 -> new Effect.Connected(); // 13 was InCombat, now the machine's own flag (Rule 13.1)
             case 14 -> new Effect.AssistChanged(rnd.nextInt(4));
             case 15 ->
                 new Effect.StrikeCommitted(

@@ -6,6 +6,7 @@ import dev.champ.kimetsu.core.data.BreathRules;
 import dev.champ.kimetsu.core.data.ClashRules;
 import dev.champ.kimetsu.core.data.ClockRules;
 import dev.champ.kimetsu.core.data.DemonProfile;
+import dev.champ.kimetsu.core.data.FightRules;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.FrameData.BeatLock;
 import dev.champ.kimetsu.core.data.FrameData.Cancel;
@@ -216,7 +217,12 @@ public final class Fixtures {
                 40, // ... and with no landing reported, it lands 2 s after the knockdown (Champ, D-051)
                 10, // Juggle cut: 10 Breath
                 3, // Grab: 3 on-beat inputs to escape
-                16); // State history: 16 ticks
+                16, // State history: 16 ticks
+                300); // In combat: 15 s after the last combat effect (Rule 13.1)
+    }
+
+    public static FightRules fights() {
+        return new FightRules(32); // Input frames, D-055: a hostile combatant within 32 blocks engages
     }
 
     public static HitRules hits() {

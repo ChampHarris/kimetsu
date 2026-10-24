@@ -7,6 +7,7 @@ import dev.champ.kimetsu.command.KimetsuCommand;
 import dev.champ.kimetsu.data.CombatDataLoader;
 import dev.champ.kimetsu.entity.KimetsuAttachments;
 import dev.champ.kimetsu.entity.KimetsuEntities;
+import dev.champ.kimetsu.entity.M1Demon;
 import dev.champ.kimetsu.gametest.CombatGameTests;
 import dev.champ.kimetsu.gametest.ScopeGameTests;
 import dev.champ.kimetsu.item.KimetsuItems;
@@ -45,6 +46,9 @@ public final class Kimetsu {
         game.addListener(CombatServer::onTickEnd);
         game.addListener(DamagePath::onIncomingDamage);
         game.addListener(DamagePath::onDamagePre);
+        game.addListener(DamagePath::onHeal);
+        game.addListener(EventPriority.HIGHEST, DamagePath::onDeath); // first: nothing acts on a death it cancels
+        game.addListener(M1Demon::onMount);
         game.addListener(CombatServer::onLogin);
         game.addListener(CombatServer::onLogout);
         game.addListener(CombatServer::onRespawn);

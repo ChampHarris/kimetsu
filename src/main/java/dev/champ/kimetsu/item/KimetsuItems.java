@@ -22,6 +22,7 @@ public final class KimetsuItems {
         modBus.addListener(KimetsuItems::creativeTab);
         NeoForge.EVENT_BUS.addListener(NichirinItem::onAttack);
         NeoForge.EVENT_BUS.addListener(NichirinItem::onLeftClickBlock);
+        NeoForge.EVENT_BUS.addListener(NichirinItem::onBreakBlock);
     }
 
     private static void creativeTab(BuildCreativeModeTabContentsEvent event) {

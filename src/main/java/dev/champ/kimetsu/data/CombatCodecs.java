@@ -10,6 +10,7 @@ import dev.champ.kimetsu.core.data.BreathRules;
 import dev.champ.kimetsu.core.data.ClashRules;
 import dev.champ.kimetsu.core.data.ClockRules;
 import dev.champ.kimetsu.core.data.DemonProfile;
+import dev.champ.kimetsu.core.data.FightRules;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.FrameData.BeatLock;
 import dev.champ.kimetsu.core.data.FrameData.Cancel;
@@ -370,24 +371,96 @@ public final class CombatCodecs {
                     Codec.INT.fieldOf("mushin_spend_to_tier").forGetter(RhythmRules::mushinSpendToTier))
             .apply(i, RhythmRules::new));
 
+    /** {@code machine}'s inputs and their timings (the first group of its fields; a codec groups at most 16). */
+    private record Inputs(
+            int bufferTicks,
+            int radialHoldMs,
+            int radialLimitBeats,
+            int guardHoldTicks,
+            double feintBreath,
+            int feintDoublingTicks,
+            int stumbleTicks,
+            int techBeforeTicks,
+            int techAfterTicks,
+            int techLockoutTicks) {
+        static final MapCodec<Inputs> CODEC = RecordCodecBuilder.mapCodec(i -> i.group(
+                        Codec.INT.fieldOf("buffer_ticks").forGetter(Inputs::bufferTicks),
+                        Codec.INT.fieldOf("radial_hold_ms").forGetter(Inputs::radialHoldMs),
+                        Codec.INT.fieldOf("radial_limit_beats").forGetter(Inputs::radialLimitBeats),
+                        Codec.INT.fieldOf("guard_hold_ticks").forGetter(Inputs::guardHoldTicks),
+                        Codec.DOUBLE.fieldOf("feint_breath").forGetter(Inputs::feintBreath),
+                        Codec.INT.fieldOf("feint_doubling_ticks").forGetter(Inputs::feintDoublingTicks),
+                        Codec.INT.fieldOf("stumble_ticks").forGetter(Inputs::stumbleTicks),
+                        Codec.INT.fieldOf("tech_before_ticks").forGetter(Inputs::techBeforeTicks),
+                        Codec.INT.fieldOf("tech_after_ticks").forGetter(Inputs::techAfterTicks),
+                        Codec.INT.fieldOf("tech_lockout_ticks").forGetter(Inputs::techLockoutTicks))
+                .apply(i, Inputs::new));
+    }
+
+    /** {@code machine}'s states and history (the second group). */
+    private record States(
+            int knockdownDownTicks,
+            int knockdownRiseTicks,
+            int knockdownMaxAirTicks,
+            double juggleCutBreath,
+            int grabEscapeInputs,
+            int historyTicks,
+            int inCombatTicks) {
+        static final MapCodec<States> CODEC = RecordCodecBuilder.mapCodec(i -> i.group(
+                        Codec.INT.fieldOf("knockdown_down_ticks").forGetter(States::knockdownDownTicks),
+                        Codec.INT.fieldOf("knockdown_rise_ticks").forGetter(States::knockdownRiseTicks),
+                        Codec.INT.fieldOf("knockdown_max_air_ticks").forGetter(States::knockdownMaxAirTicks),
+                        Codec.DOUBLE.fieldOf("juggle_cut_breath").forGetter(States::juggleCutBreath),
+                        Codec.INT.fieldOf("grab_escape_inputs").forGetter(States::grabEscapeInputs),
+                        Codec.INT.fieldOf("history_ticks").forGetter(States::historyTicks),
+                        Codec.INT.fieldOf("in_combat_ticks").forGetter(States::inCombatTicks))
+                .apply(i, States::new));
+    }
+
     static final Codec<MachineRules> MACHINE = RecordCodecBuilder.create(i -> i.group(
-                    Codec.INT.fieldOf("buffer_ticks").forGetter(MachineRules::bufferTicks),
-                    Codec.INT.fieldOf("radial_hold_ms").forGetter(MachineRules::radialHoldMs),
-                    Codec.INT.fieldOf("radial_limit_beats").forGetter(MachineRules::radialLimitBeats),
-                    Codec.INT.fieldOf("guard_hold_ticks").forGetter(MachineRules::guardHoldTicks),
-                    Codec.DOUBLE.fieldOf("feint_breath").forGetter(MachineRules::feintBreath),
-                    Codec.INT.fieldOf("feint_doubling_ticks").forGetter(MachineRules::feintDoublingTicks),
-                    Codec.INT.fieldOf("stumble_ticks").forGetter(MachineRules::stumbleTicks),
-                    Codec.INT.fieldOf("tech_before_ticks").forGetter(MachineRules::techBeforeTicks),
-                    Codec.INT.fieldOf("tech_after_ticks").forGetter(MachineRules::techAfterTicks),
-                    Codec.INT.fieldOf("tech_lockout_ticks").forGetter(MachineRules::techLockoutTicks),
-                    Codec.INT.fieldOf("knockdown_down_ticks").forGetter(MachineRules::knockdownDownTicks),
-                    Codec.INT.fieldOf("knockdown_rise_ticks").forGetter(MachineRules::knockdownRiseTicks),
-                    Codec.INT.fieldOf("knockdown_max_air_ticks").forGetter(MachineRules::knockdownMaxAirTicks),
-                    Codec.DOUBLE.fieldOf("juggle_cut_breath").forGetter(MachineRules::juggleCutBreath),
-                    Codec.INT.fieldOf("grab_escape_inputs").forGetter(MachineRules::grabEscapeInputs),
-                    Codec.INT.fieldOf("history_ticks").forGetter(MachineRules::historyTicks))
-            .apply(i, MachineRules::new));
+                    Inputs.CODEC.forGetter(m -> new Inputs(
+                            m.bufferTicks(),
+                            m.radialHoldMs(),
+                            m.radialLimitBeats(),
+                            m.guardHoldTicks(),
+                            m.feintBreath(),
+                            m.feintDoublingTicks(),
+                            m.stumbleTicks(),
+                            m.techBeforeTicks(),
+                            m.techAfterTicks(),
+                            m.techLockoutTicks())),
+                    States.CODEC.forGetter(m -> new States(
+                            m.knockdownDownTicks(),
+                            m.knockdownRiseTicks(),
+                            m.knockdownMaxAirTicks(),
+                            m.juggleCutBreath(),
+                            m.grabEscapeInputs(),
+                            m.historyTicks(),
+                            m.inCombatTicks())))
+            .apply(
+                    i,
+                    (in, st) -> new MachineRules(
+                            in.bufferTicks(),
+                            in.radialHoldMs(),
+                            in.radialLimitBeats(),
+                            in.guardHoldTicks(),
+                            in.feintBreath(),
+                            in.feintDoublingTicks(),
+                            in.stumbleTicks(),
+                            in.techBeforeTicks(),
+                            in.techAfterTicks(),
+                            in.techLockoutTicks(),
+                            st.knockdownDownTicks(),
+                            st.knockdownRiseTicks(),
+                            st.knockdownMaxAirTicks(),
+                            st.juggleCutBreath(),
+                            st.grabEscapeInputs(),
+                            st.historyTicks(),
+                            st.inCombatTicks())));
+
+    static final Codec<FightRules> FIGHTS = RecordCodecBuilder.create(
+            i -> i.group(Codec.DOUBLE.fieldOf("engage_blocks").forGetter(FightRules::engageBlocks))
+                    .apply(i, FightRules::new));
 
     static final Codec<HitRules> HITS = RecordCodecBuilder.create(i -> i.group(
                     Codec.INT.fieldOf("sub_steps").forGetter(HitRules::subSteps),
@@ -614,7 +687,8 @@ public final class CombatCodecs {
                     MACHINE.fieldOf("machine").forGetter(CombatRules::machine),
                     HITS.fieldOf("hits").forGetter(CombatRules::hits),
                     STRIKES.fieldOf("strikes").forGetter(CombatRules::strikes),
-                    RHYTHM_RULES.fieldOf("rhythm").forGetter(CombatRules::rhythm))
+                    RHYTHM_RULES.fieldOf("rhythm").forGetter(CombatRules::rhythm),
+                    FIGHTS.fieldOf("fights").forGetter(CombatRules::fights))
             .apply(i, CombatRules::new));
 
     // --------------------------------------------------------------------------------------------------- profiles

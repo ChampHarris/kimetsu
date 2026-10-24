@@ -1,14 +1,19 @@
 package dev.champ.kimetsu.combat;
 
 import com.google.gson.JsonElement;
+import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.TickRecord;
 import dev.champ.kimetsu.data.CombatData;
 import dev.champ.kimetsu.net.NetMessage;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
@@ -29,6 +34,7 @@ public final class Sessions {
     private final List<PlayerSession> all = new ArrayList<>();
     private final List<PlayerSession> viewers = new ArrayList<>(); // reused by viewersIn
     private final Trackers trackers = new Trackers();
+    private final Set<Arena> routed = Collections.newSetFromMap(new IdentityHashMap<>()); // test arenas with a router
     private NetMessage.@Nullable DataSync sync;
     private int syncGeneration = -1;
 
@@ -77,6 +83,30 @@ public final class Sessions {
         byListener.put(p.connection, s);
         all.add(s);
         s.send(sync(server.data(), server.generation()));
+    }
+
+    /**
+     * The seam GameTests reach the session code through (slice 5c-2): a session for {@code p}, a mock player whose
+     * connection has no channel, that sends to {@code out} instead of the wire, is ready as if its client had said so,
+     * has echoed once at {@code rttMicros}, and joins {@code arena} (a test's own) at the next tick end, which routes its
+     * events to it. Removing the player from the player list ends it, as a logout does. GameTests only.
+     */
+    public PlayerSession openForTest(ServerPlayer p, Arena arena, Consumer<NetMessage> out, long rttMicros) {
+        server.checkThread();
+        if (byListener.containsKey(p.connection)) {
+            throw new IllegalStateException(p.getScoreboardName() + " already has a session");
+        }
+        PlayerSession s = new PlayerSession(this, p, server.data(), server.epoch(), out, arena);
+        byListener.put(p.connection, s);
+        all.add(s);
+        s.send(sync(server.data(), server.generation()));
+        s.markReady();
+        s.echo(Micros.ofTicks(server.nextTick()), rttMicros);
+        routed.removeIf(Arena::closed);
+        if (routed.add(arena)) {
+            arenaOpened(arena);
+        }
+        return s;
     }
 
     void logout(ServerPlayer p) {

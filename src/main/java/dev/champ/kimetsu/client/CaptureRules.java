@@ -7,7 +7,8 @@ package dev.champ.kimetsu.client;
  * with the guard key is vanilla's use. A release is the mod's when its press was, and is never cancelled: a cancelled
  * release would leave a vanilla key held, and releasing a key that's up does nothing. The click that grabs the mouse
  * (the window back in focus, the cursor free) is vanilla's, since cancelling it would skip the grab; its attack or use
- * is stopped by {@link #stopVanilla}. Until slice 5c brings the combat flag and D-055's mining, the blade never mines.
+ * is stopped by {@link #stopVanilla}. Away from fights a click of vanilla's attack key on a block is vanilla's, which
+ * mines ({@link #mines}, D-055).
  */
 final class CaptureRules {
     enum Action {
@@ -36,6 +37,15 @@ final class CaptureRules {
             return Action.PASS; // Sneak + right mouse: vanilla's use, as the key table moves it
         }
         return mouseButton ? Action.TAKE_AND_CANCEL : Action.TAKE;
+    }
+
+    /**
+     * D-055: whether a press of vanilla's attack key mines with the blade instead of being the Attack: on a block, and
+     * not fighting (in combat, or a hostile combatant within 32 blocks, so the opening swing at a demon never mines).
+     * Then the press and vanilla's attack it triggers are both vanilla's.
+     */
+    static boolean mines(boolean vanillaAttackKey, boolean onBlock, boolean fighting) {
+        return vanillaAttackKey && onBlock && !fighting;
     }
 
     static Action release(boolean pressTaken) {

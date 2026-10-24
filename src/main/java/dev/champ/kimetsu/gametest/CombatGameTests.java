@@ -5,6 +5,7 @@ import dev.champ.kimetsu.Kimetsu;
 import dev.champ.kimetsu.combat.Arena;
 import dev.champ.kimetsu.combat.CombatServer;
 import dev.champ.kimetsu.combat.DamagePath;
+import dev.champ.kimetsu.combat.PlayerSession;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.TickRecord;
 import dev.champ.kimetsu.core.data.FrameData;
@@ -30,6 +31,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.gametest.framework.FunctionGameTestInstance;
@@ -39,6 +41,7 @@ import net.minecraft.gametest.framework.GameTestListener;
 import net.minecraft.gametest.framework.GameTestRunner;
 import net.minecraft.gametest.framework.TestData;
 import net.minecraft.gametest.framework.TestEnvironmentDefinition;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -50,17 +53,25 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.Pose;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.animal.pig.Pig;
+import net.minecraft.world.entity.monster.zombie.Zombie;
+import net.minecraft.world.entity.vehicle.boat.Boat;
+import net.minecraft.world.entity.vehicle.minecart.Minecart;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.common.CommonHooks;
 import net.neoforged.neoforge.common.util.FakePlayer;
 import net.neoforged.neoforge.common.util.FakePlayerFactory;
 import net.neoforged.neoforge.event.RegisterGameTestsEvent;
@@ -91,7 +102,11 @@ public final class CombatGameTests {
             FUNCTIONS.register("a_vanilla_hit_with_the_blade_does_nothing", () -> CombatGameTests::vanillaBladeHit),
             FUNCTIONS.register(
                     "a_player_without_the_channel_has_no_session", () -> CombatGameTests::noChannelNoSession),
-            FUNCTIONS.register("an_unloaded_demon_leaves_alive", () -> CombatGameTests::anUnloadedDemonLeavesAlive));
+            FUNCTIONS.register("an_unloaded_demon_leaves_alive", () -> CombatGameTests::anUnloadedDemonLeavesAlive),
+            FUNCTIONS.register(
+                    "the_blade_mines_only_away_from_fights", () -> CombatGameTests::theBladeMinesOnlyAwayFromFights),
+            FUNCTIONS.register("no_shortcuts_in_combat", () -> CombatGameTests::noShortcutsInCombat),
+            FUNCTIONS.register("the_death_net_holds", () -> CombatGameTests::theDeathNetHolds));
 
     /** Tests that wait on chunks generating, with {@link #CHUNK_TICKS} to do it in. */
     private static final List<String> SLOW = List.of("an_unloaded_demon_leaves_alive");
@@ -273,7 +288,11 @@ public final class CombatGameTests {
         });
     }
 
-    /** Three demons striking one dummy as fast as they can never land more than the cap's strikes in a beat. */
+    /**
+     * Three demons striking one dummy as fast as they can never land more than the cap's strikes in a beat. A strike
+     * cancelled before its impact (a stalled server's epoch cancels every pending one) doesn't count: the beat it held
+     * is free again, and the cap is on the strikes that land (code review: a 2 s stall in the batch failed it once).
+     */
     private static void strikesPerBeat(GameTestHelper h) {
         floor(h);
         Arena arena = arena(h);
@@ -290,9 +309,17 @@ public final class CombatGameTests {
             demon(h, arena, p[0], p[1], 0, body -> new ScriptedBrain(body, dummy::getId).always(swipe));
         }
         Map<Long, Integer> perBeat = new HashMap<>();
+        Map<Long, Long> beatOf = new HashMap<>(); // a strike's beat, until it's cancelled: a cancelled one never lands
         arena.listen(e -> {
             if (e instanceof Outbox.AttackStarted a && a.target() == dummy.getId()) {
-                perBeat.merge(Math.floorDiv(a.impactTick(), beat), 1, Integer::sum);
+                long b = Math.floorDiv(a.impactTick(), beat);
+                beatOf.put(a.strike(), b);
+                perBeat.merge(b, 1, Integer::sum);
+            } else if (e instanceof Outbox.AttackCancelled c) {
+                Long b = beatOf.remove(c.strike()); // a stall over 2 s is an epoch: its cancels free their beats
+                if (b != null) {
+                    perBeat.merge(b, -1, Integer::sum);
+                }
             }
         });
         h.runAfterDelay(400, () -> {
@@ -694,6 +721,258 @@ public final class CombatGameTests {
         });
     }
 
+    /**
+     * D-055 through a real session (slice 5c-2's seam): with the blade, away from fights, a click on a cobweb starts
+     * breaking it and the cobweb breaks; with a demon within 32 blocks, the click is refused and the cobweb stays, so
+     * the opening swing never mines; and once a strike was committed on the player, it's refused for as long as the
+     * player is in combat (Rule 13.1), with the demon gone.
+     */
+    private static void theBladeMinesOnlyAwayFromFights(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        CombatServer c = combat(h);
+        ServerPlayer p = player(h, arena, 4, 7);
+        p.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(KimetsuItems.NICHIRIN_BLADE.get()));
+        BlockPos[] webs = {new BlockPos(1, 1, 1), new BlockPos(1, 1, 3), new BlockPos(1, 1, 5)};
+        for (BlockPos w : webs) {
+            h.setBlock(w, Blocks.COBWEB);
+        }
+        FrameData swipe = attack(h, arena.data(), "swipe");
+        @Nullable M1Demon[] demon = new M1Demon[1];
+        boolean[] targeted = new boolean[1];
+        arena.listen(e -> {
+            if (e instanceof Outbox.AttackStarted a && a.target() == p.getId()) {
+                targeted[0] = true;
+            }
+        });
+        int[] stage = {0};
+        h.onEachTick(() -> {
+            PlayerSession s = c.sessions().session(p.connection);
+            switch (stage[0]) {
+                case 0 -> { // in the fight, out of combat, nothing hostile near: the blade mines
+                    if (s != null && s.fighter() != null) {
+                        h.assertFalse(CombatServer.fighting(p), "fighting with no fight");
+                        h.assertFalse(click(h, p, webs[0]), "the click on a block was refused away from fights");
+                        h.assertTrue(p.gameMode.destroyBlock(h.absolutePos(webs[0])), "the blade didn't mine");
+                        h.assertBlockNotPresent(Blocks.COBWEB, webs[0]);
+                        long start = arena.nextTick();
+                        demon[0] = demon(h, arena, 4, 3, 0, b -> new ScriptedBrain(b, p::getId).at(start + 40, swipe));
+                        stage[0] = 1;
+                    }
+                }
+                case 1 -> { // a demon within 32 blocks, nothing committed yet: only ever the Attack
+                    M1Demon d = demon[0];
+                    if (d != null && d.body() != null) {
+                        h.assertFalse(CombatServer.inCombat(p), "in combat before anything was committed");
+                        h.assertTrue(click(h, p, webs[1]), "the click on a block was taken with a demon near");
+                        h.assertFalse(p.gameMode.destroyBlock(h.absolutePos(webs[1])), "it mined with a demon near");
+                        h.assertBlockPresent(Blocks.COBWEB, webs[1]);
+                        stage[0] = 2;
+                    }
+                }
+                case 2 -> { // a strike committed on the player: the demon goes
+                    M1Demon d = demon[0];
+                    if (targeted[0] && d != null) {
+                        d.discard();
+                        stage[0] = 3;
+                    }
+                }
+                case 3 -> { // the demon gone, the player in combat: still only the Attack
+                    M1Demon d = demon[0];
+                    if (d != null && !arena.world().hasMob(d.getId())) {
+                        h.assertTrue(CombatServer.inCombat(p), "a committed strike didn't put the player in combat");
+                        h.assertFalse(
+                                arena.hostileWithin(
+                                        p, arena.data().rules().fights().engageBlocks()),
+                                "the demon is still near");
+                        h.assertTrue(click(h, p, webs[2]), "the click on a block was taken in combat");
+                        h.assertFalse(p.gameMode.destroyBlock(h.absolutePos(webs[2])), "it mined in combat");
+                        h.assertBlockPresent(Blocks.COBWEB, webs[2]);
+                        stage[0] = 4;
+                        h.succeed();
+                    }
+                }
+                default -> {}
+            }
+        });
+    }
+
+    /**
+     * Rule 12.7 and Rule 8.8 (spec Tests, S657): a player heals before a fight, but once a strike is committed on it
+     * (in combat, Rule 13.1) a heal and saturation's regeneration give it nothing; absorption hearts don't soak mod
+     * damage; and no combatant can be leashed, boated or carted, or ridden, even forced ({@code /ride}), while a player
+     * still boards a boat.
+     */
+    private static void noShortcutsInCombat(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        ServerLevel level = h.getLevel();
+        ServerPlayer p = player(h, arena, 4, 7);
+        TestDummy dummy = dummy(h, arena, 7, 2, 0);
+        FrameData swipe = attack(h, arena.data(), "swipe");
+        long start = arena.nextTick();
+        M1Demon demon = demon(h, arena, 4, 4, 0, b -> new ScriptedBrain(b, p::getId).at(start + 40, swipe));
+        boolean[] targeted = new boolean[1];
+        arena.listen(e -> {
+            if (e instanceof Outbox.AttackStarted a && a.target() == p.getId()) {
+                targeted[0] = true;
+            }
+        });
+        int[] stage = {0};
+        h.onEachTick(() -> {
+            switch (stage[0]) {
+                case 0 -> { // before the fight: a heal heals
+                    if (!targeted[0] && !CombatServer.inCombat(p)) {
+                        p.setHealth(10);
+                        p.heal(2);
+                        h.assertValueEqual(p.getHealth(), 12f, "a heal out of combat");
+                        stage[0] = 1;
+                    }
+                }
+                case 1 -> { // in combat: nothing vanilla heals
+                    if (targeted[0]) {
+                        h.assertTrue(CombatServer.inCombat(p), "a committed strike didn't put the player in combat");
+                        p.setHealth(10);
+                        p.heal(4); // a potion, a golden apple, regeneration: every heal goes through heal()
+                        h.assertValueEqual(p.getHealth(), 10f, "health after a heal in combat");
+                        p.getFoodData().setFoodLevel(20);
+                        p.getFoodData().setSaturation(5);
+                        for (int i = 0; i < 20; i++) {
+                            p.getFoodData().tick(p); // saturation's regeneration heals every 10 ticks
+                        }
+                        h.assertValueEqual(p.getHealth(), 10f, "health after saturation's regeneration in combat");
+
+                        AttributeInstance cap = dummy.getAttribute(Attributes.MAX_ABSORPTION);
+                        if (cap == null) {
+                            throw h.assertionException("the dummy has no absorption cap");
+                        }
+                        cap.setBaseValue(4); // vanilla clamps absorption to it: 0 on a mob
+                        dummy.setAbsorptionAmount(4);
+                        h.assertValueEqual(dummy.getAbsorptionAmount(), 4f, "absorption before the hit");
+                        float before = dummy.getHealth();
+                        h.assertTrue(DamagePath.hurt(dummy, DamagePath.DEMON_CLAW, 2, null), "the mod hit was refused");
+                        h.assertValueEqual(dummy.getHealth(), before - 2, "health after a mod hit with absorption");
+                        h.assertValueEqual(dummy.getAbsorptionAmount(), 4f, "absorption after a mod hit");
+
+                        h.assertFalse(demon.canBeLeashed(), "the demon can be leashed");
+                        h.assertFalse(dummy.canBeLeashed(), "the dummy can be leashed");
+                        Boat boat = EntityTypes.OAK_BOAT.create(level, EntitySpawnReason.MOB_SUMMONED);
+                        Minecart cart = EntityTypes.MINECART.create(level, EntitySpawnReason.MOB_SUMMONED);
+                        if (boat == null || cart == null) {
+                            throw h.assertionException("no boat or cart");
+                        }
+                        Vec3 at = h.absoluteVec(new Vec3(1.5, 1, 7.5));
+                        boat.snapTo(at.x, at.y, at.z, 0, 0);
+                        cart.snapTo(at.x + 2, at.y, at.z, 0, 0);
+                        level.addFreshEntity(boat);
+                        level.addFreshEntity(cart);
+                        h.assertFalse(demon.startRiding(boat, true, true), "the demon boarded a boat");
+                        h.assertFalse(dummy.startRiding(cart, true, true), "the dummy boarded a cart");
+                        h.assertFalse(p.startRiding(demon, true, true), "a player rode the demon");
+                        h.assertTrue(
+                                p.startRiding(boat, true, true), "a player can't board a boat: the test shows nothing");
+                        p.stopRiding();
+                        boat.discard();
+                        cart.discard();
+                        stage[0] = 2;
+                        h.succeed();
+                    }
+                }
+                default -> {}
+            }
+        });
+    }
+
+    /**
+     * Rule 12.5's safety net (spec Tests, S660): lava, a fall and a vanilla mob's hit leave the demon at its floor or
+     * above (Rule 8.6, the damage path); a death that slipped past the engine (health 0 and {@code die} from another
+     * mod's path) is cancelled at once, with its health back and no dying pose, and it's still alive and at its floor a
+     * second and a half later, past vanilla's 20-tick removal of a body left at 0; {@code /kill} still kills it. A
+     * second demon, unhurt, dies the same way: another mod's lethal damage leaves it at its floor exactly, uncollapsed
+     * (the net sends the loss to the engine, code review), not at full HP.
+     */
+    private static void theDeathNetHolds(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        ServerLevel level = h.getLevel();
+        TestDummy dummy = dummy(h, arena, 4, 7, 180);
+        M1Demon demon = demon(h, arena, 4, 2, 0, b -> new ScriptedBrain(b, dummy::getId));
+        M1Demon unhurt = demon(h, arena, 1.5, 4, 90, b -> new ScriptedBrain(b, dummy::getId));
+        Zombie zombie = EntityTypes.ZOMBIE.create(level, EntitySpawnReason.MOB_SUMMONED);
+        if (zombie == null) {
+            throw h.assertionException("no zombie");
+        }
+        h.runAfterDelay(2, () -> {
+            demon.hurtServer(level, level.damageSources().lava(), 1000f);
+            demon.hurtServer(level, level.damageSources().fall(), 1000f);
+            demon.hurtServer(level, level.damageSources().mobAttack(zombie), 1000f);
+        });
+        h.runAfterDelay(5, () -> {
+            Demon body = demon.body();
+            if (body == null) {
+                throw h.assertionException("no engine body");
+            }
+            float floor = (float) (demon.getMaxHealth() * body.profile().outsideFloor());
+            h.assertTrue(demon.isAlive(), "lava, a fall or a mob killed it");
+            h.assertTrue(demon.getHealth() >= floor - 0.01f, "its health is " + demon.getHealth() + ", under " + floor);
+            demon.setHealth(0); // damage that slipped past the engine, then the death it leads to
+            demon.die(level.damageSources().lava());
+            h.assertTrue(demon.getHealth() > 0, "its health stayed at 0 after the net");
+            h.assertTrue(demon.getPose() != Pose.DYING, "it took the dying pose: the death went through");
+            Demon whole = unhurt.body();
+            if (whole == null || whole.hp() < whole.profile().maxHp()) {
+                throw h.assertionException("the second demon isn't at full HP: the test shows nothing");
+            }
+            unhurt.setHealth(0); // another mod's lethal damage on a demon at full HP
+            unhurt.die(level.damageSources().magic());
+            h.assertTrue(unhurt.getHealth() > 0, "the second demon's health stayed at 0 after the net");
+        });
+        h.runAfterDelay(
+                6,
+                () -> { // the step after the net: its loss reached the engine, which floored it
+                    Demon whole = unhurt.body();
+                    if (whole == null) {
+                        throw h.assertionException("no engine body for the second demon");
+                    }
+                    double floor = whole.profile().maxHp() * whole.profile().outsideFloor();
+                    double mended =
+                            2 * whole.profile().regen().hpPerS() / 20; // outside damage doesn't pause it (Rule 8.6)
+                    h.assertTrue(
+                            whole.hp() >= floor - 0.01 && whole.hp() <= floor + mended + 0.01,
+                            "another mod's lethal damage left the engine HP at " + whole.hp() + ", not its floor "
+                                    + floor);
+                    State st = whole.state(arena.nextTick() - 1);
+                    h.assertTrue(st != State.COLLAPSED, "another mod's lethal damage collapsed it: " + st);
+                });
+        h.runAfterDelay(35, () -> {
+            Demon body = demon.body();
+            if (body == null) {
+                throw h.assertionException("no engine body");
+            }
+            double floor = body.profile().maxHp() * body.profile().outsideFloor();
+            h.assertTrue(demon.isAlive() && !demon.isRemoved(), "the net let it die");
+            h.assertTrue(body.hp() >= floor - 0.01, "its engine HP is " + body.hp() + ", under its floor " + floor);
+            h.assertTrue(
+                    Math.abs(demon.getHealth() - body.hp()) < 0.1,
+                    "the entity shows " + demon.getHealth() + ", the engine " + body.hp());
+            Demon whole = unhurt.body();
+            if (whole == null) {
+                throw h.assertionException("no engine body for the second demon");
+            }
+            h.assertTrue(unhurt.isAlive() && !unhurt.isRemoved(), "the net let the second demon die");
+            h.assertTrue(whole.hp() >= floor - 0.01, "the second demon's HP is " + whole.hp() + ", under " + floor);
+            demon.kill(level);
+        });
+        h.runAfterDelay(40, () -> h.succeedWhen(() -> h.assertTrue(demon.isDeadOrDying(), "/kill didn't kill it")));
+    }
+
+    /** Whether the server refuses {@code p}'s click to start breaking the block at {@code at} (relative). */
+    private static boolean click(GameTestHelper h, ServerPlayer p, BlockPos at) {
+        return CommonHooks.onLeftClickBlock(
+                        p, h.absolutePos(at), Direction.UP, ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK)
+                .isCanceled();
+    }
+
     // ------------------------------------------------------------------------------------------------- set-up
 
     private static CombatServer combat(GameTestHelper h) {
@@ -765,6 +1044,38 @@ public final class CombatGameTests {
             throw h.assertionException("kimetsu:m1_demon/" + name + " isn't loaded");
         }
         return f;
+    }
+
+    /**
+     * A mock player in survival at {@code x, z}, with a session through slice 5c-2's test seam that fights in
+     * {@code arena} (its messages are dropped), joining at the next tick end; it leaves the player list when the test
+     * ends, which ends its session.
+     */
+    @SuppressWarnings("removal") // the only helper that logs a player in; vanilla's own tests still use it
+    private static ServerPlayer player(GameTestHelper h, Arena arena, double x, double z) {
+        ServerPlayer p = h.makeMockServerPlayerInLevel();
+        Vec3 at = h.absoluteVec(new Vec3(x, 1, z));
+        p.snapTo(at.x, at.y, at.z, 180, 0);
+        p.setGameMode(GameType.SURVIVAL); // a mock player is creative, where the blade can't break blocks
+        combat(h).sessions().openForTest(p, arena, m -> {}, Micros.ofMillis(50));
+        h.testInfo.addListener(new GameTestListener() {
+            @Override
+            public void testStructureLoaded(GameTestInfo info) {}
+
+            @Override
+            public void testPassed(GameTestInfo info, GameTestRunner runner) {
+                h.getLevel().getServer().getPlayerList().remove(p);
+            }
+
+            @Override
+            public void testFailed(GameTestInfo info, GameTestRunner runner) {
+                h.getLevel().getServer().getPlayerList().remove(p);
+            }
+
+            @Override
+            public void testAddedForRerun(GameTestInfo original, GameTestInfo copy, GameTestRunner runner) {}
+        });
+        return p;
     }
 
     private static TestDummy dummy(GameTestHelper h, @Nullable Arena arena, double x, double z, float yaw) {

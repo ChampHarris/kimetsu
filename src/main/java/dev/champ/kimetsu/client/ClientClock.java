@@ -11,7 +11,8 @@ import org.jspecify.annotations.Nullable;
 /**
  * The client's combat clock (spec Netcode, "The combat clock on clients"): core's {@link ClockEstimator} fed the
  * server's pongs and pushed records, on the same clock the pings and every press stamp read ({@code Util.getNanos()},
- * SDL's counter, which the integrated server shares). Pings go once every sync interval, and in a burst of 4, one a
+ * SDL's counter, which the integrated server shares). Pings go once every sync interval (its in-combat one in combat,
+ * Rule 13.1), and in a burst of 4, one a
  * client tick, when the first record arrives, after an unpause, an unfreeze, a sprint and an epoch. No ping goes before
  * a record (the server answers none without one) or while the game is paused. After an unpause, input waits until a
  * record from a later tick than the pause's arrives, since the estimate stands still until then, and a ping goes every
@@ -26,7 +27,7 @@ final class ClientClock {
     private @Nullable TickRecord newest;
     private int epoch;
     private int burst;
-    private long nextPingNanos = Long.MIN_VALUE;
+    private long lastPingNanos = Long.MIN_VALUE;
     private boolean paused;
     private long resumeAfter = Long.MIN_VALUE; // a record from a tick after this one ends the pause's wait
     private int epochAtPause;
@@ -90,17 +91,23 @@ final class ClientClock {
         }
     }
 
-    /** Each client tick: the ping due, if any. */
-    void tick(long nowNanos) {
+    /**
+     * Each client tick: the ping due, if any, a second after the last in combat and five out of it (S524); a fight that
+     * starts shortens the wait at once.
+     */
+    void tick(long nowNanos, boolean inCombat) {
         if (newest == null || paused) {
             return;
         }
+        long interval = (inCombat ? rules.syncIntervalCombatMs() : rules.syncIntervalIdleMs()) * 1_000_000L;
         if (burst > 0) {
             burst--;
-        } else if (resumeAfter == Long.MIN_VALUE && nextPingNanos != Long.MIN_VALUE && nowNanos < nextPingNanos) {
+        } else if (resumeAfter == Long.MIN_VALUE
+                && lastPingNanos != Long.MIN_VALUE
+                && nowNanos - lastPingNanos < interval) {
             return; // after an unpause, a ping every tick until a record from after it comes (the server allows 4/s)
         }
-        nextPingNanos = nowNanos + rules.syncIntervalCombatMs() * 1_000_000L;
+        lastPingNanos = nowNanos;
         ClientPacketDistributor.sendToServer(new NetMessage.ClockPing(nowNanos));
     }
 

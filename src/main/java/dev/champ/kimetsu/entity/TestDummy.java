@@ -163,6 +163,21 @@ public final class TestDummy extends PathfinderMob implements ArenaMember {
     }
 
     @Override
+    public boolean canBeLeashed() {
+        return false; // Rule 8.8: no leads on a combatant
+    }
+
+    @Override
+    protected boolean canRide(Entity vehicle) {
+        return false; // nor boats or carts
+    }
+
+    @Override
+    protected boolean canAddPassenger(Entity passenger) {
+        return false; // nor riders
+    }
+
+    @Override
     public int combatId() {
         return getId();
     }

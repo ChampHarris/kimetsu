@@ -54,7 +54,8 @@
     "knockdown_max_air_ticks": 40,
     "juggle_cut_breath": 10.0,
     "grab_escape_inputs": 3,
-    "history_ticks": 16
+    "history_ticks": 16,
+    "in_combat_ticks": 300
   },
   "hits": {
     "sub_steps": 3,
@@ -111,6 +112,9 @@
     "hit_taken": -4,
     "idle_decay_ticks": 60,
     "mushin_spend_to_tier": 3
+  },
+  "fights": {
+    "engage_blocks": 32.0
   },
   "meta": {
     "status": "PROPOSED",

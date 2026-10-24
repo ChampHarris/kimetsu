@@ -63,17 +63,18 @@ class WorldMembershipTest {
         Arena a = new Arena();
         Arena.Player p = a.player(1, 0, 50); // half its Breath spent
         a.through(10);
-        a.world.apply(1, new Effect.InCombat(true));
+        a.world.apply(1, new Effect.AssistChanged(2));
         a.through(11);
         boolean sent = false;
         for (Outbox.PlayerEffect e : a.all(Outbox.PlayerEffect.class)) {
-            sent |= e.fighter() == 1 && e.tick() == 11 && e.effect().equals(new Effect.InCombat(true));
+            sent |= e.fighter() == 1 && e.tick() == 11 && e.effect().equals(new Effect.AssistChanged(2));
         }
-        assertTrue(sent, "PlayerEffect(1, 11, InCombat) went out");
+        assertTrue(sent, "PlayerEffect(1, 11, AssistChanged) went out");
+        assertEquals(2, p.now().assistLevel(), "its machine took the mod's effect");
         long before = p.now().breath().at(11);
-        a.through(31); // a second on: Breath regenerates at its in-combat rate
+        a.through(31); // nothing put it in combat: Breath regenerates at its idle rate (Rule 13.1 is the machine's)
         double gained = (p.now().breath().at(31) - before) / (double) Fixed.ONE;
-        assertEquals(Fixtures.breath().regenCombatPerS(), gained, 0.01);
+        assertEquals(Fixtures.breath().regenIdlePerS(), gained, 0.01);
     }
 
     @Test
@@ -138,11 +139,12 @@ class WorldMembershipTest {
         a.player(2);
         a.through(10);
         a.world.remove(2);
-        a.world.apply(2, new Effect.InCombat(true)); // between the same two ticks: it leaves in the next
+        a.world.apply(2, new Effect.AssistChanged(1)); // between the same two ticks: it leaves in the next
         a.through(12);
         for (Outbox.PlayerEffect e : a.all(Outbox.PlayerEffect.class)) {
             assertTrue(
-                    !(e.fighter() == 2 && e.effect() instanceof Effect.InCombat), "nothing for a player leaving: " + e);
+                    !(e.fighter() == 2 && e.effect() instanceof Effect.AssistChanged),
+                    "nothing for a player leaving: " + e);
         }
     }
 
@@ -154,10 +156,12 @@ class WorldMembershipTest {
         a.through(10);
         a.world.remove(2);
         a.through(11);
-        a.world.apply(2, new Effect.InCombat(true));
+        a.world.apply(2, new Effect.AssistChanged(1));
         a.through(12);
         for (Outbox.PlayerEffect e : a.all(Outbox.PlayerEffect.class)) {
-            assertTrue(!(e.fighter() == 2 && e.effect() instanceof Effect.InCombat), "nothing for a player gone: " + e);
+            assertTrue(
+                    !(e.fighter() == 2 && e.effect() instanceof Effect.AssistChanged),
+                    "nothing for a player gone: " + e);
         }
     }
 }

@@ -1,7 +1,7 @@
 package dev.champ.kimetsu.core.data;
 
 /**
- * The state machine's numbers (Rule 3, Rules 5.4 and 9.2; part of the {@code combat_rules} file). The values live in
+ * The state machine's numbers (Rule 3, Rules 5.4, 9.2 and 13.1; part of the {@code combat_rules} file). The values live in
  * data, never in Java.
  *
  * @param bufferTicks how long a press that can't happen yet is kept (Smash's 3 ticks)
@@ -20,6 +20,7 @@ package dev.champ.kimetsu.core.data;
  * @param juggleCutBreath Sneak in mid-air cuts a juggle short for this much Breath
  * @param grabEscapeInputs on-beat presses, one per beat, that break a grab
  * @param historyTicks ticks of state kept for late inputs and "what were you doing at the impact" (Rule 2.10)
+ * @param inCombatTicks how long a combat effect keeps it in combat (Rule 13.1: 15 s, which sets Breath's regeneration)
  */
 public record MachineRules(
         int bufferTicks,
@@ -37,7 +38,8 @@ public record MachineRules(
         int knockdownMaxAirTicks,
         double juggleCutBreath,
         int grabEscapeInputs,
-        int historyTicks) {
+        int historyTicks,
+        int inCombatTicks) {
 
     public MachineRules {
         Check.atLeast("buffer_ticks", bufferTicks, 0);
@@ -56,5 +58,6 @@ public record MachineRules(
         Check.atLeast("juggle_cut_breath", juggleCutBreath, 0.0);
         Check.positive("grab_escape_inputs", grabEscapeInputs);
         Check.atLeast("history_ticks", historyTicks, 2);
+        Check.positive("in_combat_ticks", inCombatTicks);
     }
 }

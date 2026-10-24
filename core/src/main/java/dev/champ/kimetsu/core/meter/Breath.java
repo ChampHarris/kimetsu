@@ -142,7 +142,8 @@ public final class Breath {
      * A rebuilt world (slice 5c-1): it takes over {@code old}'s Breath as it stood at {@code oldTick}, as of
      * {@code newTick}, the same moment on this world's ticks. The value is held to this one's maximum, so new rules
      * never heal it, and a Winded spell runs on for the ticks it had left. The guard, the drains, the grey bar (its form
-     * was cancelled with the old world) and the in-combat rate aren't carried: the new world sets them again.
+     * was cancelled with the old world) and the in-combat rate aren't carried here: the new world sets the guard and
+     * the drains again, and the combatant carries its combat flag.
      */
     public void carry(Breath old, long oldTick, long newTick) {
         windedUntil = old.winded(oldTick) ? old.windedUntil + (newTick - oldTick) : Long.MIN_VALUE;

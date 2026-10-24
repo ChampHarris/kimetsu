@@ -26,4 +26,9 @@ public interface ArenaMember {
 
     /** An event step {@code n} sent: each member gets every one and takes those that concern it. */
     void onEvent(Outbox.Event e);
+
+    /** Whether it's a hostile combatant to players (a demon; D-055: the blade near one is only ever the Attack). */
+    default boolean hostile() {
+        return false;
+    }
 }

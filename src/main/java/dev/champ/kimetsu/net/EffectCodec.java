@@ -5,8 +5,9 @@ import io.netty.handler.codec.DecoderException;
 import net.minecraft.network.FriendlyByteBuf;
 
 /**
- * The engine's 20 effects on the wire, each a type byte and its fields. Both switches are exhaustive over the sealed
- * type, so a new effect doesn't compile until it has a wire form; the numbers are fixed here and never reused.
+ * The engine's 19 effects on the wire, each a type byte and its fields. Both switches are exhaustive over the sealed
+ * type, so a new effect doesn't compile until it has a wire form; the numbers are fixed here and never reused (12 was
+ * {@code InCombat}, until Rule 13.1's flag became the machine's own).
  */
 final class EffectCodec {
     private EffectCodec() {}
@@ -49,10 +50,6 @@ final class EffectCodec {
                 Wire.writeInt(buf, r.delta());
             }
             case Effect.Connected _ -> buf.writeByte(11);
-            case Effect.InCombat c -> {
-                buf.writeByte(12);
-                buf.writeBoolean(c.value());
-            }
             case Effect.Targeted _ -> buf.writeByte(13);
             case Effect.StrikeCommitted s -> {
                 buf.writeByte(14);
@@ -96,7 +93,6 @@ final class EffectCodec {
             case 9 -> new Effect.Credit(Wire.readLong(buf));
             case 10 -> new Effect.RhythmDelta(Wire.readInt(buf));
             case 11 -> new Effect.Connected();
-            case 12 -> new Effect.InCombat(buf.readBoolean());
             case 13 -> new Effect.Targeted();
             case 14 -> new Effect.StrikeCommitted(Wire.readLong(buf), Wire.readLong(buf), buf.readBoolean());
             case 15 -> new Effect.StrikeCancelled(Wire.readLong(buf));

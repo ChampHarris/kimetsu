@@ -272,9 +272,8 @@ public final class CombatWorld {
     }
 
     /**
-     * Between ticks: the mod's own effect on player {@code fighter} (it went in or out of combat, its assist level
-     * changed), logged on its machine when the next tick begins and sent like the world's effects. Dropped if the
-     * player is leaving or gone by then.
+     * Between ticks: the mod's own effect on player {@code fighter} (its assist level changed), logged on its machine
+     * when the next tick begins and sent like the world's effects. Dropped if the player is leaving or gone by then.
      */
     public void apply(int fighter, Effect e) {
         applied.add(new Applied(fighter, e));

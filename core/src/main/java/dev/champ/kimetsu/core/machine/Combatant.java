@@ -130,6 +130,7 @@ public final class Combatant {
     private long escapedAt = NONE;
     private long clashPress = NONE;
 
+    private long combatUntil = NONE; // the tick Rule 13.1's flag drops at: 15 s after the last combat effect
     private long clearedAt = NONE; // µs of the last effect that emptied the buffer: offence pressed before it is void
     private long enteredAt = NONE; // µs an effect put it in GRABBED, CLASH or KNOCKDOWN: presses before it aren't its
 
@@ -161,13 +162,18 @@ public final class Combatant {
      * Before its first tick, in a rebuilt world (a data reload, or game time re-anchoring; slice 5c-1): it takes over
      * {@code old}'s meters as they stood at {@code oldTick}, as of {@code newTick}, the same moment on this world's
      * ticks: Breath, Winded, Posture and Rhythm, each held to its own maximum, so new rules never heal, their timers
-     * running on. A stagger still running goes on in STAGGER. Nothing else: its attack in progress went with the old
-     * world, and the new world sets its guard, its drains and its combat flag again.
+     * running on, and the combat flag with the time it had left (a reload mid-fight doesn't let a player heal or mine).
+     * A stagger still running goes on in STAGGER. Nothing else: its attack in progress went with the old world, and the
+     * new world sets its guard and its drains again.
      */
     public void carry(Combatant old, long oldTick, long newTick) {
         breath.carry(old.breath, oldTick, newTick);
         posture.carry(old.posture, oldTick, newTick);
         rhythm.carry(old.rhythm, oldTick, newTick);
+        if (old.inCombat(oldTick)) {
+            combatUntil = old.combatUntil + (newTick - oldTick);
+            breath.setInCombat(newTick, true);
+        }
         if (posture.staggered(newTick)) {
             stagger(newTick);
         }
@@ -837,8 +843,14 @@ public final class Combatant {
         }
         boolean movable = state != State.COLLAPSED;
         switch (e) {
-            case Effect.Hit h -> hit(h, tick);
-            case Effect.Blocked b -> clearBuffer(tick);
+            case Effect.Hit h -> {
+                fought(tick);
+                hit(h, tick);
+            }
+            case Effect.Blocked b -> {
+                fought(tick);
+                clearBuffer(tick);
+            }
             case Effect.PostureDamage d -> {
                 if (posture.damage(tick, d.amount(), d.restartDelay())) {
                     postureBroke(tick);
@@ -883,15 +895,23 @@ public final class Combatant {
             case Effect.Credit c -> credit(c.beat(), tick);
             case Effect.RhythmDelta d -> rhythm.add(d.delta());
             case Effect.Connected c -> {
+                fought(tick);
                 if (attack != null) {
                     attackConnected = true;
                 }
             }
-            case Effect.InCombat c -> breath.setInCombat(tick, c.value());
             case Effect.Targeted t -> rhythm.active(tick);
-            case Effect.StrikeCommitted s -> deflects.commit(s.id(), s.impactMicros(), s.white());
+            case Effect.StrikeCommitted s -> {
+                fought(tick);
+                deflects.commit(s.id(), s.impactMicros(), s.white());
+            }
             case Effect.StrikeCancelled s -> settle(deflects.remove(s.id()), false, tick);
-            case Effect.StrikeDecided s -> settle(deflects.remove(s.id()), s.answered(), tick);
+            case Effect.StrikeDecided s -> {
+                if (s.answered()) {
+                    fought(tick);
+                }
+                settle(deflects.remove(s.id()), s.answered(), tick);
+            }
             case Effect.AssistChanged a -> assistLevel = a.level();
             case Effect.Collapse c -> {
                 if (movable) {
@@ -905,6 +925,16 @@ public final class Combatant {
                 setState(State.DEAD, tick);
             }
         }
+    }
+
+    /**
+     * Rule 13.1: it dealt or took mod damage, blocked or deflected a strike, or a strike was committed on it (being
+     * targeted alone doesn't count) at {@code tick}: in combat for the next {@code in_combat_ticks}, at Breath's
+     * in-combat rate. The world logs these at their own ticks, so a verdict decided late raises it from its impact.
+     */
+    private void fought(long tick) {
+        combatUntil = Math.max(combatUntil, tick + rules.inCombatTicks());
+        breath.setInCombat(tick, true);
     }
 
     /** Rules 3.9, 7.5 and 7.6: armour absorbs a hit's class; otherwise it stuns, for whichever lasts longer. */
@@ -1053,6 +1083,10 @@ public final class Combatant {
 
     /** Step 7: the meters' own tick; a guard held while Winded drains Posture, and a drain that breaks it staggers. */
     public void meters(long tick) {
+        if (combatUntil != NONE && tick >= combatUntil) {
+            combatUntil = NONE; // 15 s with nothing: out of combat (Rule 13.1)
+            breath.setInCombat(tick, false);
+        }
         boolean drain = state == State.GUARD && breath.winded(tick);
         posture.setDrain(tick, drain ? Fixed.perTick(breathRules.windedGuardPosturePerS()) : 0);
         boolean broken = posture.staggered(tick);
@@ -1258,6 +1292,16 @@ public final class Combatant {
         return assistLevel;
     }
 
+    /** Whether it's in combat at {@code tick} (Rule 13.1), asked at or after the last tick it ran. */
+    public boolean inCombat(long tick) {
+        return tick < combatUntil;
+    }
+
+    /** The tick its combat flag drops at, if nothing more happens; {@code Long.MIN_VALUE} out of combat. */
+    public long combatUntil() {
+        return combatUntil;
+    }
+
     public Breath breath() {
         return breath;
     }
@@ -1349,6 +1393,7 @@ public final class Combatant {
         mushinSpent = o.mushinSpent;
         clearedAt = o.clearedAt;
         enteredAt = o.enteredAt;
+        combatUntil = o.combatUntil;
     }
 
     /** The same state as {@code o} in every field the machine reads (the meters' versions aside). */
@@ -1409,6 +1454,7 @@ public final class Combatant {
                 && clashPress == o.clashPress
                 && mushinSpent == o.mushinSpent
                 && clearedAt == o.clearedAt
-                && enteredAt == o.enteredAt;
+                && enteredAt == o.enteredAt
+                && combatUntil == o.combatUntil;
     }
 }

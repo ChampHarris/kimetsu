@@ -108,6 +108,32 @@ public final class CombatServer {
         return sessions;
     }
 
+    /** Whether {@code p} is in combat (Rule 13.1), as its fighter's flag stood at the last step; false out of the fight. */
+    public static boolean inCombat(ServerPlayer p) {
+        CombatServer c = of(p.level().getServer());
+        PlayerSession s = c != null ? c.sessions.session(p.connection) : null;
+        return s != null && s.inCombat();
+    }
+
+    /**
+     * D-055: whether the blade in {@code p}'s hand is only ever the Attack: it's in combat, or a hostile combatant of its
+     * arena (its level's, out of the fight) stands within the data's engagement range ({@code fights.engage_blocks}),
+     * so the opening swing at a demon never mines. False with combat off.
+     */
+    public static boolean fighting(ServerPlayer p) {
+        CombatServer c = of(p.level().getServer());
+        if (c == null) {
+            return false;
+        }
+        PlayerSession s = c.sessions.session(p.connection);
+        if (s != null && s.inCombat()) {
+            return true;
+        }
+        Arena a = s != null ? s.arena() : null;
+        Arena in = a != null ? a : c.arenaFor(p.level());
+        return in.hostileWithin(p, in.data().rules().fights().engageBlocks());
+    }
+
     public static void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer p) {
             CombatServer c = of(p.level().getServer());

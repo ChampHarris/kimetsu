@@ -30,6 +30,7 @@ final class ClientView {
     private final Long2ObjectOpenHashMap<StrikeView> paths = new Long2ObjectOpenHashMap<>();
     private final ArrayDeque<Verdict> verdicts = new ArrayDeque<>();
     private long tick = Long.MIN_VALUE;
+    private long combatUntil = Long.MIN_VALUE; // the last snapshot's Rule 13.1 flag, until the level goes
 
     /** One step's message from the server, in order. */
     void accept(NetMessage.Tick t, int self) {
@@ -56,8 +57,17 @@ final class ClientView {
         NetMessage.Snapshot s = t.snapshot();
         if (s != null) {
             snapshot = s;
+            combatUntil = s.combatUntil();
         }
         prune();
+    }
+
+    /**
+     * Whether its player is in combat at engine tick {@code tick} (Rule 13.1), by the last snapshot's flag: it runs out
+     * on the client's own clock, since a player out of a fight sends no frames, so no newer snapshot would say it ended.
+     */
+    boolean inCombat(long tick) {
+        return tick < combatUntil;
     }
 
     /**
@@ -75,6 +85,7 @@ final class ClientView {
         locks.clear();
         paths.clear();
         mobs.clear();
+        combatUntil = Long.MIN_VALUE; // the server's new fighter there starts out of combat (code review)
     }
 
     private void forget(long strike) {

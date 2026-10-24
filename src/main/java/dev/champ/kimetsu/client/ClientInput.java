@@ -19,6 +19,7 @@ import net.minecraft.commands.arguments.EntityAnchorArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Util;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.HitResult;
 import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.client.network.ClientPacketDistributor;
 import org.jspecify.annotations.Nullable;
@@ -27,15 +28,14 @@ import org.jspecify.annotations.Nullable;
  * The combat keys into input frames (spec Netcode, "Input capture" and "Input frames"). A combat key's press or release
  * is read where the game first sees it ({@code MouseButton.Pre}, {@code Key}), stamped there on the combat clock, and
  * goes out in a frame at the start of the next client tick; a pose frame follows at each tick's end whose tick time,
- * the clock at the tick's start floored to a whole tick, has moved on. Pose frames flow near a hostile combatant
- * whatever is in hand (D-052: a demon strikes a player who put the blade away), and while a key the mod took is held,
+ * the clock at the tick's start floored to a whole tick, has moved on. Pose frames flow in combat and near a hostile
+ * combatant whatever is in hand (D-052: a demon strikes a player who put the blade away), and while a key the mod took is held,
  * a delta waits or the server hasn't heard the held state. A screen, the blade leaving the hand, lost focus or the
  * pause releases every held key, so none is left held on the server. Deltas polled in different render frames go in
  * different frames, each with its own frame time for the half-frame correction. Main thread only.
  */
 final class ClientInput {
     private static final int GUARDS = 16; // guard presses kept for the overlay's offsets
-    private static final double ENGAGE_BLOCKS = 32; // D-052: frames while a hostile combatant is this near
     private static final long DEV_RELEASE_MICROS = 20_000; // the dev hook lets go 20 ms after the later of both
 
     private final ClientCombat combat;
@@ -79,8 +79,9 @@ final class ClientInput {
         if (e.getAction() == InputConstants.REPEAT) {
             return;
         }
-        PlayerIntake.Key k = KimetsuKeys.combatKey(InputConstants.Type.MOUSE.getOrCreate(e.getButton()));
-        if (k != null && capture(k, e.getAction() == InputConstants.PRESS, true, nanos)) {
+        InputConstants.Key key = InputConstants.Type.MOUSE.getOrCreate(e.getButton());
+        PlayerIntake.Key k = KimetsuKeys.combatKey(key);
+        if (k != null && capture(k, key, e.getAction() == InputConstants.PRESS, true, nanos)) {
             e.setCanceled(true);
         }
     }
@@ -99,17 +100,20 @@ final class ClientInput {
         }
         PlayerIntake.Key k = KimetsuKeys.combatKey(key);
         if (k != null) {
-            capture(k, e.getAction() == InputConstants.PRESS, false, nanos); // a key event can't be cancelled
+            capture(k, key, e.getAction() == InputConstants.PRESS, false, nanos); // a key event can't be cancelled
         }
     }
 
-    /** Vanilla's attack or use triggered anyway: stopped, with no swing and no punch packet, while the blade is held. */
+    /**
+     * Vanilla's attack or use triggered anyway: stopped, with no swing and no punch packet, while the blade is held,
+     * except an attack that mines (D-055), whose held click keeps mining only while it's still away from fights.
+     */
     void interaction(InputEvent.InteractionKeyMappingTriggered e) {
         LocalPlayer p = Minecraft.getInstance().player;
         if (p != null
                 && CaptureRules.stopVanilla(
                         NichirinItem.isBlade(p.getMainHandItem()),
-                        e.isAttack(),
+                        e.isAttack() && !CaptureRules.mines(true, onBlock(), combat.fighting(p, Util.getNanos())),
                         e.isUseItem(),
                         Minecraft.getInstance().options.keyShift.isDown())) {
             e.setCanceled(true);
@@ -117,8 +121,14 @@ final class ClientInput {
         }
     }
 
+    /** Whether the crosshair is on a block, which vanilla's attack would start breaking. */
+    private static boolean onBlock() {
+        HitResult hit = Minecraft.getInstance().hitResult;
+        return hit != null && hit.getType() == HitResult.Type.BLOCK;
+    }
+
     /** Returns whether vanilla must not see this event. */
-    private boolean capture(PlayerIntake.Key k, boolean down, boolean mouseButton, long nanos) {
+    private boolean capture(PlayerIntake.Key k, InputConstants.Key key, boolean down, boolean mouseButton, long nanos) {
         Minecraft mc = Minecraft.getInstance();
         LocalPlayer p = mc.player;
         if (p == null) {
@@ -131,6 +141,9 @@ final class ClientInput {
             return false; // never cancel a release
         }
         boolean screen = mc.gui.screen() != null || mc.gui.overlay() != null;
+        if (CaptureRules.mines(mc.options.keyAttack.getKey().equals(key), onBlock(), combat.fighting(p, nanos))) {
+            return false; // vanilla's: it mines (D-055)
+        }
         CaptureRules.Action a = CaptureRules.press(
                 NichirinItem.isBlade(p.getMainHandItem()),
                 screen,
@@ -224,7 +237,7 @@ final class ClientInput {
     /** {@code ClientTickEvent.Post}, after vanilla's movement and tick-end packets: the tick's pose frame. */
     void tickEnd(long nanos) {
         ClientClock clock = combat.clock();
-        if (clock == null || !clock.inputOpen() || !flowing()) {
+        if (clock == null || !clock.inputOpen() || !flowing(nanos)) {
             return;
         }
         long tickTime = Math.floorDiv(clock.micros(tickStartNanos), Micros.PER_TICK) * Micros.PER_TICK;
@@ -250,14 +263,18 @@ final class ClientInput {
         lastTickTime = Long.MIN_VALUE;
     }
 
-    private boolean flowing() {
-        return held != 0 || held != heldSent || !pending.isEmpty() || engaged();
+    private boolean flowing(long nanos) {
+        return held != 0 || held != heldSent || !pending.isEmpty() || engaged(nanos);
     }
 
-    /** A hostile combatant within 32 blocks (D-052), whatever is in hand: the server needs the pose either way. */
-    private boolean engaged() {
+    /**
+     * In combat, or a hostile combatant within the engagement range (D-052), whatever is in hand: the server needs the
+     * pose either way, and a player in combat sends frames even out of range (the spec's Input frames), which brings
+     * the snapshots that keep its flag current (code review).
+     */
+    private boolean engaged(long nanos) {
         LocalPlayer p = Minecraft.getInstance().player;
-        return p != null && combat.hostileWithin(p, ENGAGE_BLOCKS);
+        return p != null && combat.fighting(p, nanos);
     }
 
     private void send(long nanos, long tickTime, long frameTime) {

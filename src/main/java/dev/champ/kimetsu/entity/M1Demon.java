@@ -23,6 +23,7 @@ import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityDimensions;
@@ -38,6 +39,7 @@ import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.event.entity.EntityMountEvent;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -177,6 +179,11 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
     @Override
     public int combatId() {
         return getId();
+    }
+
+    @Override
+    public boolean hostile() {
+        return true;
     }
 
     /**
@@ -381,6 +388,46 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
     @Override
     protected boolean canRide(Entity vehicle) {
         return false; // a boat or a cart would be a second writer
+    }
+
+    @Override
+    protected boolean canAddPassenger(Entity passenger) {
+        return false; // Rule 8.8: nobody rides it
+    }
+
+    /**
+     * Rule 8.8: no mounting, forced ({@code /ride}) or not: a combatant is never a rider or a mount. Players still ride.
+     */
+    public static void onMount(EntityMountEvent event) {
+        if (event.isMounting()
+                && (event.getEntityMounting() instanceof ArenaMember
+                        || event.getEntityBeingMounted() instanceof ArenaMember)) {
+            event.setCanceled(true);
+        }
+    }
+
+    /**
+     * Rule 12.5, the safety net for a death the engine didn't decide (another mod's damage; {@code /damage} with any
+     * type, the mod's included, since the engine never deals its damage through the entity): unless its damage is
+     * tagged {@code bypasses_invulnerability} ({@code /kill}, the void), it's cancelled, its health comes back at once
+     * (a cancelled death leaves 0, which vanilla removes 20 ticks later) and the loss goes to the engine as outside
+     * damage, which stops at its floor (Rule 8.6). Only on the server, while it fights in a running arena, and never the
+     * engine's own death. Returns whether to cancel.
+     */
+    public boolean deathNet(DamageSource source) {
+        Demon b = body;
+        Arena a = arena;
+        if (level().isClientSide()
+                || b == null
+                || a == null
+                || dying
+                || a.closed()
+                || source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {
+            return false;
+        }
+        b.outsideDamage(a.nextTick(), b.hp(), false);
+        setHealth((float) Math.max(b.hp(), ALIVE)); // the step after mirrors the engine's floored HP
+        return true;
     }
 
     @Override

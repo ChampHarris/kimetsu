@@ -1,5 +1,6 @@
 package dev.champ.kimetsu.item;
 
+import dev.champ.kimetsu.combat.CombatServer;
 import java.util.List;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderGetter;
@@ -9,6 +10,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
@@ -19,14 +21,14 @@ import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Block;
 import net.neoforged.neoforge.event.entity.player.AttackEntityEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.neoforged.neoforge.event.level.block.BreakBlockEvent;
 
 /**
  * A Nichirin blade (the spec's key table: combat keys are active while one is in the main hand). Its tool rules are
  * the sword's (R7's tool stand-in: it cuts cobwebs to string), built the way vanilla builds them but without the
  * sword's attack-damage attributes, enchantability or repair, which mean nothing for a blade whose every hit is the
  * engine's. Vanilla's melee with it does nothing on either side: {@link #onLeftClickEntity} and a cancelled
- * {@code AttackEntityEvent}, for a client that skips the mod's capture. Until slice 5c brings D-055's mining away from
- * fights, it breaks no blocks either.
+ * {@code AttackEntityEvent}, for a client that skips the mod's capture. It mines only away from fights (D-055).
  */
 public final class NichirinItem extends Item {
     private static final ResourceKey<Block> COBWEB =
@@ -78,9 +80,20 @@ public final class NichirinItem extends Item {
         }
     }
 
-    /** Starting to break a block with the blade, on either side, is refused (slice 5c: allowed away from fights). */
+    /**
+     * D-055: starting to break a block with the blade is refused on the server while its player is fighting (in combat,
+     * or a hostile combatant within the data's engagement range). The client's capture makes the same call before vanilla
+     * sees the click, so its side of this event lets it through.
+     */
     public static void onLeftClickBlock(PlayerInteractEvent.LeftClickBlock event) {
-        if (isBlade(event.getEntity().getMainHandItem())) {
+        if (event.getEntity() instanceof ServerPlayer p && isBlade(p.getMainHandItem()) && CombatServer.fighting(p)) {
+            event.setCanceled(true);
+        }
+    }
+
+    /** The backstop: a block broken with the blade while fighting, by any path past the click, isn't. */
+    public static void onBreakBlock(BreakBlockEvent event) {
+        if (event.getPlayer() instanceof ServerPlayer p && isBlade(p.getMainHandItem()) && CombatServer.fighting(p)) {
             event.setCanceled(true);
         }
     }

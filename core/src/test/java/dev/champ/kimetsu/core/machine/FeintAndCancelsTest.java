@@ -4,14 +4,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.champ.kimetsu.core.Fixtures;
 import dev.champ.kimetsu.core.data.Phase;
 import org.junit.jupiter.api.Test;
 
 /**
  * Rules 3.3, 3.4 and 3.6: the Feint (with ruling Q8), Water's guard-cancel and the Step-cancel. Breath regenerates 0.5
- * a tick out of combat, which the expected values below include.
+ * a tick out of combat and {@link #FIGHTING} in it (from a strike committed on it, or its swing connecting: Rule 13.1),
+ * which the expected values below include.
  */
 class FeintAndCancelsTest {
+    /** A tick of Breath regeneration in combat (4/s). */
+    private static final double FIGHTING = Fixtures.breath().regenCombatPerS() / 20;
 
     /** Fires the 1st form with its release acting in step {@code s}: windup s to s+5, the Feint open s to s+2. */
     private static void formAt(Rig r, long s) {
@@ -88,11 +92,11 @@ class FeintAndCancelsTest {
         long before = free.breath();
         free.through(25);
         assertEquals(press, free.c.deflects().claimOf(1)); // the press that feinted also claimed the strike
-        assertEquals(before + Rig.points(0.5 + 20), free.breath()); // refunded, the Feint waits
+        assertEquals(before + Rig.points(FIGHTING + 20), free.breath()); // refunded, the Feint waits
         assertEquals(10, free.c.pendingFeint());
         free.effect(new Effect.StrikeDecided(1, true), 30).through(30);
         assertEquals(0, free.c.pendingFeint());
-        assertEquals(before + Rig.points(0.5 + 20 + 2.5), free.breath());
+        assertEquals(before + Rig.points(FIGHTING + 20 + 5 * FIGHTING), free.breath());
 
         Rig paid = struckAt27();
         paid.effect(new Effect.StrikeCommitted(2, Rig.ms(2000), true), 18); // outside the press's window
@@ -103,7 +107,7 @@ class FeintAndCancelsTest {
         long start = paid.breath();
         paid.effect(new Effect.StrikeDecided(2, true), 29); // a strike the press didn't claim: nothing to settle
         paid.effect(new Effect.StrikeDecided(1, false), 30).through(30);
-        assertEquals(start + Rig.points(0.5 + 20 + 2.5 - 10), paid.breath());
+        assertEquals(start + Rig.points(FIGHTING + 20 + 5 * FIGHTING - 10), paid.breath());
         assertEquals(0, paid.c.pendingFeint());
 
         // its doubling counts from the Feint (tick 25), not the verdict (30): 61 ticks on, it's back to 10
@@ -111,7 +115,7 @@ class FeintAndCancelsTest {
         paid.press(Input.guard(Rig.during(85, 10))).through(85);
         long mid = paid.breath();
         paid.through(86);
-        assertEquals(mid + Rig.points(0.5 + 20 - 10), paid.breath());
+        assertEquals(mid + Rig.points(FIGHTING + 20 - 10), paid.breath());
     }
 
     @Test
@@ -122,7 +126,7 @@ class FeintAndCancelsTest {
         cancelled.through(25);
         long start = cancelled.breath();
         cancelled.effect(new Effect.StrikeCancelled(1), 26).through(26);
-        assertEquals(start + Rig.points(0.5 - 10), cancelled.breath()); // nothing answered it
+        assertEquals(start + Rig.points(FIGHTING - 10), cancelled.breath()); // nothing answered it
         assertEquals(0, cancelled.c.pendingFeint());
 
         Rig two = struckAt27();
@@ -137,7 +141,7 @@ class FeintAndCancelsTest {
         assertEquals(10, two.c.pendingFeint()); // the other strike it claimed is still to be decided
         two.effect(new Effect.StrikeDecided(2, true), 28).through(28);
         assertEquals(0, two.c.pendingFeint());
-        assertEquals(mid + Rig.points(1.5), two.breath()); // free: one strike it claimed was deflected
+        assertEquals(mid + Rig.points(3 * FIGHTING), two.breath()); // free: one strike it claimed was deflected
     }
 
     @Test
@@ -152,7 +156,7 @@ class FeintAndCancelsTest {
         long before = r.breath();
         r.through(38); // 1900 ms is past 1885
         assertEquals(0, r.c.pendingFeint());
-        assertEquals(before + Rig.points(0.5 - 10), r.breath());
+        assertEquals(before + Rig.points(FIGHTING - 10), r.breath());
         r.through(41); // the strike, never decided, leaves its ledger once its own claim runs out (1350 + 675)
         assertFalse(r.c.deflects().holds(1));
     }
@@ -239,10 +243,10 @@ class FeintAndCancelsTest {
     @Test
     void theGuardCancelIsLegalWhateverTheBreath() {
         Rig r = new Rig();
-        r.c.breath().spend(0, Rig.points(100)); // 0 at tick 0, 8.5 by tick 17
+        r.c.breath().spend(0, Rig.points(100)); // 0 at tick 0, 8 by tick 16, in combat from its hit connecting then
         r.press(Input.Kind.ATTACK, Rig.beat(1)).effect(new Effect.Connected(), 16);
         r.press(Input.guard(Rig.during(18, 10))).through(19);
         assertEquals(State.NEUTRAL, r.c.state());
-        assertEquals(Rig.points(9.5 - 5), r.breath());
+        assertEquals(Rig.points(16 * 0.5 + 3 * FIGHTING - 5), r.breath());
     }
 }

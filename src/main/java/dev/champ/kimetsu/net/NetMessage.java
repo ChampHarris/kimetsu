@@ -90,6 +90,8 @@ public sealed interface NetMessage extends CustomPacketPayload {
      *
      * @param lastSeq the last input frame it includes
      * @param attack the attack in progress's id, or "" for none
+     * @param combatUntil the tick its combat flag drops at if nothing more happens, or {@code Long.MIN_VALUE} out of
+     *     combat (Rule 13.1): a tick, not a flag, so a client that sends no frames still sees it run out
      */
     record Snapshot(
             long settledTick,
@@ -101,7 +103,8 @@ public sealed interface NetMessage extends CustomPacketPayload {
             boolean winded,
             Segment posture,
             int rhythmPoints,
-            int rhythmTier) {
+            int rhythmTier,
+            long combatUntil) {
 
         /** Whether it shows the same state as {@code o}, whatever tick and frame each was taken at. */
         public boolean sameAs(Snapshot o) {
@@ -112,7 +115,8 @@ public sealed interface NetMessage extends CustomPacketPayload {
                     && winded == o.winded
                     && posture.equals(o.posture)
                     && rhythmPoints == o.rhythmPoints
-                    && rhythmTier == o.rhythmTier;
+                    && rhythmTier == o.rhythmTier
+                    && combatUntil == o.combatUntil;
         }
     }
 }

@@ -83,6 +83,25 @@ public final class ClientCombat {
         return view;
     }
 
+    /**
+     * Whether its player is in combat at the client's {@code nanos} (Rule 13.1): the server's last snapshot's flag,
+     * run out on this client's clock, so it ends on time even when no frame goes and no new snapshot comes.
+     */
+    boolean inCombat(long nanos) {
+        ClientClock c = clock;
+        return c != null && c.ready() && view.inCombat(Math.floorDiv(c.micros(nanos), Micros.PER_TICK));
+    }
+
+    /**
+     * D-055 and D-052: in combat, or a hostile combatant within the data's engagement range ({@code fights}): the blade
+     * is only the Attack, and input frames flow. Neither before the combat data has come.
+     */
+    boolean fighting(Player p, long nanos) {
+        CombatData d = data;
+        return d != null
+                && (inCombat(nanos) || hostileWithin(p, d.rules().fights().engageBlocks()));
+    }
+
     /** Whether a hostile combatant the client has is within {@code blocks} of {@code p}, in its level. */
     @SuppressWarnings("ReferenceEquality") // the very level instance: the client has one at a time
     boolean hostileWithin(Player p, double blocks) {
@@ -462,7 +481,7 @@ public final class ClientCombat {
         if (c == null) {
             return;
         }
-        c.tick(nanos);
+        c.tick(nanos, inCombat(nanos));
         if (!sentReady && c.ready() && data != null && Minecraft.getInstance().player != null) {
             sentReady = true;
             ClientPacketDistributor.sendToServer(new NetMessage.Ready());

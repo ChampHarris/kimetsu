@@ -59,7 +59,7 @@ class RoutingTest {
     @Test
     void aPlayersOwnEffectGoesToItAlone_andAMobsStateToItsTrackers() {
         Routing r = routing();
-        Outbox.PlayerEffect own = new Outbox.PlayerEffect(1, 120, new Effect.InCombat(true));
+        Outbox.PlayerEffect own = new Outbox.PlayerEffect(1, 120, new Effect.AssistChanged(1));
         assertTrue(r.reaches(own, 1));
         assertFalse(r.reaches(own, 3));
         assertFalse(r.reaches(own, 4));
