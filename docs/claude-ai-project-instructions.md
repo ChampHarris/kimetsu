@@ -28,7 +28,8 @@ change the rules through one Domain engine; losing costs time, never progress; a
 Menial vanilla stays (ores, coal, torches, stone, crafting, farming); everything else is the mod's own, at vanilla's 16 px on
 vanilla-like ramps, so it blends with vanilla stone, dirt and foliage. Demons spawn every night, paced per party.
 Townsfolk, not villagers. A private build, never published: no publishing or AI-disclosure rules, and AI may make art,
-sounds and designs. Claude doesn't rip or recreate official art, music or voices, or draw canon characters' likenesses.
+sounds and designs. Claude doesn't rip or recreate official art, music or voices, or draw canon characters' likenesses
+or signature looks: original characters fill most canon roles; the few canon figures needed stay offscreen or unidentifiable.
 Champ owns taste; evidence owns facts. If Champ decides against your advice, do it his way and note the concern once.
 
 Design changes are written as a numbered round revision (like Rounds 6 and 7) that Champ merges into the live GDD; Claude Code in the

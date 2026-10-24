@@ -1,0 +1,118 @@
+# ADR 0003: The Claude Code kit — audit, quality loop and upkeep
+
+- **Status:** ACCEPTED. Champ asked for the audit and the changes on 2026-10-22 ("change anything you believe would be best"); Claude Code records the D-entry.
+- **Date:** 2026-10-22, checked against Claude Code 2.1.308, Opus 5.5 and Fable 5.1.
+- **Relates to:** D-018 (critique first), D-030 (only Champ approves specs), D-033 and ADR 0002 (code quality gates), `docs/tools/quality-gates.md`, `docs/tools/kit-watch.md`.
+
+## Was the kit already designed perfectly?
+No, though it was ahead of most setups. Its strengths: rules that matter were hooks, not requests (core purity, raw OpenGL, read-only truth, spec approval); a research-first doctrine; narrow specialist agents; the effort check; buttons for decisions; the inbox. The audit found nineteen gaps. The ones that mattered most:
+
+1. **"Done" rested on Claude's word.** The Stop hooks never looked at tests. One builder measured 26% of "green" claims as stale.
+2. **Nothing caught a weakened test.** Champ can't read test diffs, and editing or skipping tests is the most common way models reward-hack (ImpossibleBench; the Claude system cards).
+3. **The guards failed open.** A crash, a timeout or a missing Python waved every call through, and nothing showed it. Claude could also edit CLAUDE.md, agents, skills and CI without a prompt, and could write protected files through `python -c` or IntelliJ's MCP tools.
+4. **No context discipline.** Quality drops as context grows (Chroma's context-rot study; arXiv 2510.05381), and compaction loses detail.
+5. **Transcripts deleted after 30 days, and auto memory as a second source of truth** beside `docs/decisions.md` and `docs/gotchas.md`.
+6. **Agents inherited the session's model,** so a Fable session spawned Fable agents at about 2.5× the price; reviewers were handed summaries instead of the work.
+7. **No way to say "I'm stuck"** except trying again, and retries raise cheating rates (ImpossibleBench).
+8. **No improvement loop:** lessons were written down but never turned into checks; nothing watched Claude Code's own changes; typos in frontmatter fail silently; CI ran one hook test of four.
+9. Smaller ones: the inbox skill was model-invocable (its text comes from other tools); the coding reminder repeated what `java.md` and the hooks already enforce; the status line showed none of the above; the safety-flag fallback could switch models silently; jdtls may load no server on Windows; no mutation testing.
+
+## Decision
+### The quality loop
+- **Receipts gate** (Stop): code changed in this session (committed or not) after the last JUnit run, or a failing run in it, blocks the stop unless Claude says plainly the tests haven't run or names the failures with the right count. A success claim on stale or red results always blocks, even beside a failure mention ("all green now; 2 failed earlier"). Each results folder counts on its own; a class seen failing (in the XML or on the console, after a passing or a failed command) stays failing until a run shows it passing; it waits for a Gradle test run still going in the background unless the message already claims success. Reads the XML Gradle writes; never runs Gradle.
+- **Tamper gate** (Stop): any weakening of a test or a gate since the session started (list in `docs/tools/quality-gates.md`) blocks one stop with the list, and again if it's undone and redone. Tests and assertions are counted across all test files, so moving a test is fine and deleting one isn't; comments don't count. Weakening made between the last passing stop and a session's start (an interrupted turn, edits outside Claude Code) is reported at that session's first stop, and work set aside with `git stash` or on another branch blocks too.
+- **Kit integrity** (Stop): any change to a kit file, the GDD snapshot or a git setting that runs a program since the session started, by whatever route, blocks one stop per file, and Claude reports it with Champ's approval named. The path guard stops the routes it can parse; this backstop catches the rest (a script that writes, a path built at run time). The session hook also lists guarded files changed outside a session (Champ, a pull, another tool).
+- **`/blocked`**: after two honest attempts that fail the same way, Claude stops, records the evidence in `docs/blockers.md` and asks Champ with buttons. A blocker opened in this session lets the stop through for the files its **Files:** line names; one already open at the start, or one without that line, doesn't. (Escalation plus an anti-hack policy cut hacking from 23.6% to 5.3% in arXiv 2608.29460.)
+- **`code-reviewer` agent** at the end of every slice and for the whole milestone in `/milestone-check`: never edits code (Read, Grep, Glob and Bash for the tests and git; no Edit or Write), gets the diff and the spec, runs the tests itself, reports everything with confidence tags. Every reviewer now reviews the artifact, never a summary ("the summary is where the lying happens").
+- **Stay in scope**, as a negative constraint (the form that measurably helps, arXiv 2604.11088): refactors and cleanups go under "Unasked but important".
+- **Test-engineer writes red first:** a new test must fail before the fix.
+- **One task per session:** the prompt hook nudges toward `/session-close` and `/clear` at 200k and 400k tokens; idle compaction is off; after a compaction the session hook lists the uncommitted files and whether tests cover them.
+
+### Guards
+- `onFailure: "block"` on the guard (fails closed; Claude Code 2.1.295+, the status line warns on older), a self-test at every session start, an error log the status line shows. An error inside the guard makes it ask, never allow.
+- An "ask" tier for the doctrine: every CLAUDE.md, agents, skills, rules, output style, workflows, `docs/taste.md`, CI, the Gradle wrapper, `gradle/quality.gradle`, `gradle/verification-metadata.xml`, `tools/kit_lint.py`, `.mcp.json`; also the hook state (so a gate can't be fooled by a forged record), Champ's user-level Claude settings, and a script named like a Python standard module. Claude never rewrites its own rules without Champ seeing it.
+- Shell commands are parsed, not pattern-matched (pipes, redirects, heredocs, `cd`, variables, interpreters' inline code, PowerShell cmdlets, downloads piped into a shell; Gradle runs with an init script, an excluded check task or a skip property ask, as do writes into the Gradle user home's init scripts), and the IDE MCP tools (`mcp__idea__`, `mcp__jetbrains__`, `mcp__intellij__`, `mcp__ide__`) get the same rules as Edit and Write; running the `claude` CLI inside a session asks first (a nested session skips the hooks).
+
+### Models and cost
+- Every agent pinned to `model: opus` (Opus 5.5). Fable only as a second opinion through `/advisor fable`, with Champ's OK: it costs 2.5× as much per token ($10/$50 against $4/$20 per million) and trails Opus 5.5 on Anthropic's own agentic-coding benchmarks (Terminal-Bench 4.0: 55.8% against 66.4%), though Anthropic says the real gap is narrower than the scores.
+- `switchModelsOnFlag: false`: a safety flag pauses instead of silently switching models.
+- Spawn caps: subagents don't nest (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1`) and at most 4 run at once (`/forge` needs 3). Multi-agent runs cost about 15× a chat and amplify errors when agents don't share an orchestrator (Anthropic; arXiv 2512.08296). Workflows keep their own limits.
+- Kept `effortLevel: xhigh` against the research's advice (`high` default): Champ chose quality first, and the effort check sets the level per task. `/retro` revisits it with real usage numbers.
+
+### Memory and history
+- Auto memory off; its notes fold into `docs/gotchas.md` and `docs/decisions.md` (one source of truth). Gotchas carry a `(seen N)` count.
+- `cleanupPeriodDays: 90` (the default 30 deleted the transcripts `/retro` mines).
+- The session hook flags a skipped `/session-close` (state.md unchanged for 3+ commits) and lists open blockers.
+
+### Visibility for Champ
+- Status line: tests ✓/stale/✗, context size, plan usage from 50%, `⚠ guards`, `⚠ update Claude Code`.
+- The commit nudge reports whether the tests cover what's uncommitted.
+- **Savvy Progress** (installed on request): the live agents panel (`/agents-info`) and progress band. Reviewed at source, commit `c871c153` (HEAD on 2026-10-22): it uses only the clock, UI, command, state, tool-register and settings-read APIs, with no file, process, network or model access. Caveats: mods run unsandboxed inside Claude Code; its panes don't show over Remote Control; its `step` tool adds a few tokens to each agent request. Pinned, not followed: `.claude/settings.json` declares an inline marketplace `kimetsu-pinned` whose one plugin points at that exact commit (committed 2026-10-13, still HEAD on 2026-10-22), so an upstream change can't reach the kit until it's reviewed and the sha is moved (`docs/tools/kit-watch.md`). Plugin `savvy-progress@kimetsu-pinned`; each machine installs it once. `tools/kit_lint.py` fails any plugin that isn't pinned to a full commit.
+
+### Upkeep
+- **`/retro`** (Champ runs it monthly or at a milestone): `tools/session_mine.py` counts corrections, interrupts, gate activity, tool errors, context peaks and repeated commands; with gotchas and blockers it proposes at most seven changes, cheapest mechanism first (hook > skill > agent > rule > CLAUDE.md), deletions included. Champ picks; each lands with a test and a line in the changelog below.
+- **`tools/kit_lint.py`** and every hook test run in CI; `docs/tools/kit-watch.md` holds the Claude Code baseline.
+
+### Canon art direction (Champ, 2026-10-22)
+Original characters fill most canon roles; the few canon figures the story needs stay offscreen or unidentifiable. Claude doesn't draw canon likenesses or signature looks (CLAUDE.md rule 6, `.claude/rules/assets.md`, the art bible).
+
+## Failure modes and where each is handled
+| Failure mode | Evidence | Handled by |
+|---|---|---|
+| Claims green without a run | 26% stale claims (stalegreen); "Claude is a poor QA agent" (Anthropic harness post) | receipts gate, code-reviewer runs tests itself |
+| Edits or skips tests to pass | ImpossibleBench; Opus and Mythos system cards | tamper gate, red-first tests, `/blocked` |
+| Invented or stale 26.x APIs | RustEvo2, LibEvoBench: post-cutoff APIs fail far more | ref-src, `/verify-api` table with real signatures, code-reviewer |
+| Context rot, compaction loss | Chroma; arXiv 2510.05381, 2510.04618 | nudges at 200k/400k, idle compaction off, compaction snapshot |
+| Sycophancy, anchoring on the user's fix | XYEval; ELEPHANT | output style verdict-first, reviewers get the problem and the artifact |
+| Scope creep, duplication | Opus 5 system card; arXiv 2511.04427 | stay-in-scope constraint, reuse ledger, code-reviewer scope and duplication checks |
+| Multi-agent error amplification | arXiv 2512.08296; Anthropic multi-agent post | one orchestrator, spawn caps, read-only reviewers |
+| Instruction decay in long sessions | arXiv 2605.10039; IFScale | hooks for must-hold rules, short per-prompt reminders, one task per session |
+| Hooks failing open (Windows) | r/ClaudeCode 1v1ljou; claude-code #57946, #88578 | `onFailure: block`, run.sh executes Python to test it, session self-test |
+| Rules that never improve | r/ClaudeCode 1vn6d5r (top thread: promote repeated lessons) | `(seen N)`, `/retro`, kit-watch |
+
+## Rejected or deferred
+| Idea | Why not (now) |
+|---|---|
+| Agent teams, many parallel worktrees | ~3× tokens for variance, not quality; one dev client and Git LFS limit parallel work |
+| Mega skill and agent packs, persona packs | context bloat (117 skills ≈ 7.3k tokens a turn) and someone else's doctrine |
+| claude-mem, memory MCPs, auto memory | second source of truth; `docs/` is the memory |
+| caveman | works against the plain English Champ needs |
+| An always-on Codex review gate | drains usage, unfiltered false positives; a manual cross-model review at milestones stays possible |
+| Agent-type Stop hooks; Gradle inside hooks | experimental (one ran 42 min past its timeout); Gradle per turn is slow on Windows. The receipts gate reads results instead |
+| Fable as the default model | costs 2.5× per token, trails Opus 5.5 on coding benchmarks |
+| `/sandbox` | not available on native Windows |
+| Write-protecting tests | test-first needs Claude to write tests; the tamper gate catches weakening instead |
+| tdd-guard / probity | no JUnit or GameTest support; an extra model turn per check |
+| Auto-reflect tools that write CLAUDE.md themselves | rules change only through `/retro` with Champ |
+| Scope allowlist from the spec's file list; anti-goals in the spec template | worth testing in `/retro` once a few slices show whether scope creep happens here |
+| JSON feature ledger with hook-gated `passes` | the receipts gate covers the same risk at file level |
+| Subagent `memory:` | needs auto memory |
+| agnix, skill scanners | `kit_lint.py` covers what this kit needs with no dependency |
+| PMD duplicate detection, PIT mutation testing | ADR 0002 follow-ups (queued); PIT first |
+| `claude plugin eval` for skills and guards | next step for `/retro` (kit-watch) |
+| Other mods (Filetree, Cache Tax, context bars) | the status line already shows it; each mod runs unsandboxed |
+| `effortLevel: high` default | kept xhigh (see Models) |
+
+## The Gemini guides (2026-10-22 PDFs)
+Mostly accurate about Claude Code's mechanics but written for TypeScript web teams. Taken: lean CLAUDE.md with path rules, hooks for what must hold, a verify loop, an outside reviewer, `/clear` between tasks, `/advisor` for hard calls, the jdtls plugin (now queued for a Windows check). Not taken, with reason: Sonnet-plus-xhigh with "escalate via /fast" (wrong), a jq status line and Bash validators that don't run on Windows, a sandbox block (unavailable), Prettier hooks, 3–5 worktrees and agent teams (cost, Gradle per tree), a reviewer without CLAUDE.md (can't check project rules), 20-day history cleanup. Two of the PDFs were duplicates; the four Gemini share links needed a sign-in and couldn't be read.
+
+## Consequences
+- A stop can be bounced once per change-set when tests don't cover it. That's the point; saying "not run yet" costs one line.
+- A kit change, even one Champ approved, costs one line in Claude's report.
+- Doctrine edits show a permission prompt. Expected after a `/retro` pick.
+- If Python breaks, the guard blocks every edit until it's fixed (recovery in `quality-gates.md`).
+- Parallel agent work is capped at four at a time.
+
+## Sources
+- Claude Code docs (fetched 2026-10-22): hooks, settings reference, env vars, sub-agents, status line, plugin marketplaces, mods overview, best practices, memory, context window, model config — code.claude.com/docs/en/…
+- Anthropic: the Opus 5.5 and Fable 5.1 launch pages (benchmarks, prices, safeguard fallbacks); "Effective context engineering for AI agents", "Effective harnesses for long-running agents", "Harness design for long-running apps", the multi-agent research system post, the Opus 5 prompting guide, the Opus 5 and Mythos system cards.
+- Research: Chroma context rot; arXiv 2510.05381, 2510.04618, 2505.06120 (long context); 2510.20270 ImpossibleBench, 2510.23761 TDFlow, 2608.29460 (escalation cuts hacking); 2606.25402, 2503.16922 (stale APIs); 2609.23939, 2505.13995 (sycophancy); 2604.11088 (negative constraints); 2511.04427 (complexity after AI adoption); 2512.08296 (multi-agent scaling); 2605.10039, 2507.11538 (instruction decay); METR on SWE-bench PRs.
+- Reddit (r/ClaudeCode, r/ClaudeAI, r/ChatGPTCoding, r/feedthebeast, Jul–Oct 2026), the threads with the most weight: 1vn6d5r (promote repeated mistakes), 1wbc03f and 1xaf8pi (isolated and whole-branch review), 1vruj7h (edits through Bash bypass Edit guards), 1v1ljou (Windows hooks fail open), 1wl4c13 and 1wli2e9 (clear, don't compact), 1wqagzu (subagent costs), 1wyzsvm (auto memory), 1uyyxxm (transcript retention), 1ue98q4 and 1x6c4hz (stale green claims), 1wol71j and 1uz7b6r (AI-mod tells).
+- GitHub: anthropics/claude-code issues #57946, #88578, #93474, #32376, #61953, #84524; trailofbits/claude-code-config; karanb192/claude-code-hooks; nizos/probity; hcoles/pitest and szpak/gradle-pitest-plugin; agent-sh/agnix; BayramAnnakov/claude-reflect; JohnnyVizz/claude-kit (Savvy Progress).
+
+## Changelog
+- 2026-10-22: initial audit and kit upgrade (this ADR).
+- 2026-10-22: adversarial review of the upgrade (an independent agent tried to break it; 21 findings). Fixed: guard bypasses through shell parsing gaps, PowerShell, git's own writers (`--output`, `rg --pre`), other IDE MCP servers and forged hook state; false positives on reads; an internal error now asks instead of allowing; tamper counts across files, comments ignored, a removed CI step caught, a deleted test file's tests counted; receipts per results folder, without the datapack; a success claim beside a failure mention now blocks; blockers matched by ID; the kit-integrity backstop; the plugin pinned to a commit; kit lint checks YAML values, CRLF launchers and plugin pins; hooks need Python 3.10+. Tests: 191 guard cases (127 from the review), 102 quality-gate checks, 27 kit-lint checks.
+- 2026-10-22: second adversarial review, of the Stop-hook gates (14 findings, all reproduced, all fixed). Success claims are read per clause ("Full suite: green", "fixed the 2 failing tests" is past, a stated failure count must match the results) and block up to three times, also during a continuation; committing no longer ends the receipts check; a test class seen failing stays failing until a run shows it passing (new `test_watch.py`), so a filtered rerun can't hide it; the tamper check compares whole test files with comments removed (block comments, early returns, broad catches, trivial assertions, changed expected values, timeouts, parameterized cases, GameTest registrations and settings) and Gradle/CI files the same way (commented-out gates, test filters, `onlyIf`, removed `apply from`, CI triggers), measured against a snapshot of the working tree at session start; an exponential regex that a slash banner could hang is gone and a 20-second watchdog backs it up; background dev clients no longer pause the check; a blocker excuses only the work before it, never a claim; integrity re-reports a second change, runs during continuations and follows git includes; kit lint fails a kit whose gates are unwired or switched off. Tests: 185 quality-gate checks (the review's attacks included), 33 kit-lint checks.
+- 2026-10-22: third adversarial review, a regression pass over the fixed gates (11 findings, all reproduced and fixed; real Gradle 8.14 for the failure memory). A finding that was undone and later redone is reported again; a "not run" or "untested" elsewhere in the message no longer excuses a claim, and honest reports ("40 passed, 2 failed", "2 of 42 failed", "Two tests failed", "ComboTest fails") are read as reports; weakening from an interrupted turn or outside Claude Code is carried into the next session's first stop (each passing stop saves the tree it checked); `git stash` in a session blocks; a success claim isn't held back by a background run; a failing Gradle command is a failed tool call, so the failure watcher now runs on PostToolUseFailure too, for Bash and PowerShell, and reads the console's FAILED lines; a blocker excuses only the files its **Files:** line names; receipts compare content with the session's start snapshot; tamper reads whole statements (a wrapped expected value), test constants, `@MethodSource` providers and exact-to-loose swaps, and stops flagging package moves, split files, parameterized refactors and `javadoc { enabled = false }` (a new tagged test task still needs a reason: it can drop tests from `./gradlew test`); the snapshot skips big files and cleans up after a timeout; the guard asks on Gradle init scripts, excluded check tasks and skip properties; kit lint rejects a gate that only names its script (`true # quality_gate.py`), an `if`, async or short timeout on a gate, and a CI kit step with `if:`, `continue-on-error` or `|| true`; Champ's "don't ask again" approvals no longer count as kit changes (a rule that allows a whole tool still does). Tests: 229 quality-gate checks, 44 kit-lint checks, 209 guard checks.
+- 2026-10-22: fourth adversarial review, of the third round's fixes (10 findings; real Gradle 8.14). Fixed: the tamper check now diffs tree to tree (a snapshot at each stop), so a test file that was never committed is read like any other, in the session and in the carry-over; line findings name their test method, so a second `@Disabled` or exact-to-loose swap in the same file is new; expected values compare literals, constants, enum values, tolerances, operators and every AssertJ matcher (helpers: all arguments), and `isEqualTo` → `isGreaterThan` is a looser check; a filtered run (`--tests`) leaves its module "partial", so it can't back "all tests pass", and the failure watcher also reads the results before each Gradle command (PreToolUse), catching a background run's results before the next run wipes them; a failure report or a "passes" claim that names a class must match the results on disk, and a "not run" about the GameTests alone doesn't cover the unit tests; a background run holds back only the modules it covers, and never "verified" or "ready to commit"; a relative clause ("ParryWindowTest, which checks that a parry succeeds") isn't a claim; commits parked on another branch block like a stash; a blocker's cutoff is when the entry was first written, and a Files entry covering most of a module names nothing; the guard asks on any `-x` but docs and packaging tasks, on `-g`, on Gradle variables set by `export`, `env`, `$env:` or `setx`, and on writes into the wrapper's distributions; kit lint requires the watcher on PreToolUse too, its exact `if`, the session hook on every source, and no `shell:` or `||` on the CI kit step; approving one MCP tool isn't a kit change, `Bash(:*)` is. Tests: 262 quality-gate checks, 50 kit-lint checks, 220 guard checks.

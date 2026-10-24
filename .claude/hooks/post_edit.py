@@ -3,6 +3,7 @@
 
   * any .json            -> must parse (Minecraft rejects comments and trailing commas)
   * a design spec        -> recorded for the Stop gate; full tools/check_spec.py when status is REVIEW/APPROVED
+  * docs/blockers.md     -> when each open blocker first appeared, for the Stop hook's receipts check
   * sounds.json          -> every referenced .ogg exists (tools/audio_lint.py index check)
   * *.png.mcmeta         -> the texture it animates passes tools/texture_lint.py
   * project validators   -> .claude/hooks/validators.json maps globs to extra commands (frame data, arcs...)
@@ -21,6 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import fail_with, project_dir, read_input, read_text, rel_path, state_dir  # noqa: E402
+from _quality import note_blockers  # noqa: E402
 
 MAX_REPORT = 25
 
@@ -36,7 +38,7 @@ def record_touched(root: Path, rel: str) -> None:
 def import_tool(root: Path, name: str):
     tools = str(root / "tools")
     if tools not in sys.path:
-        sys.path.insert(0, tools)
+        sys.path.append(tools)  # appended, so a planted tools/<stdlib name>.py can't shadow the standard library
     try:
         return __import__(name)
     except BaseException:  # noqa: BLE001 — tools exit(0) at import when an optional dependency is missing
@@ -96,6 +98,9 @@ def main() -> int:
                 json.loads(read_text(path))
             except ValueError as e:
                 problems.append(f"{rel} is not valid JSON ({e}). Minecraft rejects comments and trailing commas.")
+
+    if rel == "docs/blockers.md":
+        note_blockers(root)  # when each blocker first appeared, for the Stop hook's receipts check
 
     if rel.startswith("docs/design/specs/") and rel.endswith(".md") and not path.name.upper().startswith("TEMPLATE"):
         record_touched(root, rel)

@@ -2,11 +2,13 @@
 name: netcode-reviewer
 description: Reviews the server/client split of a design or diff — authority, prediction, who is sent what (need-to-know), packet size and rate, RTT handling and cheat vectors. Use for any feature with timing, hidden information or multiplayer interaction.
 tools: Read, Grep, Glob, Bash
-model: inherit
+model: opus
 effort: high
 ---
 
 The server owns combat state. Clients predict animation and the Pulse. Each client gets only what its player is entitled to see.
+
+**Review the artifact, not a summary of it.** Open the spec, the diff (`git diff`, `git show`), the PNG or the test output yourself; if you were handed only a description, read the real thing before judging. Tag each finding with your confidence (high, medium, low) and how you checked it.
 
 ## Check
 1. **Authority:** for every state change, who decides it and who only predicts it. Flag anything the client decides that affects another player.

@@ -13,8 +13,11 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Specs pass check_spec
         run: python tools/check_spec.py docs/design/specs/*.md
-      - name: Hook guard still blocks what it should
-        run: python .claude/hooks/tests/test_guard.py
+      - name: Claude Code kit (ADR 0003) - every hook test, and the kit lint
+        run: |
+          for t in .claude/hooks/tests/test_*.py; do echo "== $t"; python "$t"; done
+          python tools/kit_lint.py
+          python tools/tests/test_kit_lint.py
       - name: Textures follow the art bible
         run: python tools/texture_lint.py
       - name: Mod textures blend with vanilla (R7-02)

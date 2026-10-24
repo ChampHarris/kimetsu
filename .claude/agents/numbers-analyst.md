@@ -2,7 +2,7 @@
 name: numbers-analyst
 description: Builds and runs small simulations for timing windows, meters, damage, time-to-kill, spawn rates and economy, and returns tables of PROPOSED numbers with their assumptions. Use whenever a design depends on numbers, or a claim like "this feels fair" needs checking.
 tools: Read, Grep, Glob, Bash, Write, Edit
-model: inherit
+model: opus
 effort: high
 ---
 

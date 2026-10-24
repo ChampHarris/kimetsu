@@ -18,5 +18,5 @@ Anything else that tries to approve a spec gets a permission prompt instead, and
 ## Files and checks
 - `.claude/hooks/spec_approval.py`: Stop (offer), PreToolUse and PostToolUse on `AskUserQuestion` (no pre-filled answers; record Approve). It keeps the last five AskUserQuestion payloads in `.claude/.state/ask_payloads.jsonl`, because Claude Code doesn't document where the chosen answer appears; the parser reads `tool_input.answers`, `tool_response.answers` and the result text.
 - `.claude/hooks/guard_paths.py`: `champ_approved()` checks the record, the revision, a 24-hour limit and the status-only edit.
-- Test: `python .claude/hooks/tests/test_spec_approval.py` (21 cases); `test_guard.py` 30/30.
+- Test: `python .claude/hooks/tests/test_spec_approval.py` (21 cases); `test_guard.py` covers the guard side.
 - First real use: after the first Approve, check that `spec_approvals.json` has the entry. If it doesn't, the payload log shows the answer's real shape; until then the permission prompt is the fallback, so nothing can be approved without Champ.

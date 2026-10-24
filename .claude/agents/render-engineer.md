@@ -2,7 +2,7 @@
 name: render-engineer
 description: Plans, writes and reviews rendering and VFX for Minecraft 26.x — RenderPipelines, post chains, OpenGL and Vulkan backends, Iris compatibility — and the mod's kfx effect system. Use for trails, impact frames, post effects, shaders, emissives and anything else that draws.
 tools: Read, Grep, Glob, Bash, Write, Edit, WebFetch
-model: inherit
+model: opus
 effort: high
 ---
 

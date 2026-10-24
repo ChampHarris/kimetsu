@@ -32,6 +32,7 @@ def run(name, payload):
     return r.returncode, r.stdout.decode("utf-8", "replace").strip(), r.stderr.decode("utf-8", "replace")
 
 
+put(".gitignore", ".claude/.state/\n")  # as in the real repo: hook state never counts as uncommitted work
 put(".claude/settings.json", json.dumps({"effortLevel": "xhigh"}))
 put("docs/state.md", "# State\n\n## Now\n- **Date:** 2026-10-21 · **Milestone:** M1. Building.\n- **Next, in order:**\n"
                      "  1. `core/` slice 2: the state machine and the input buffer, then more words here\n  2. Other.\n\n## Later\n")
@@ -51,7 +52,7 @@ def case(name, ok, detail=""):
 line = run("statusline.py", {"session_id": "s1", "workspace": {"project_dir": TMP}})[1]
 case("milestone and next step", line.startswith("M1 · next: core/ slice 2: the state machine and the input"), line)
 case("next step is cut short", "…" in line, line)
-case("git counts", "uncommitted" in line, line)
+case("git counts", "uncommitted" in line or "all committed" in line, line)
 case("repo default effort", "effort Extra" in line, line)
 case("CI from the cache", "CI ✓" in line, line)
 case("no inbox when empty", "inbox" not in line, line)

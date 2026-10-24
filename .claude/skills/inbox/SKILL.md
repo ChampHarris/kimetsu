@@ -1,7 +1,8 @@
 ---
 name: inbox
-description: Show the prompts queued for Champ in .claude/inbox.md (usually written by Claude in Cowork) and run the ones he picks. Use when Champ types /inbox, or when the session context or status line says the inbox has items and he asks what's waiting.
+description: Show the prompts queued for Champ in .claude/inbox.md (usually written by Claude in Cowork) and run the ones he picks. Champ runs it with /inbox; the session start and the status line tell him when items wait.
 argument-hint: "[item number]"
+disable-model-invocation: true
 ---
 # /inbox
 

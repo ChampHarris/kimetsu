@@ -1,7 +1,7 @@
 ---
 name: texture-pass
 description: Make and check the next batch of the mod's textures — pick the batch (the mod's own blocks, items and mobs first, then the restyle backlog), group it into families, draw or generate it at 16 px on a material ramp, fit it, run the blend check against vanilla, and lint it. Use when making art, after Champ adds a batch, or when asked what art is left.
-argument-hint: [family or count]
+argument-hint: "[family or count]"
 allowed-tools: Bash(python tools/vanilla_coverage.py *) Bash(python3 tools/vanilla_coverage.py *) Bash(python tools/texture_lint.py *) Bash(python3 tools/texture_lint.py *) Bash(python tools/palette_fit.py *) Bash(python3 tools/palette_fit.py *) Bash(python tools/vanilla_style.py *) Bash(python3 tools/vanilla_style.py *) Bash(python tools/make_ramp.py *) Bash(python3 tools/make_ramp.py *) Read Glob Grep
 ---
 
@@ -32,4 +32,4 @@ Claude can make the whole batch: AI is welcome (D-010). The bar is the art bible
 
    Report pass or fix for each file, which blend measure failed if one did (colours, value, contrast, chroma, grain or steps), and the restyle coverage.
 
-Canon characters' skins are Champ's to make or source; Claude does everything else.
+Canon characters' likenesses and signature looks are out of scope for Claude (`.claude/rules/assets.md`): original characters fill those roles, and canon figures stay offscreen or unidentifiable. Claude does everything else.

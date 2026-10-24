@@ -51,7 +51,8 @@ def open_questions(section: str) -> list[str]:
 
 def ready_specs(root: Path) -> list[tuple[str, str, str]]:
     """(relative path, spec id, revision) for every REVIEW spec that is ready for Champ's approval."""
-    sys.path.insert(0, str(root / "tools"))
+    if str(root / "tools") not in sys.path:
+        sys.path.append(str(root / "tools"))  # appended, so a planted tools/<stdlib name>.py can't shadow the stdlib
     import check_spec  # noqa: PLC0415
     out = []
     for p in sorted((root / SPECS).glob("*.md")):

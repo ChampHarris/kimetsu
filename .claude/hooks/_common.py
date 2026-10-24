@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -94,8 +95,34 @@ def load_state_json(root: Path, name: str) -> dict:
         return {}
 
 
-def save_state_json(root: Path, name: str, data: dict) -> None:
-    p = state_dir(root) / name
-    tmp = p.with_suffix(p.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, p)
+def save_state_json(root: Path, name: str, data: dict) -> bool:
+    """Write a state file atomically (a temp file per process, then a rename). On Windows the rename fails while
+    another process has the file open (a parallel hook, an antivirus scan), so it retries briefly. State is
+    best-effort: a final failure returns False instead of raising."""
+    try:
+        p = state_dir(root) / name
+        tmp = p.with_name(f"{p.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        return False
+    for attempt in range(5):
+        try:
+            os.replace(tmp, p)
+            return True
+        except OSError:
+            time.sleep(0.05 * (attempt + 1))
+    try:
+        tmp.unlink()
+    except OSError:
+        pass
+    return False
+
+
+def log_error(root: Path, who: str, err: BaseException) -> None:
+    """One line in .claude/.state/guard_errors.log, which the status line ("⚠ guard errors") and the next session
+    start report. For hook bugs that had to let something through."""
+    try:
+        with (state_dir(root) / "guard_errors.log").open("a", encoding="utf-8") as fh:
+            fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {who}: {type(err).__name__}: {str(err)[:300]}\n")
+    except OSError:
+        pass

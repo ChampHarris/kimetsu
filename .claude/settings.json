@@ -2,13 +2,19 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "outputStyle": "Kimetsu Lead",
   "effortLevel": "xhigh",
+  "switchModelsOnFlag": false,
+  "autoMemoryEnabled": false,
+  "idleCompaction": false,
+  "cleanupPeriodDays": 90,
   "statusLine": {
     "type": "command",
     "command": "sh \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/run.sh\" statusline.py",
     "padding": 0
   },
   "env": {
-    "PYTHONUTF8": "1"
+    "PYTHONUTF8": "1",
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1",
+    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "4"
   },
   "permissions": {
     "allow": [
@@ -34,6 +40,12 @@
       "Bash(python tools/sims/duel_sim.py*)",
       "Bash(python .claude/hooks/tests/test_guard.py*)",
       "Bash(python .claude/hooks/tests/test_effort.py*)",
+      "Bash(python .claude/hooks/tests/test_spec_approval.py*)",
+      "Bash(python .claude/hooks/tests/test_comms.py*)",
+      "Bash(python .claude/hooks/tests/test_quality.py*)",
+      "Bash(python tools/kit_lint.py*)",
+      "Bash(python tools/session_mine.py*)",
+      "Bash(python tools/tests/test_kit_lint.py*)",
       "Bash(python tools/vanilla_scope.py*)",
       "Bash(python tools/vanilla_style.py*)",
       "Bash(python tools/make_ramp.py*)",
@@ -52,6 +64,12 @@
       "Bash(python3 tools/sims/duel_sim.py*)",
       "Bash(python3 .claude/hooks/tests/test_guard.py*)",
       "Bash(python3 .claude/hooks/tests/test_effort.py*)",
+      "Bash(python3 .claude/hooks/tests/test_spec_approval.py*)",
+      "Bash(python3 .claude/hooks/tests/test_comms.py*)",
+      "Bash(python3 .claude/hooks/tests/test_quality.py*)",
+      "Bash(python3 tools/kit_lint.py*)",
+      "Bash(python3 tools/session_mine.py*)",
+      "Bash(python3 tools/tests/test_kit_lint.py*)",
       "Bash(python3 tools/vanilla_scope.py*)",
       "Bash(python3 tools/vanilla_style.py*)",
       "Bash(python3 tools/make_ramp.py*)",
@@ -70,6 +88,12 @@
       "Bash(py -3 tools/sims/duel_sim.py*)",
       "Bash(py -3 .claude/hooks/tests/test_guard.py*)",
       "Bash(py -3 .claude/hooks/tests/test_effort.py*)",
+      "Bash(py -3 .claude/hooks/tests/test_spec_approval.py*)",
+      "Bash(py -3 .claude/hooks/tests/test_comms.py*)",
+      "Bash(py -3 .claude/hooks/tests/test_quality.py*)",
+      "Bash(py -3 tools/kit_lint.py*)",
+      "Bash(py -3 tools/session_mine.py*)",
+      "Bash(py -3 tools/tests/test_kit_lint.py*)",
       "Bash(py -3 tools/vanilla_scope.py*)",
       "Bash(py -3 tools/vanilla_style.py*)",
       "Bash(py -3 tools/make_ramp.py*)",
@@ -175,7 +199,36 @@
           {
             "type": "command",
             "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" guard_paths.py",
-            "timeout": 10
+            "timeout": 20,
+            "onFailure": "block"
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__(idea|jetbrains|intellij|ide)__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" guard_paths.py",
+            "timeout": 20,
+            "onFailure": "block"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(*gradle*)",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" test_watch.py",
+            "timeout": 15
+          },
+          {
+            "type": "command",
+            "if": "PowerShell(*gradle*)",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" test_watch.py",
+            "timeout": 15
           }
         ]
       },
@@ -212,6 +265,23 @@
         ]
       },
       {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(*gradle*)",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" test_watch.py",
+            "timeout": 15
+          },
+          {
+            "type": "command",
+            "if": "PowerShell(*gradle*)",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" test_watch.py",
+            "timeout": 15
+          }
+        ]
+      },
+      {
         "matcher": "Skill",
         "hooks": [
           {
@@ -232,6 +302,25 @@
         ]
       }
     ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(*gradle*)",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" test_watch.py",
+            "timeout": 15
+          },
+          {
+            "type": "command",
+            "if": "PowerShell(*gradle*)",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" test_watch.py",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
@@ -247,6 +336,11 @@
           },
           {
             "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" quality_gate.py",
+            "timeout": 30
+          },
+          {
+            "type": "command",
             "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.sh\" commit_nudge.py",
             "timeout": 30
           }
@@ -255,6 +349,29 @@
     ]
   },
   "enabledPlugins": {
-    "jdtls-lsp@claude-plugins-official": true
+    "jdtls-lsp@claude-plugins-official": true,
+    "savvy-progress@kimetsu-pinned": true
+  },
+  "extraKnownMarketplaces": {
+    "kimetsu-pinned": {
+      "source": {
+        "source": "settings",
+        "name": "kimetsu-pinned",
+        "plugins": [
+          {
+            "name": "savvy-progress",
+            "description": "Savvy Progress mod (JohnnyVizz/claude-kit) pinned to commit c871c153 (v1.2.1). To update: review the new commit, then change sha and version here (docs/tools/kit-watch.md).",
+            "version": "1.2.1",
+            "source": {
+              "source": "git-subdir",
+              "url": "https://github.com/JohnnyVizz/claude-kit.git",
+              "path": "plugins/savvy-progress",
+              "ref": "main",
+              "sha": "c871c153ead54ad9547cc717d0f3e5a676c73986"
+            }
+          }
+        ]
+      }
+    }
   }
 }

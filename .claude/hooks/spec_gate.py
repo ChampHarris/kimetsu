@@ -29,7 +29,8 @@ def main() -> int:
     rels = sorted(set(read_text(touched_file).split()))
     if not rels:
         return 0
-    sys.path.insert(0, str(root / "tools"))
+    if str(root / "tools") not in sys.path:
+        sys.path.append(str(root / "tools"))  # appended, so a planted tools/<stdlib name>.py can't shadow the stdlib
     try:
         import check_spec  # noqa: PLC0415
     except BaseException:  # noqa: BLE001

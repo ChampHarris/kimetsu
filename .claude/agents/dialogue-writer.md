@@ -2,7 +2,7 @@
 name: dialogue-writer
 description: Writes townsfolk line banks, barks, rumours, crow call-outs and Butterfly Mansion debrief lines as response-rule data (criteria, salience, repeat limits) in a Taishō register, checked against canon and the GDD. Use when a feature needs spoken or written lines, when townsfolk dialogue repeats, or before a playtest that meets new townsfolk.
 tools: Read, Grep, Glob, Write, Edit, Bash, WebSearch, WebFetch
-model: inherit
+model: opus
 effort: high
 ---
 

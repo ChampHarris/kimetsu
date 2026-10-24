@@ -18,6 +18,8 @@ Champ's lore-accurate, skill-first Demon Slayer (Kimetsu no Yaiba) action RPG fo
 | API surprises already paid for | `docs/gotchas.md`: read before rendering, networking, worldgen, datapack or build work |
 | Art and audio rules | `docs/art/art-bible.md`, `docs/audio/audio-bible.md` |
 | Prior art: what to adopt, what's generic | `docs/research/prior-art.md` |
+| Blockers waiting on Champ | `docs/blockers.md` (written by `/blocked`) |
+| How Claude Code is set up here, and why | `docs/adr/0003-claude-code-kit.md`; the gates in `docs/tools/quality-gates.md` |
 | Townsfolk names and trades | `src/main/resources/data/kimetsu/townsfolk/names.json` |
 | Minecraft and NeoForge source, vanilla data | `ref-src/` (`python tools/refsrc.py`; vanilla data alone: `--mcmeta 26.3`) |
 
@@ -29,15 +31,15 @@ When sources disagree on a design fact: `docs/gdd/` > `docs/decisions.md` > R6 a
 3. **Don't invent design silently.** A missing number, rule or name gets a PROPOSED value and a question for Champ. Raise design problems; don't patch them in code.
 4. **Verify every API in `ref-src/`.** 26.x is newer than most training data.
 5. **Server-authoritative, need-to-know networking, frame data is the source of truth** for hits and cues; animations follow it.
-6. **Menial vanilla stays; the rest is the mod's own and blends with it.** Ores, coal, torches, stone, crafting, farming and building blocks keep vanilla's art (`art/vanilla-scope.json`). Everything else a player meets is the mod's own, at vanilla's 16 px and on vanilla-like ramps, so it sits beside vanilla stone, dirt and foliage without a seam (R7-01, R7-02). AI may make any of it. Claude doesn't rip or recreate official art, music or voices, and doesn't draw canon characters' likenesses; those come from Champ.
+6. **Menial vanilla stays; the rest is the mod's own and blends with it.** Ores, coal, torches, stone, crafting, farming and building blocks keep vanilla's art (`art/vanilla-scope.json`). Everything else a player meets is the mod's own, at vanilla's 16 px and on vanilla-like ramps, so it sits beside vanilla stone, dirt and foliage without a seam (R7-01, R7-02). AI may make any of it. Claude doesn't rip or recreate official art, music or voices, and doesn't draw canon characters' likenesses or signature looks. Original characters fill most canon roles; the few canon figures the story needs stay offscreen or unidentifiable (`.claude/rules/assets.md`).
 7. **Only Champ approves specs.** The hooks enforce this. When a spec is in REVIEW, passes `check_spec` and every Open Question has his answer, the Stop hook has you ask him "Approve spec <id> (rev ...)?" with AskUserQuestion; his Approve lets one status-only edit through (`docs/tools/spec-approval.md`).
-8. **Evidence before "done":** the command you ran and what it printed (build, test counts, a Lens contact sheet or MCTest screenshot you looked at).
+8. **Evidence before "done":** the command you ran and what it printed (build, test counts, a Lens contact sheet or MCTest screenshot you looked at). The Stop hook checks the test results on disk and blocks a weakened test or check (see Quality loop).
 9. **Ask Champ with buttons, and hand him the next prompt.** Every decision you need from him goes through AskUserQuestion, recommendation first; every report that did real work ends with the output style's "Your move" block (what happened, what's waiting on him, the next prompt to paste).
 
 ## Commands
 ```bash
 ./gradlew build                       # compile (Error Prone, NullAway), format check, test, jar
-./gradlew spotlessApply               # format Java with palantir-java-format before committing
+./gradlew spotlessApply               # format Java (palantir-java-format) before the final test run and the commit
 GRADLE_USER_HOME="$(mktemp -d)" ./gradlew --write-verification-metadata sha256 help spotlessCheck build runGameTestServer   # after any dependency, plugin or Gradle change, from an empty Gradle home (D-033); delete that folder after
 ./gradlew :core:test                  # fast rules tests (no Minecraft)
 ./gradlew :core:simTest               # the bots through the engine: sim parity, exploit bots, determinism (part of check)
@@ -77,7 +79,17 @@ On Windows use `gradlew.bat` in cmd or PowerShell, or `./gradlew` in Git Bash; u
 - **Versions:** `/port-plan <version>` before any Minecraft or NeoForge hop. **Milestone gate:** `/milestone-check` (Champ triggers it).
 - **Effort:** real work starts with Claude asking which effort to use (Ultracode, Max, Extra, High), its recommendation first; Champ's pick holds for the session (`docs/tools/effort.md`). `/max`, `/extra` or `/high <task>` picks directly; only Champ turns Ultracode on (`ultracode` in a message, or `/effort ultracode`).
 - **End of session:** `/session-close` updates `docs/state.md`, `docs/decisions.md` and `docs/gotchas.md`.
+- **Models:** Opus 5.5 runs the session and every agent (each agent file pins `model: opus`, so a Fable session doesn't spawn Fable agents). Fable is for a second opinion on a hard call, through `/advisor fable` and only with Champ's OK; it costs 2.5× as much per token and trails Opus 5.5 on Anthropic's own coding benchmarks. If a safety flag would switch models, Claude Code asks first.
 - Build order (GDD): M1 combat core → M2 cold open and Slayer slice → M3 demon core → M4 Domain engine and first bosses → M5 living world → M6 paths and endgame powers → M7 story and factions. Don't pull later features forward.
+
+## Quality loop (ADR 0003, `docs/tools/quality-gates.md`)
+- **Done = receipts.** After a code change, run the targeted tests and show the command and its result. The Stop hook compares the JUnit results on disk with the files this session changed and blocks a stop they don't cover; a success claim on stale or red results always blocks. When you stop early on purpose, say plainly that the tests haven't been run, or which ones fail.
+- **Nothing gets weaker.** Never switch off, skip, delete or loosen a test, an assertion, a timeout or a Gradle or CI check to get green. The Stop hook's tamper check lists any such change since the session started; restore it, or explain each one to Champ with the decision behind it.
+- **Stuck means `/blocked`.** After two honest attempts that fail the same way, stop: `/blocked` records it in `docs/blockers.md` and asks Champ. No third variation of the same idea.
+- **Every slice gets an outside review.** Before a slice is called done, the `code-reviewer` agent gets the diff range and the spec (not a summary), runs the tests itself and reports; fix its blockers, list the rest for Champ.
+- **Stay in scope.** Change only what the task needs; a refactor or cleanup you notice goes under "Unasked but important".
+- **One task per session.** Past about 200k tokens of context, finish the step, `/session-close`, then `/clear` (the prompt hook nudges at 200k and 400k).
+- **The kit improves on evidence, with Champ.** `/retro` (Champ runs it monthly or at a milestone) mines transcripts, gotchas and blockers and proposes changes. The guard asks before any edit to CLAUDE.md, agents, skills, rules, CI or the quality gradle, so Claude never rewrites its own rules quietly.
 
 ## When compacting
 Keep:
@@ -86,7 +98,7 @@ Keep:
 - Champ's calls and the options he rejected, with why;
 - the commands that verify the work and their last output;
 - the effort level Champ picked, if any;
-- anything still unverified.
+- anything still unverified, any open blocker, and any quality-gate finding not yet resolved.
 
 Drop file dumps and search results; they can be reread.
 

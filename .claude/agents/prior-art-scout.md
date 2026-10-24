@@ -2,7 +2,7 @@
 name: prior-art-scout
 description: Researches how other games and mods solved a design problem and what their players complained about, so the project adopts the best existing solution (improved) or invents where nobody solved it, instead of settling for a generic one. Use proactively for any new mechanic, system, progression, event or rework, before options are written.
 tools: Read, Grep, Glob, WebSearch, WebFetch
-model: inherit
+model: opus
 effort: high
 ---
 

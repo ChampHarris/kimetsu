@@ -27,7 +27,7 @@ paths:
 - Quality gates (D-033, ADR 0002; `gradle/quality.gradle`), all run by `./gradlew build` and CI:
   - **Nullness:** every package is `@NullMarked` in its `package-info.java`, as Minecraft's are. A new package without one fails the build (`RequireExplicitNullMarking`). Mark what may be null `@Nullable` (JSpecify, placed as a type annotation: `private @Nullable TickRecord sent`); NullAway fails the build otherwise. It doesn't check tests.
   - **Warnings:** any javac or Error Prone warning fails the build (`-Werror`), including javac's removal warnings on Minecraft and NeoForge APIs marked `forRemoval`. Fix the code; if a check is wrong for one spot, `@SuppressWarnings("CheckName")` there (or `"removal"`) with the reason on the same line.
-  - **Formatting:** palantir-java-format; run `./gradlew spotlessApply` before committing.
+  - **Formatting:** palantir-java-format; run `./gradlew spotlessApply` (as its own command) before the final test run and the commit. Formatting after the run makes the test results stale, and the Stop hook will ask for a rerun.
   - **Dependencies:** a new or bumped dependency, plugin or Gradle version needs `gradle/verification-metadata.xml` regenerated from an empty Gradle home (the command is in `CLAUDE.md`).
 - Tests: JUnit has no `assertEquals(long, long, long delta)`; that call resolves to the float overload, exact only to 2²⁴ (16.8 s of µs). Use `Asserts.assertNear` in `core/`'s tests.
 

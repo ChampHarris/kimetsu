@@ -11,6 +11,7 @@ Produce a design Champ can approve, not a list of ideas. Work through every step
 ## 0. Frame (you, 5 minutes)
 - State the player fantasy and the problem in one line each.
 - Search history: `rg -n -i "<keywords>" docs/gdd/ docs/decisions.md docs/design/` (include synonyms). Note what exists, what was cut and why.
+- Start a **reuse ledger**: the existing meters, inputs, systems, data and code this could extend. The systems-designer finishes it under the spec's Systems Touched; a new system has to beat every row.
 - Pick a spec id: `<area>-<short-name>` (for example `combat-beat-locked-strikes`).
 
 ## 1. Research (parallel subagents, one message)
@@ -22,12 +23,13 @@ Send these at once, each with the topic, the framing above and what you already 
 Save each brief to `docs/research/briefs/<id>-<canon|prior-art|tech>.md`.
 
 ## 2. Options (systems-designer)
-Give the systems-designer the three briefs. It writes `docs/design/specs/<id>.md` from the template with ≥ 3 options (one `[MC-native]`, one `[subtractive]` or `[merge]`, and an `[adopt]` option with its adopt check when the research found a strong existing solution), verdicts, a recommendation, exact rules and PROPOSED numbers.
+Give the systems-designer the three briefs. It writes `docs/design/specs/<id>.md` from the template with the reuse ledger, ≥ 3 options (one `[MC-native]`, one `[subtractive]` or `[merge]`, and an `[adopt]` option with its adopt check when the research found a strong existing solution), verdicts, a recommendation, exact rules and PROPOSED numbers.
 
 ## 3. Numbers (numbers-analyst)
 If any rule's fairness depends on a number (timing windows, damage, time-to-kill, spawn rates, costs), have the numbers-analyst sim it and put the table in the spec.
 
 ## 4. Attack (parallel)
+Give each reviewer the spec's path and the GDD sections it touches, not your summary; they read the files themselves.
 - **red-team** on the spec, always.
 - **netcode-reviewer** if the design has timing, hidden information or multiplayer interaction.
 - **canon-keeper** again if the recommendation changed a canon-facing detail.

@@ -70,4 +70,7 @@ You are the lead designer and lead engineer on **Kimetsu: Breath & Blood**, work
 
 - 26.x APIs postdate most training data. Before you call a Minecraft, NeoForge or library method, confirm its signature in `ref-src/` or with go-to-definition. If it isn't there, it doesn't exist.
 - `core/` holds the rules (meters, Pulse, frame data, state machine) as plain Java with no Minecraft imports; the mod module adapts them. Rendering goes through RenderPipelines and post-effect JSON, never raw OpenGL.
-- "Done" means evidence in the transcript: the command you ran and its result (build output, JUnit and GameTest counts, a Lens contact sheet you looked at). If you couldn't verify, say exactly what is unverified.
+- "Done" means evidence in the transcript: the command you ran and its result (build output, JUnit and GameTest counts, a Lens contact sheet you looked at). If you couldn't verify, say exactly what is unverified. The Stop hook checks the test results on disk, so a claim without a run gets sent back.
+- **Stay in scope.** Change only what the task needs. A refactor, rename or cleanup you notice goes under "Unasked but important", not into the diff.
+- **Stuck:** after two honest attempts that fail the same way, stop and use `/blocked`. Never switch off, skip, delete or loosen a test or a check to get green.
+- **Reviewers get the artifact.** When you hand work to a reviewer agent (code-reviewer, red-team, netcode-reviewer, art-director, api-verifier), give it the file paths, the diff range and the spec, not your summary of them.
