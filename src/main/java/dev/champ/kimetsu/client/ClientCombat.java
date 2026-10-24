@@ -322,6 +322,7 @@ public final class ClientCombat {
         ClientCombat c = current;
         if (c != null && event.getLevel().isClientSide()) {
             c.combatants.remove(event.getEntity());
+            c.view.mobGone(event.getEntity().getId());
         }
     }
 
@@ -376,7 +377,7 @@ public final class ClientCombat {
     }
 
     /** Any other message from the server, in arrival order, received at {@code nanos}. */
-    static void received(NetMessage m, long nanos) {
+    static void received(NetMessage.ToClient m, long nanos) {
         ClientCombat c = current;
         if (c == null) {
             return;
@@ -393,7 +394,7 @@ public final class ClientCombat {
                 c.input.onEpoch();
             }
             case NetMessage.Tick t -> c.tickMessage(t);
-            default -> {} // a pong (handled above), an echo (bounced on the network thread), a client's message
+            case NetMessage.ClockPong _, NetMessage.ServerEcho _ -> {} // answered on the network thread
         }
     }
 

@@ -142,7 +142,7 @@ public final class Arena {
      * A new data generation, or game time re-anchored: the old world's pending strikes are cancelled, as a backlog drop
      * cancels them, and their cancels go to the listeners, so no client keeps showing a windup that will never land;
      * then a fresh world from {@code d} carries on the old one's strike ids, and every member rejoins it at
-     * {@code tick} with fresh meters (carrying meters over is slice 5c's).
+     * {@code tick}, its meters carried over from its old combatant (slice 5c-1: a {@code /reload} doesn't heal).
      */
     void rebuild(CombatData d, long tick, long cutoffMicros) {
         CombatWorld old = world;

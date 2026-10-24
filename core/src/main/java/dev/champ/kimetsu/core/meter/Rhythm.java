@@ -72,6 +72,15 @@ public final class Rhythm {
         nextDecay = other.nextDecay;
     }
 
+    /**
+     * A rebuilt world (slice 5c-1): it takes over {@code old}'s points, held to this scale (the tier follows), and its
+     * idle clock, shifted from {@code oldTick} to {@code newTick}, the same moment on this world's ticks.
+     */
+    public void carry(Rhythm old, long oldTick, long newTick) {
+        points = Math.min(old.points, rules.maxPoints());
+        nextDecay = old.nextDecay == Long.MAX_VALUE ? Long.MAX_VALUE : old.nextDecay + (newTick - oldTick);
+    }
+
     public boolean sameAs(Rhythm other) {
         return points == other.points && nextDecay == other.nextDecay;
     }

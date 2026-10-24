@@ -63,6 +63,6 @@ public final class KimetsuClient {
     }
 
     private static void onRegisterPayloads(RegisterClientPayloadHandlersEvent event) {
-        event.register(NetMessage.TYPE, HandlerThread.NETWORK, ClientNet::handle);
+        event.register(NetMessage.ToClient.TYPE, HandlerThread.NETWORK, ClientNet::handle);
     }
 }

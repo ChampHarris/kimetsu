@@ -9,8 +9,10 @@ import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.Moveset;
 import dev.champ.kimetsu.core.data.TimingRules;
 import dev.champ.kimetsu.core.fight.Fighter;
+import dev.champ.kimetsu.core.fight.FrameGate;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.fight.PlayerIntake;
+import dev.champ.kimetsu.core.judge.FrameMeter;
 import dev.champ.kimetsu.core.judge.InputHorizon;
 import dev.champ.kimetsu.core.machine.Combatant;
 import dev.champ.kimetsu.core.machine.Input;
@@ -23,6 +25,7 @@ import dev.champ.kimetsu.data.SlayerProfile;
 import dev.champ.kimetsu.net.NetMessage;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Pose;
@@ -34,8 +37,10 @@ import org.slf4j.Logger;
  * One player's connection to the fight (spec Netcode): its clock's bookkeeping, its input through the intake, and its
  * engine fighter, which it keeps as an {@link ArenaMember} on the test dummy's shape, so a rebuild gives it a fresh
  * fighter and its hits land through the same damage path. One per connection: a respawn's new player object takes
- * over the same session. Main thread only, except {@link #push}, {@link #pingAllowed} and {@link #echoBack}, which the
- * network thread uses.
+ * over the same session. Main thread only, except {@link #push}, {@link #pingAllowed}, {@link #echoBack} and the
+ * frame gate's side ({@link #arrived}, {@link #firstReady}, {@link #gate}, {@link #cutOff}), which the network thread
+ * uses. The gate is guarded by its own monitor, on the network thread where frames arrive and on the main thread where
+ * they run and where a merge is handed over at a tick start.
  */
 public final class PlayerSession implements ArenaMember {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -44,11 +49,16 @@ public final class PlayerSession implements ArenaMember {
     private static final long ECHO_GIVE_UP_NANOS = 5_000_000_000L; // an echo held back this long is replaced
 
     private final Sessions sessions;
+    private final String name;
     private ServerPlayer player;
     final RecordPush push;
     private final AtomicLong echoOut = new AtomicLong(Long.MIN_VALUE); // the echo in flight, its send time
     private double pingTokens = PINGS_PER_S;
     private long pingNanos = Long.MIN_VALUE;
+    private final FrameGate gate = new FrameGate(FrameMeter.Limits.PROPOSED); // its own monitor guards it
+    private boolean readySeen; // guarded by gate
+    private final AtomicBoolean cut = new AtomicBoolean(); // the one disconnect is queued
+    private volatile long leadMicros; // the stamp check's tolerance ceiling, for the gate
 
     private PlayerIntake intake;
     private TimingRules timing;
@@ -60,6 +70,8 @@ public final class PlayerSession implements ArenaMember {
     private boolean dead;
     private boolean closed;
     private long lastEchoNanos = Long.MIN_VALUE;
+    private int epoch; // the last epoch crossed, and where its presses were cut off: a fresh intake needs them
+    private long epochCutoff = Long.MAX_VALUE; // none: the stamp check's own default
 
     private final List<Outbox.Event> buffer = new ArrayList<>();
     private NetMessage.@Nullable Snapshot shown; // the last snapshot sent
@@ -67,9 +79,12 @@ public final class PlayerSession implements ArenaMember {
 
     PlayerSession(Sessions sessions, ServerPlayer player, CombatData data, int epoch) {
         this.sessions = sessions;
+        this.name = player.getScoreboardName();
         this.player = player;
         this.push = new RecordPush(data.rules().clock());
         this.timing = data.rules().timing();
+        this.leadMicros = Micros.ofMillis(timing.toleranceMaxMs());
+        this.epoch = epoch;
         this.intake = new PlayerIntake(timing, epoch, this::log);
     }
 
@@ -101,6 +116,11 @@ public final class PlayerSession implements ArenaMember {
         return intake;
     }
 
+    /** The player's name, for logs (either thread). */
+    String name() {
+        return name;
+    }
+
     // ------------------------------------------------------------------------------------------------- network thread
 
     /** A ping may be answered now: a token bucket of 4 a second, burst 4 (network thread). */
@@ -126,6 +146,51 @@ public final class PlayerSession implements ArenaMember {
             return -1;
         }
         return nowNanos - sent;
+    }
+
+    /** Any message from the client arrived at {@code nowNanos}: false once the gate has cut it off (network thread). */
+    boolean arrived(long nowNanos) {
+        synchronized (gate) {
+            return gate.arrived(nowNanos);
+        }
+    }
+
+    /** Whether this is the connection's first {@code Ready}: only that one goes to the main thread (network thread). */
+    boolean firstReady() {
+        synchronized (gate) {
+            boolean first = !readySeen;
+            readySeen = true;
+            return first;
+        }
+    }
+
+    /**
+     * Frame {@code f} arrived at {@code arrivalMicros} in combat time and {@code nowNanos} on the server's clock, with
+     * the tick length {@code tickLengthNanos} and the epoch {@code recordEpoch} of the record that converted it, while
+     * the server has announced {@code announcedEpoch}: the frames to run on the main thread now, in order, each through
+     * {@link #run} (network thread).
+     */
+    List<FrameGate.Pass> gate(
+            PlayerIntake.Frame f,
+            long arrivalMicros,
+            boolean frozen,
+            double tickLengthNanos,
+            long nowNanos,
+            int recordEpoch,
+            int announcedEpoch) {
+        synchronized (gate) {
+            return gate.frame(
+                    f, arrivalMicros, frozen, leadMicros, tickLengthNanos, nowNanos, recordEpoch, announcedEpoch);
+        }
+    }
+
+    /** Why the gate cut the client off, the first time it's asked after that; else null (network thread). */
+    FrameGate.@Nullable Abuse cutOff() {
+        FrameGate.Abuse a;
+        synchronized (gate) {
+            a = gate.abuse();
+        }
+        return a != null && cut.compareAndSet(false, true) ? a : null;
     }
 
     // ------------------------------------------------------------------------------------------------- main thread
@@ -171,8 +236,30 @@ public final class PlayerSession implements ArenaMember {
         intake.echo(nowMicros, rttMicros);
     }
 
+    /** A frame the gate let through, in arrival order, starts on the main thread. */
+    void run(FrameGate.Pass p) {
+        synchronized (gate) {
+            gate.ran();
+        }
+        frame(p.frame(), p.arrivalMicros(), p.frozen());
+    }
+
+    /**
+     * The tick starts: a merge the gate held back goes now, once no frame it let through is still queued ahead, so a
+     * release isn't stranded when the client's frames stop.
+     */
+    void tickStarted() {
+        FrameGate.Pass m;
+        synchronized (gate) {
+            m = gate.takeMerge();
+        }
+        if (m != null) {
+            frame(m.frame(), m.arrivalMicros(), m.frozen());
+        }
+    }
+
     /** An input frame, in arrival order, its arrival in combat time and whether it was converted while frozen. */
-    void frame(PlayerIntake.Frame f, long arrivalMicros, boolean frozen) {
+    private void frame(PlayerIntake.Frame f, long arrivalMicros, boolean frozen) {
         if (closed) {
             return; // queued work still runs after a disconnect
         }
@@ -204,6 +291,8 @@ public final class PlayerSession implements ArenaMember {
 
     /** The server's clock crossed epoch {@code epoch}: tell the client first, then the stamp check. */
     void epochMoved(int epoch, long cutoffMicros) {
+        this.epoch = epoch;
+        this.epochCutoff = cutoffMicros;
         send(new NetMessage.ClockEpoch(epoch));
         intake.onEpoch(epoch, cutoffMicros);
     }
@@ -251,14 +340,21 @@ public final class PlayerSession implements ArenaMember {
         leave();
     }
 
-    /** The data's timing rules changed: a fresh stamp check on them, the RTT measured so far carried over. */
-    void retime(TimingRules rules, int epoch) {
+    /**
+     * The data's timing rules changed: a fresh stamp check on them, the RTT measured so far carried over, and the last
+     * epoch's cutoff, so a frame from before that epoch still loses the presses stamped after it.
+     */
+    void retime(TimingRules rules, int currentEpoch) {
         if (rules.equals(timing)) {
             return;
         }
         long rtt = intake.rttMicros();
         timing = rules;
-        intake = new PlayerIntake(rules, epoch, this::log);
+        leadMicros = Micros.ofMillis(rules.toleranceMaxMs());
+        intake = new PlayerIntake(rules, currentEpoch, this::log);
+        if (epoch == currentEpoch) {
+            intake.onEpoch(epoch, epochCutoff);
+        }
         if (rtt > 0) {
             intake.echo(0, rtt);
         }
@@ -345,6 +441,10 @@ public final class PlayerSession implements ArenaMember {
         PulseSchedule pulse = new PulseSchedule(moves.style().beatTicks());
         Combatant start =
                 new Combatant(r.machine(), r.timing(), p.breath(), p.posture(), r.rhythm(), moves, pulse, tick - 1);
+        Fighter old = fighter; // still set only in a rebuild: a fresh join (a login, a respawn) comes after a leave
+        if (old != null) {
+            start.carry(old.timeline().live(), old.timeline().current(), tick - 1); // meters go on (5c-1)
+        }
         Fighter f = new Fighter(
                 player.getId(),
                 new Timeline(start, tick),
@@ -384,6 +484,7 @@ public final class PlayerSession implements ArenaMember {
         if (settled == Long.MIN_VALUE) {
             return;
         }
+        long seq = intake.settledSeq(settled); // every step, so its frames go as they settle
         Combatant c = f.timeline().endAt(settled);
         FrameData attack = c.attack();
         NetMessage.Snapshot last = shown;
@@ -392,7 +493,7 @@ public final class PlayerSession implements ArenaMember {
         }
         NetMessage.Snapshot s = new NetMessage.Snapshot(
                 settled,
-                intake.lastSeq(),
+                seq,
                 c.state(),
                 attack != null ? attack.id() : "",
                 c.breath().segment(),

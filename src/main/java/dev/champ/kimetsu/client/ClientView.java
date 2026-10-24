@@ -41,6 +41,7 @@ final class ClientView {
                 case Outbox.AttackCancelled c -> forget(c.strike());
                 case Outbox.MobState m -> mobs.put(m.mob(), m);
                 case Outbox.MobDied d -> mobs.remove(d.mob());
+                case Outbox.MobLeft l -> mobs.remove(l.mob());
                 case Outbox.StrikeResult r
                 when r.fighter() == self -> {
                     Outbox.AttackStarted s = strikes.get(r.strike());
@@ -57,6 +58,15 @@ final class ClientView {
             snapshot = s;
         }
         prune();
+    }
+
+    /**
+     * The client's entity {@code mob} left its level (out of tracking range, or its chunk unloaded): its state goes with
+     * it. A mob's events reach its trackers alone, and vanilla ends the tracking before the mob leaves, so the {@code
+     * MobLeft} of a mob that leaves with its chunk reaches nobody (netcode and code reviews).
+     */
+    void mobGone(int mob) {
+        mobs.remove(mob);
     }
 
     /** The client's level is going (a dimension change): its strikes and demons stay behind; strike ids are per world. */

@@ -41,9 +41,22 @@ public final class TickSchedule {
     private boolean wasLate;
 
     public TickSchedule(ClockRules rules) {
+        this(rules, 0);
+    }
+
+    private TickSchedule(ClockRules rules, int epoch) {
         this.rules = rules;
         this.intervals = new double[rules.tickWindow()];
         this.runs = new double[rules.rateRunTicks()];
+        this.epoch = epoch;
+    }
+
+    /**
+     * A fresh schedule on new clock rules (a reload): it re-anchors at its first tick, so the clock may step, which is
+     * an epoch (Rule 1.8): it counts one more than this one did.
+     */
+    public TickSchedule retuned(ClockRules newRules) {
+        return new TickSchedule(newRules, epoch + 1);
     }
 
     /** Called at each tick start, before the record is published. */

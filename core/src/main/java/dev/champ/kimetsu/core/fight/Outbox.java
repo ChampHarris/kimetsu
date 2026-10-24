@@ -113,6 +113,12 @@ public final class Outbox {
     public record MobDied(int mob, long tick, int by) implements Event {}
 
     /**
+     * A mob left the fight alive at {@code tick} (its chunk unloaded, or it went out of tracking): its trackers forget it.
+     * Coming back, it joins again as a new combatant.
+     */
+    public record MobLeft(int mob, long tick) implements Event {}
+
+    /**
      * A mob's state for its trackers, sent when it changes (CombatantState and {@code posture_view}): GUARD while its
      * guard stance is up, NEUTRAL while it isn't (its strikes come from {@code AttackStarted}), or STAGGER, COLLAPSED,
      * KNOCKDOWN, CLASH or DEAD; the tick its Thread closes ({@code Long.MIN_VALUE} if closed, {@code Long.MAX_VALUE}

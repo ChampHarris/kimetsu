@@ -31,7 +31,7 @@ final class TickClock {
     private boolean recordWrong;
     private long expected;
     private long stepped = TickNumber.NONE;
-    private int epochs; // epochs before the current schedule, and re-anchors
+    private int epochs; // re-anchors (the schedule counts its own epochs and carries them across rules)
 
     TickClock(MinecraftServer server, ClockRules rules) {
         this.server = server;
@@ -39,10 +39,9 @@ final class TickClock {
         this.lastWarning = server.lastOverloadWarningNanos;
     }
 
-    /** A reload changed the clock rules: a fresh schedule on them, the epoch count carried on. */
+    /** A reload changed the clock rules: a fresh schedule on them, which counts an epoch (it re-anchors). */
     void rules(ClockRules rules) {
-        epochs += schedule.epoch();
-        schedule = new TickSchedule(rules);
+        schedule = schedule.retuned(rules);
     }
 
     /** {@code ServerTickEvent.Pre}: the tick's guessed number and its record. */
@@ -108,8 +107,8 @@ final class TickClock {
     }
 
     /**
-     * The clock epoch: it moves when vanilla's backlog drop moved the schedule (Rule 1.8) and when game time
-     * re-anchored. Slice 5b sends {@code ClockEpoch} when it moves.
+     * The clock epoch: it moves when vanilla's backlog drop moved the schedule (Rule 1.8), when game time re-anchored
+     * and when the clock rules changed. The combat server sends {@code ClockEpoch} when it moves.
      */
     int epoch() {
         return epochs + schedule.epoch();

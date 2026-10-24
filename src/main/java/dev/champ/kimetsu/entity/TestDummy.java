@@ -27,6 +27,7 @@ import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.Mob;
@@ -51,6 +52,7 @@ public final class TestDummy extends PathfinderMob implements ArenaMember {
     private final TreeMap<Long, List<Input>> presses = new TreeMap<>(); // the step each acts in → the presses
     private @Nullable Arena arena;
     private @Nullable Arena chosen;
+    private @Nullable Arena away; // the arena it left alive, to rejoin if the same object comes back (B-001: rare)
     private @Nullable Fighter fighter;
     // its size, from its profile on the server; synced, so a client's hitbox, picking and culling match
     private static final EntityDataAccessor<Float> WIDTH =
@@ -97,10 +99,19 @@ public final class TestDummy extends PathfinderMob implements ArenaMember {
         }
     }
 
+    /**
+     * Gone from the level: it leaves the fight. Only out of tracking, its chunk's entities unload in the same tick and a
+     * {@code noSave} dummy is gone (B-001); if the same object comes back, it rejoins when it ticks.
+     */
     @Override
     public void onRemovedFromLevel() {
         super.onRemovedFromLevel();
+        Arena a = arena;
+        Entity.RemovalReason why = getRemovalReason();
         leave();
+        if (a != null && !a.closed() && !dead && (why == null || !why.shouldDestroy())) {
+            away = a;
+        }
     }
 
     @Override
@@ -111,11 +122,24 @@ public final class TestDummy extends PathfinderMob implements ArenaMember {
         }
     }
 
+    /**
+     * Back in tracking after it left alive: it rejoins once the engine has let its old self go, its meters as they were
+     * ({@link #join}), as a player who logs back in mid-fight would (spec Edge Cases, "Chunk unload or logout").
+     */
     @Override
     public void tick() {
         super.tick();
-        if (!level().isClientSide() && fighter != null && arena == null && !dead) {
-            discard(); // back from out of tracking, after it left the fight
+        Arena a = away;
+        if (level().isClientSide() || fighter == null || arena != null || dead || a == null) {
+            return;
+        }
+        if (a.closed()) {
+            away = null;
+            discard();
+        } else if (a.world().fighter(getId()) == null) {
+            away = null;
+            arena = a;
+            a.add(this);
         }
     }
 
@@ -143,6 +167,7 @@ public final class TestDummy extends PathfinderMob implements ArenaMember {
         return getId();
     }
 
+    /** It joins with a fresh fighter; one that had a fighter (a rebuilt world, or back in tracking) carries its meters. */
     @Override
     public void join(Arena a, CombatData data, long tick) {
         SlayerProfile p = data.slayers().get(PROFILE);
@@ -154,6 +179,10 @@ public final class TestDummy extends PathfinderMob implements ArenaMember {
         PulseSchedule pulse = new PulseSchedule(moves.style().beatTicks());
         Combatant start =
                 new Combatant(r.machine(), r.timing(), p.breath(), p.posture(), r.rhythm(), moves, pulse, tick - 1);
+        Fighter old = fighter;
+        if (old != null) {
+            start.carry(old.timeline().live(), old.timeline().current(), tick - 1);
+        }
         long tolerance = Micros.ofMillis(r.timing().toleranceMinMs());
         Fighter f = new Fighter(
                 getId(),

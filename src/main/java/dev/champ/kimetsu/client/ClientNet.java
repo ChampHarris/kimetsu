@@ -15,11 +15,8 @@ final class ClientNet {
 
     private ClientNet() {}
 
-    static void handle(NetMessage m, IPayloadContext ctx) {
+    static void handle(NetMessage.ToClient m, IPayloadContext ctx) {
         long now = Util.getNanos();
-        if (m.serverbound()) {
-            return; // a server never sends one
-        }
         switch (m) {
             case NetMessage.ServerEcho e -> ctx.reply(new NetMessage.EchoBack(e.serverNanos()));
             case NetMessage.ClockPong p -> main(ctx, () -> ClientCombat.pong(p, now));

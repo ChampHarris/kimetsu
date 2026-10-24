@@ -293,6 +293,29 @@ class TickScheduleTest {
         assertEquals(Micros.ofTicks(30), r.arrivalMicros(t));
     }
 
+    /**
+     * New clock rules start a fresh schedule, which re-anchors at its first tick, so the clock may step: an epoch, one
+     * more than the schedule it replaces counted (slice 5c-1; the swap used to keep the epoch, so no ClockEpoch went).
+     */
+    @Test
+    void aRulesSwapIsAnEpoch() {
+        TickSchedule schedule = new TickSchedule(Fixtures.clock());
+        long t = 0;
+        for (int g = 0; g < 30; g++) {
+            schedule.onTickStart(TickInput.normal(g, t));
+            t += NOMINAL;
+        }
+        t += 3_000_000_000L; // a backlog drop first: epoch 1
+        schedule.onTickStart(new TickInput(30, t, NOMINAL, false, false, false, true, false));
+        assertEquals(1, schedule.epoch());
+        TickSchedule retuned = schedule.retuned(Fixtures.clock());
+        assertEquals(2, retuned.epoch());
+        t += NOMINAL + 7_000_000L; // the steered schedule would have predicted 7 ms earlier
+        TickRecord r = retuned.onTickStart(TickInput.normal(31, t));
+        assertEquals(2, r.epoch());
+        assertEquals((double) t, r.startNanos(), 0.0); // it re-anchors: the step the epoch announces
+    }
+
     @Test
     void aRecordIsPushedWhenItsRateOrStateMoves() {
         TickRecord sent = new TickRecord(10, 0, 50_000_000, false, false, false, 0);

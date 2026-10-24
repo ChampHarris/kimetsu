@@ -65,6 +65,26 @@ public final class Posture {
         version++;
     }
 
+    /**
+     * A rebuilt world (slice 5c-1): it takes over {@code old}'s Posture as it stood at {@code oldTick}, as of
+     * {@code newTick}, the same moment on this world's ticks. The value is held to this one's maximum, so new rules
+     * never heal it; the recovery delay and a stagger run on for the ticks they had left. A Winded guard's drain isn't
+     * carried, nor vitality, which the demon sets again from the wounds it carries.
+     */
+    public void carry(Posture old, long oldTick, long newTick) {
+        long shift = newTick - oldTick;
+        drain = 0;
+        vitality = 1.0;
+        regenFrom = old.regenFrom + shift;
+        if (old.staggered(oldTick)) {
+            staggerUntil = old.staggerUntil + shift;
+            replace(new Segment(0, 0, newTick, max));
+            return;
+        }
+        staggerUntil = Long.MIN_VALUE;
+        replace(new Segment(Math.min(old.at(oldTick), max), rate(newTick), newTick, max));
+    }
+
     /** The same state as {@code other}, the version aside. */
     public boolean sameAs(Posture other) {
         return seg.equals(other.seg)

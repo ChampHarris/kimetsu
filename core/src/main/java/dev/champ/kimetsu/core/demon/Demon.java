@@ -147,6 +147,21 @@ public final class Demon implements StrikeMob {
         storeTick(head);
     }
 
+    /**
+     * Before its first tick: it takes over {@code old}'s wounds as {@code old} last stood (slice 5c-1, D-061), when a
+     * data reload or game time re-anchoring rebuilds its world, or when it comes back from an unloaded chunk: its HP,
+     * Hunger and Posture, held to this profile's maxima so new data never heals it, the HP its wounds took, and a
+     * regeneration pause, a stagger, a collapse and the Thread they opened, running on from where they were. A demon
+     * away in an unloaded chunk was frozen in time: what it had left of them it still has.
+     */
+    public void carry(Demon old) {
+        if (head != born - 1) {
+            throw new IllegalStateException("a demon carries before its first tick: it has run to " + head);
+        }
+        live.carry(old.live, old.head, head);
+        snapshot(head);
+    }
+
     // --------------------------------------------------------------------------------------------- the body
 
     @Override

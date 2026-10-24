@@ -1,7 +1,6 @@
 package dev.champ.kimetsu.net;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -36,10 +35,11 @@ class NetCodecTest {
         return new FriendlyByteBuf(Unpooled.buffer());
     }
 
+    /** {@code m} through the codec of its own channel. */
     private static NetMessage roundTrip(NetMessage m) {
         FriendlyByteBuf b = buf();
         NetCodec.write(b, m);
-        NetMessage back = NetCodec.read(b);
+        NetMessage back = m instanceof NetMessage.ToServer ? NetCodec.readToServer(b) : NetCodec.readToClient(b);
         assertEquals(0, b.readableBytes(), m + " left bytes unread");
         return back;
     }
@@ -95,7 +95,7 @@ class NetCodecTest {
     @Test
     void everyEventRoundTrips() throws ReflectiveOperationException {
         List<Class<?>> types = records(Outbox.Event.class);
-        assertEquals(18, types.size(), "the outbox's events");
+        assertEquals(19, types.size(), "the outbox's events");
         for (int seed = 0; seed < 3; seed++) {
             for (Class<?> t : types) {
                 Outbox.Event e = (Outbox.Event) sample(t, seed);
@@ -150,6 +150,17 @@ class NetCodecTest {
 
     @Test
     void everyMessageRoundTrips() throws ReflectiveOperationException {
+        List<NetMessage> all = messages();
+        Set<Class<?>> covered = new java.util.HashSet<>();
+        for (NetMessage m : all) {
+            assertEquals(m, roundTrip(m));
+            covered.add(m.getClass());
+        }
+        assertEquals(Set.copyOf(records(NetMessage.class)), covered, "every message type has a sample");
+    }
+
+    /** A sample of every message, two of some. */
+    private static List<NetMessage> messages() throws ReflectiveOperationException {
         Outbox.Event started = (Outbox.Event) sample(Outbox.AttackStarted.class, 1);
         Outbox.Event effect = (Outbox.Event) sample(Outbox.PlayerEffect.class, 2);
         NetMessage.Snapshot snap = new NetMessage.Snapshot(
@@ -194,23 +205,44 @@ class NetCodecTest {
                                 Map.of("kimetsu:water", "{\"beat_ticks\":13}"),
                                 "kimetsu/combat_rules",
                                 Map.of("kimetsu:default", "{}"))));
-        Set<Class<?>> covered = new java.util.HashSet<>();
-        for (NetMessage m : all) {
-            assertEquals(m, roundTrip(m));
-            covered.add(m.getClass());
-        }
-        assertEquals(Set.copyOf(records(NetMessage.class)), covered, "every message type has a sample");
+        return all;
     }
 
+    /** A channel per direction (5c-1): the client's messages on {@code kimetsu:input}, the server's on {@code net}. */
     @Test
-    void eachMessageSaysWhichWayItGoes() {
-        assertTrue(new NetMessage.ClockPing(0).serverbound());
-        assertTrue(new NetMessage.EchoBack(0).serverbound());
-        assertTrue(new NetMessage.Ready().serverbound());
-        assertTrue(new NetMessage.InputFrame(frame(InputHorizon.NO_TICK, 0)).serverbound());
-        assertFalse(new NetMessage.ClockPong(0, 0, 0, RECORD).serverbound());
-        assertFalse(new NetMessage.Tick(0, List.of(), null).serverbound());
-        assertFalse(new NetMessage.DataSync(0, Map.of()).serverbound());
+    void eachMessageGoesOnItsDirectionsChannel() {
+        assertEquals("kimetsu:input", NetMessage.ToServer.TYPE.id().toString());
+        assertEquals("kimetsu:net", NetMessage.ToClient.TYPE.id().toString());
+        assertEquals(NetMessage.ToServer.TYPE, new NetMessage.ClockPing(0).type());
+        assertEquals(NetMessage.ToServer.TYPE, new NetMessage.EchoBack(0).type());
+        assertEquals(NetMessage.ToServer.TYPE, new NetMessage.Ready().type());
+        assertEquals(NetMessage.ToServer.TYPE, new NetMessage.InputFrame(frame(InputHorizon.NO_TICK, 0)).type());
+        assertEquals(NetMessage.ToClient.TYPE, new NetMessage.ClockPong(0, 0, 0, RECORD).type());
+        assertEquals(NetMessage.ToClient.TYPE, new NetMessage.ClockRecord(RECORD).type());
+        assertEquals(NetMessage.ToClient.TYPE, new NetMessage.ClockEpoch(0).type());
+        assertEquals(NetMessage.ToClient.TYPE, new NetMessage.ServerEcho(0).type());
+        assertEquals(NetMessage.ToClient.TYPE, new NetMessage.Tick(0, List.of(), null).type());
+        assertEquals(NetMessage.ToClient.TYPE, new NetMessage.DataSync(0, Map.of()).type());
+    }
+
+    /**
+     * A message of the other direction is never decoded: NeoForge discards it by its channel's id before decoding
+     * ({@code NetworkRegistry.getCodec}, checked in ref-src), and its bytes on the wrong channel fail at the type byte,
+     * before any body is read.
+     */
+    @Test
+    void aMessageOfTheOtherDirectionNeverDecodes() throws ReflectiveOperationException {
+        for (NetMessage m : messages()) {
+            FriendlyByteBuf b = buf();
+            NetCodec.write(b, m);
+            String name = m.getClass().getSimpleName();
+            if (m instanceof NetMessage.ToServer) {
+                assertThrows(DecoderException.class, () -> NetCodec.readToClient(b), name);
+            } else {
+                assertThrows(DecoderException.class, () -> NetCodec.readToServer(b), name);
+            }
+            assertEquals(1, b.readerIndex(), name + ": only its type byte was read");
+        }
     }
 
     @Test
@@ -237,16 +269,18 @@ class NetCodecTest {
         Wire.writeInt(tooMany, 0);
         tooMany.writeVarInt(0);
         tooMany.writeByte(17);
-        assertThrows(DecoderException.class, () -> NetCodec.read(tooMany));
+        assertThrows(DecoderException.class, () -> NetCodec.readToServer(tooMany));
 
         FriendlyByteBuf unknownKey = buf();
         NetCodec.write(unknownKey, new NetMessage.InputFrame(frame(InputHorizon.NO_TICK, 1)));
         unknownKey.setByte(unknownKey.writerIndex() - 3, 99); // the delta's key byte
-        assertThrows(DecoderException.class, () -> NetCodec.read(unknownKey));
+        assertThrows(DecoderException.class, () -> NetCodec.readToServer(unknownKey));
 
         FriendlyByteBuf unknownType = buf();
         unknownType.writeByte(200);
-        assertThrows(DecoderException.class, () -> NetCodec.read(unknownType));
+        assertThrows(DecoderException.class, () -> NetCodec.readToServer(unknownType));
+        unknownType.readerIndex(0);
+        assertThrows(DecoderException.class, () -> NetCodec.readToClient(unknownType));
     }
 
     /** The server reads a falling form's height itself: a client's claim fired it from the ground (netcode review). */
@@ -259,7 +293,7 @@ class NetCodecTest {
         FriendlyByteBuf claimed = buf(); // an old client's fall flag on an attack press
         NetCodec.write(claimed, new NetMessage.InputFrame(frame(InputHorizon.NO_TICK, 1)));
         claimed.setByte(claimed.writerIndex() - 2, 1 | 4); // the delta's flags: down, and the old fall bit
-        assertThrows(DecoderException.class, () -> NetCodec.read(claimed));
+        assertThrows(DecoderException.class, () -> NetCodec.readToServer(claimed));
     }
 
     @Test

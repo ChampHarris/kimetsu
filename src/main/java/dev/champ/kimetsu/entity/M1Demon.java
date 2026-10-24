@@ -59,6 +59,7 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
     private final Pose strikePose = new Pose();
     private @Nullable Arena arena;
     private @Nullable Arena chosen;
+    private @Nullable Arena away; // the arena it left alive, to rejoin if the same object comes back (B-001: rare)
     private @Nullable Function<Demon, Brain> brains;
     private @Nullable Demon body;
     private @Nullable DemonBrain ownBrain;
@@ -116,9 +117,11 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
     }
 
     /**
-     * Gone from the level, or only out of tracking (its chunk hidden; a {@code noSave} entity is never unloaded, and
-     * coming back doesn't add it again): either way the engine has no mob departure, so it's dead to the engine, as
-     * {@code /kill} is, and an entity that comes back discards itself ({@link #tick}).
+     * Gone from the level. Killed or discarded, it's dead to the engine, as {@code /kill} is. Otherwise it went out of
+     * tracking (its chunk hidden or unloaded), so it leaves the fight alive (slice 5c-1): its strikes still to land are
+     * cancelled. Either way its chunk's entities unload in the same tick, and a {@code noSave} one is gone for good
+     * (B-001; saving it is 5c-2's, D-063). Only if the chunk shows again before its entities finished loading does the
+     * same object come back, and then it rejoins when it ticks ({@link #tick}).
      */
     @Override
     public void onRemovedFromLevel() {
@@ -127,19 +130,40 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
         if (a == null) {
             return;
         }
+        Entity.RemovalReason why = getRemovalReason();
         Demon b = body;
-        if (b != null && !dying && !a.closed()) {
-            b.outsideDamage(a.nextTick(), b.hp(), true);
+        if (why != null && why.shouldDestroy()) {
+            if (b != null && !dying && !a.closed()) {
+                b.outsideDamage(a.nextTick(), b.hp(), true);
+            }
+        } else if (!dying && !a.closed()) {
+            a.world().leave(getId());
+            away = a;
         }
         a.remove(this);
         arena = null;
+        carried = false;
     }
 
+    /**
+     * Back in tracking after it left alive: it rejoins its arena once the engine has let its old self go, idle, its HP,
+     * Hunger and Posture as they were (spec Edge Cases, "Chunk unload"; {@link #join} carries them). If that arena
+     * closed meanwhile (its GameTest ended), there's nothing to come back to.
+     */
     @Override
     public void tick() {
         super.tick();
-        if (!level().isClientSide() && body != null && arena == null && !dying) {
-            discard(); // back from out of tracking, after the engine counted it dead
+        Arena a = away;
+        if (level().isClientSide() || body == null || arena != null || dying || a == null) {
+            return;
+        }
+        if (a.closed()) {
+            away = null;
+            discard();
+        } else if (!a.world().hasMob(getId())) {
+            away = null;
+            arena = a;
+            a.add(this);
         }
     }
 
@@ -148,6 +172,10 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
         return getId();
     }
 
+    /**
+     * It joins with a fresh engine body on {@code data}; one that had a body (a rebuilt world, or back from an unloaded
+     * chunk) carries its wounds over, held to the profile's maxima, so a {@code /reload} no longer heals it.
+     */
     @Override
     public void join(Arena a, CombatData data, long tick) {
         DemonProfile profile = data.demons().get(PROFILE);
@@ -168,6 +196,10 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
                 getZ(),
                 getYRot(),
                 a.server().seed());
+        Demon old = body;
+        if (old != null) {
+            d.carry(old);
+        }
         Function<Demon, Brain> make = brains;
         Brain brain;
         if (make != null) {

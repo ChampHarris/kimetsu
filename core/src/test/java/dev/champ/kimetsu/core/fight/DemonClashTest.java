@@ -308,6 +308,19 @@ class DemonClashTest {
         }
     }
 
+    /** Slice 5c-1: a demon whose chunk unloads mid-clash leaves it as a tie, and goes once the clash is over. */
+    @Test
+    void theDemonLeavingEndsItInATie() {
+        Arena a = clash(new Arena(), 380, HEAVY);
+        a.world.leave(10);
+        a.through(125);
+        ClashEnded end = a.all(ClashEnded.class).get(0);
+        assertEquals(ClashOutcome.TIE, end.outcome());
+        assertEquals(118, end.tick());
+        assertEquals(List.of(new Outbox.MobLeft(10, 118)), a.all(Outbox.MobLeft.class));
+        assertTrue(a.all(Outbox.MobDied.class).isEmpty());
+    }
+
     @Test
     void itsReactionIsHeldBetweenAFalseStartAndTheWindowsEnd() {
         for (double ms : new double[] {50, 900}) {

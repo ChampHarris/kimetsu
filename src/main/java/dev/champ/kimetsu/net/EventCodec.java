@@ -121,6 +121,11 @@ final class EventCodec {
                 Wire.writeLong(buf, d.tick());
                 Wire.writeInt(buf, d.by());
             }
+            case Outbox.MobLeft l -> {
+                buf.writeByte(18);
+                Wire.writeInt(buf, l.mob());
+                Wire.writeLong(buf, l.tick());
+            }
             case Outbox.MobState s -> {
                 buf.writeByte(13);
                 Wire.writeInt(buf, s.mob());
@@ -266,6 +271,7 @@ final class EventCodec {
                         buf.readDouble(),
                         Wire.readInt(buf),
                         buf.readBoolean());
+            case 18 -> new Outbox.MobLeft(Wire.readInt(buf), Wire.readLong(buf));
             default -> throw new DecoderException("unknown event " + type);
         };
     }

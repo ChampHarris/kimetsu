@@ -50,7 +50,7 @@ public final class CombatServer {
     private @Nullable TickClock clock;
     private volatile @Nullable TickRecord published; // the network thread's: carries the wire epoch
     private final Sessions sessions = new Sessions(this);
-    private int epoch;
+    private volatile int epoch; // the network thread reads it too: it moves before ClockEpoch goes out
     private int generation;
 
     private CombatServer(MinecraftServer server, CombatDataBuilder.Result loaded) {
@@ -275,14 +275,15 @@ public final class CombatServer {
             data = fresh;
             generation++;
             sessions.generationSwapped(generation, fresh); // the clients' data before the rebuild's cancels
+            long cutoff = c.epochCutoffMicros();
             if (!fresh.rules().clock().equals(old.rules().clock())) {
-                c.rules(fresh.rules().clock());
+                c.rules(fresh.rules().clock()); // an epoch: the fresh schedule re-anchors
                 epoch = c.epoch();
+                sessions.epochMoved(epoch, cutoff); // ClockEpoch before the rebuild's cancels
             }
             long tick = nextTick();
-            long cutoff = c.epochCutoffMicros();
             for (int i = 0; i < arenas.size(); i++) {
-                arenas.get(i).rebuild(fresh, tick, cutoff);
+                arenas.get(i).rebuild(fresh, tick, cutoff); // cancels the old world's strikes itself
             }
         }
         c.onTickStart();
@@ -342,7 +343,10 @@ public final class CombatServer {
         return clock().nextTick();
     }
 
-    /** The clock epoch (Rule 1.8), the one on the wire: {@code ClockEpoch} goes out when it moves. */
+    /**
+     * The clock epoch (Rule 1.8), the one on the wire: {@code ClockEpoch} goes out when it moves, so a client's frame
+     * that claims it arrives after it moved (any thread); the published record may carry it a tick later.
+     */
     public int epoch() {
         return epoch;
     }

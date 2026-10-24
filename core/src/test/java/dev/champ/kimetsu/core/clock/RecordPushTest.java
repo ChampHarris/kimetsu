@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.champ.kimetsu.core.Fixtures;
+import dev.champ.kimetsu.core.data.ClockRules;
 import org.junit.jupiter.api.Test;
 
 class RecordPushTest {
@@ -18,6 +19,41 @@ class RecordPushTest {
         RecordPush push = new RecordPush(Fixtures.clock());
         push.sentInPong(at(0, TICK));
         return push;
+    }
+
+    /** {@code rules} pushing {@code pushesPerS} a second with a burst of {@code burst}. */
+    private static ClockRules pushing(ClockRules r, double pushesPerS, int burst) {
+        return new ClockRules(
+                r.syncSamples(),
+                r.firstSamples(),
+                r.slewMsPerBeat(),
+                r.rateChangeSlewMsPerBeat(),
+                r.rateSamples(),
+                r.rateChange(),
+                pushesPerS,
+                burst,
+                r.tempoChangeLeadBeats(),
+                r.syncIntervalCombatMs(),
+                r.syncIntervalIdleMs(),
+                r.tickWindow(),
+                r.rateRunTicks(),
+                r.lateTicks(),
+                r.ordinaryLow(),
+                r.ordinaryHigh(),
+                r.steerGain());
+    }
+
+    /**
+     * A reload's clock rules retune the push in place (slice 5c-1): it still knows the record the client has, which a new
+     * push wouldn't until the next pong, and its bucket holds no more than the new burst.
+     */
+    @Test
+    void aRetuneKeepsTheClientsRecord_underTheNewBucket() {
+        RecordPush push = joined();
+        push.retune(pushing(Fixtures.clock(), 1.0, 1));
+        assertTrue(push.offer(at(1, 50_600_000), TICK));
+        assertFalse(push.offer(at(2, 51_200_000), 2 * TICK), "the new burst of one is spent");
+        assertTrue(push.offer(at(22, 51_800_000), 22 * TICK), "a second later, one more");
     }
 
     @Test

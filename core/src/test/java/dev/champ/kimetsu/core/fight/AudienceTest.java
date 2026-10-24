@@ -42,6 +42,7 @@ class AudienceTest {
             new Outbox.ClashStarted(STRIKE, MOB, PLAYER, 110, 6_000_000),
             new Outbox.ClashEnded(STRIKE, MOB, PLAYER, 125, Outbox.ClashOutcome.PLAYER),
             new Outbox.MobDied(MOB, 200, PLAYER),
+            new Outbox.MobLeft(MOB, 201),
             new Outbox.MobState(MOB, 120, State.STAGGER, 150, 0, 0, 120, 0),
             new Outbox.GuardYaw(MOB, 121, 64),
             new Outbox.Targeting(MOB, 122, PLAYER),

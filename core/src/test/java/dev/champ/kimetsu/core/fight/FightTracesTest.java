@@ -103,6 +103,7 @@ class FightTracesTest {
             case Outbox.HoldStarted h -> "demon " + h.mob() + " holds " + h.fighter() + " until " + h.throwTick();
             case Outbox.HoldEnded h -> "hold on " + h.fighter() + " ends @" + h.tick() + ": " + h.how();
             case Outbox.MobDied d -> "DEMON " + d.mob() + " DIES (" + d.by() + ")";
+            case Outbox.MobLeft l -> "DEMON " + l.mob() + " LEAVES";
             case Outbox.MobState m ->
                 String.format(
                         Locale.ROOT,

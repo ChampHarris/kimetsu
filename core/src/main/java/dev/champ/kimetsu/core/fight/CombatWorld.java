@@ -93,6 +93,9 @@ public final class CombatWorld {
         long pathEnd = NONE;
         long frozenAt = Long.MAX_VALUE;
         boolean dead; // decapitated: it takes no swings and commits nothing, and goes once its strikes are over
+        // left the level alive ({@link #leave}): likewise, once the strikes that landed before it left are decided
+        boolean leaving;
+        boolean left; // its departure was taken in a tick: what was still to land is cancelled
 
         Mob(StrikeMob body, Brain brain) {
             this.body = body;
@@ -319,6 +322,44 @@ public final class CombatWorld {
         }
     }
 
+    /**
+     * Between ticks: mob {@code mobId} leaves the fight alive (its chunk unloaded, or it went out of tracking), in the
+     * next tick. A strike that had landed by then, its verdict still waiting for a player's input, is decided on what
+     * the server knows, as a leaving player's is (D-043), once nothing earlier waits for that player; the strikes still
+     * to land are cancelled for everyone ("attacker gone"). Its hold lets go and its clash ends in a tie. Meanwhile its
+     * brain commits nothing and nothing hits it; once none of its strikes waits, it goes with {@link Outbox.MobLeft}. A
+     * mob that's dead, or not in the fight, has nothing to leave.
+     */
+    public void leave(int mobId) {
+        Mob m = find(mobId);
+        if (m != null && !m.dead && !m.body.dead()) {
+            m.leaving = true;
+        }
+    }
+
+    /** Whether mob {@code id} is still in the fight, leaving or dead included until it has gone. */
+    public boolean hasMob(int id) {
+        return find(id) != null;
+    }
+
+    /** At tick {@code n}'s start: a mob that left since the last tick cancels its strikes still to land. */
+    private void departures(long n) {
+        for (int i = 0; i < mobs.size(); i++) {
+            Mob m = mobs.get(i);
+            if (!m.leaving || m.left) {
+                continue;
+            }
+            m.left = true;
+            for (int j = 0; j < book.size(); j++) {
+                PendingStrike s = book.get(j);
+                if (s.attacker() == m.body.id() && s.status() == PendingStrike.Status.PENDING && s.impactTick() >= n) {
+                    drop(s, "attacker gone", n);
+                }
+            }
+        }
+        purge();
+    }
+
     /** The leaving players go, at the end of tick {@code n}'s decisions ({@link #remove}). */
     private void depart(long n) {
         for (int i = fighters.size() - 1; i >= 0; i--) {
@@ -445,10 +486,11 @@ public final class CombatWorld {
             m.body.pose(n, pose);
             m.poses.put(Micros.ofTicks(n), pose.x(), pose.y(), pose.z(), pose.yaw(), pose.pitch());
         }
+        departures(n);
         committing = true;
         for (int i = 0; i < mobs.size(); i++) {
             Mob m = mobs.get(i);
-            if (!m.dead) {
+            if (!m.dead && !m.leaving) {
                 m.brain.decide(n, m.body, this);
             }
         }
@@ -470,7 +512,7 @@ public final class CombatWorld {
 
     /**
      * A mob that died otherwise than by a player's cut (the demon: {@code /kill}, the void) is dead to the loop too; a
-     * dead mob goes once none of its strikes is still to be decided.
+     * dead or leaving mob goes once none of its strikes is still to be decided, a leaving one with {@code MobLeft}.
      */
     private void bury() {
         for (int i = mobs.size() - 1; i >= 0; i--) {
@@ -479,8 +521,11 @@ public final class CombatWorld {
                 m.dead = true;
                 outbox.add(new Outbox.MobDied(m.body.id(), Math.max(m.body.stoppedAt(), now), -1));
             }
-            if (m.dead && !striking(m.body.id())) {
+            if ((m.dead || m.leaving) && !striking(m.body.id())) {
                 mobs.remove(i);
+                if (!m.dead) {
+                    outbox.add(new Outbox.MobLeft(m.body.id(), now));
+                }
             }
         }
     }
@@ -558,6 +603,9 @@ public final class CombatWorld {
         Mob attacker = mob(mob);
         if (attacker.dead || attacker.body.dead()) {
             return Scheduler.Plan.refuse("mob " + mob + " is dead");
+        }
+        if (attacker.leaving) {
+            return Scheduler.Plan.refuse("mob " + mob + " is leaving the fight");
         }
         Scheduler.Plan p = Scheduler.planUnderCap(now, string, t.pulse(), strikes, beatAtLeast, cap, target);
         if (!p.ok()) {
@@ -825,7 +873,7 @@ public final class CombatWorld {
         targets.clear();
         for (int i = 0; i < mobs.size(); i++) {
             Mob m = mobs.get(i);
-            if (m.dead) {
+            if (m.dead || m.leaving) {
                 continue;
             }
             StrikeMob b = m.body;
@@ -1072,8 +1120,9 @@ public final class CombatWorld {
         if (contains(blocked, blockedCount, f.id())) {
             return false;
         }
-        if (f.leaving && s.impactTick() < n) {
-            return true; // it landed before the player left: decided on what's known, as the hold cap would
+        if ((f.leaving || mob(s.attacker()).leaving) && s.impactTick() < n) {
+            return true; // it landed before the player or its attacker left: decided on what's known, as the hold cap
+            // would
         }
         return f.horizon()
                 .decided(s.impactMicros(), true, Micros.ofTicks(n), f.holdCapMicros(), f.earliestHeldMicros());
@@ -1301,7 +1350,7 @@ public final class CombatWorld {
             Clash c = clashes.get(i);
             long press = c.f.timeline().live().clashPress();
             long falseStart = c.flash + Micros.ofMillis(r.falseStartMs());
-            if (c.f.leaving || c.mob.body.stoppedAt() >= c.from) {
+            if (c.f.leaving || c.mob.leaving || c.mob.body.stoppedAt() >= c.from) {
                 endClash(i--, Math.max(c.from, n), Outbox.ClashOutcome.TIE);
             } else if (press != NONE && press < falseStart) {
                 endClash(i--, Micros.stepOf(Math.max(press, Micros.ofTicks(c.from))), Outbox.ClashOutcome.MOB);
@@ -1413,6 +1462,9 @@ public final class CombatWorld {
                 end(i--, stop, Release.DROPPED);
             } else if (h.f.leaving) {
                 end(i--, Math.min(n, h.throwTick), Release.THROWN); // logging out can't dodge the throw (D-043)
+            } else if (h.mob.leaving) {
+                log(h.f, new Effect.Released(), n); // the grabber is gone: it lets go
+                end(i--, n, Release.DROPPED);
             } else if (n >= h.throwTick
                     && h.f.horizon()
                             .decided(

@@ -72,6 +72,19 @@ class RoutingTest {
     }
 
     @Test
+    void aMobLeftGoesToTheMobsTrackersAlone_soNobodyOnceTheyStopTracking() {
+        // a mob leaving with its chunk stops being tracked first: the client forgets it when its own entity goes
+        Trackers t = new Trackers();
+        t.start(1, DEMON);
+        Routing r = new Routing(t);
+        Outbox.MobLeft left = new Outbox.MobLeft(DEMON, 130);
+        assertTrue(r.reaches(left, 1));
+        assertFalse(r.reaches(left, 2), "need-to-know: not sent to a player who never tracked it");
+        t.stop(1, DEMON);
+        assertFalse(r.reaches(left, 1));
+    }
+
+    @Test
     void aStrikeNoLongerPendingSendsNothingMore() {
         Routing r = routing();
         assertTrue(r.reaches(started(), 1));

@@ -31,6 +31,11 @@ public final class Hunger {
         value = other.value;
     }
 
+    /** A rebuilt world (slice 5c-1): it takes over {@code old}'s Hunger, held to this maximum. */
+    public void carry(Hunger old) {
+        value = Math.min(old.value, max);
+    }
+
     /** Cellular Hardening: strictly above the line. */
     public boolean hardened() {
         return value > Math.round(max * rules.hardeningAbove());

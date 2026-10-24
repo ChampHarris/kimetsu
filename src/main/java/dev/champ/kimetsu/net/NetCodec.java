@@ -15,10 +15,10 @@ import net.minecraft.network.codec.StreamCodec;
 import org.jspecify.annotations.Nullable;
 
 /**
- * {@link NetMessage} on the wire: a type byte, then its body. Every count and string is bounded here, since a
- * registered payload has no size limit of its own below the 2 MiB frame; a message over a bound fails to decode, which
- * drops the connection as vanilla does for any malformed packet. An input frame carries its stamps relative to its send
- * stamp, so a typical one is a dozen bytes.
+ * {@link NetMessage} on the wire: a type byte, then its body, one codec per channel. Every count and string is bounded
+ * here, since a registered payload has no size limit of its own below the 2 MiB frame; a message over a bound, or of
+ * the other channel's type, fails to decode, which drops the connection as vanilla does for any malformed packet. An
+ * input frame carries its stamps relative to its send stamp, so a typical one is a dozen bytes.
  */
 public final class NetCodec {
     /** The deltas one input frame carries at most (Netcode, "Input frames"); the client sends the rest next frame. */
@@ -29,8 +29,13 @@ public final class NetCodec {
     static final int MAX_FILES = 4096;
     static final int MAX_JSON = 1 << 20; // characters in one data file
 
-    public static final StreamCodec<FriendlyByteBuf, NetMessage> CODEC =
-            StreamCodec.of(NetCodec::write, NetCodec::read);
+    /** {@code kimetsu:input}: what clients send. */
+    public static final StreamCodec<FriendlyByteBuf, NetMessage.ToServer> TO_SERVER =
+            StreamCodec.of(NetCodec::write, NetCodec::readToServer);
+
+    /** {@code kimetsu:net}: what the server sends. */
+    public static final StreamCodec<FriendlyByteBuf, NetMessage.ToClient> TO_CLIENT =
+            StreamCodec.of(NetCodec::write, NetCodec::readToClient);
 
     private NetCodec() {}
 
@@ -119,20 +124,27 @@ public final class NetCodec {
         }
     }
 
-    static NetMessage read(FriendlyByteBuf buf) {
+    static NetMessage.ToServer readToServer(FriendlyByteBuf buf) {
         int type = buf.readUnsignedByte();
         return switch (type) {
             case 0 -> new NetMessage.ClockPing(buf.readLong());
+            case 5 -> new NetMessage.EchoBack(buf.readLong());
+            case 6 -> new NetMessage.Ready();
+            case 7 -> new NetMessage.InputFrame(readFrame(buf));
+            default -> throw new DecoderException("unknown client message " + type);
+        };
+    }
+
+    static NetMessage.ToClient readToClient(FriendlyByteBuf buf) {
+        int type = buf.readUnsignedByte();
+        return switch (type) {
             case 1 -> new NetMessage.ClockPong(buf.readLong(), buf.readLong(), buf.readLong(), readRecord(buf));
             case 2 -> new NetMessage.ClockRecord(readRecord(buf));
             case 3 -> new NetMessage.ClockEpoch(Wire.readInt(buf));
             case 4 -> new NetMessage.ServerEcho(buf.readLong());
-            case 5 -> new NetMessage.EchoBack(buf.readLong());
-            case 6 -> new NetMessage.Ready();
-            case 7 -> new NetMessage.InputFrame(readFrame(buf));
             case 8 -> readTick(buf);
             case 9 -> readData(buf);
-            default -> throw new DecoderException("unknown message " + type);
+            default -> throw new DecoderException("unknown server message " + type);
         };
     }
 

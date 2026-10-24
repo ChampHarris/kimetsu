@@ -157,6 +157,22 @@ public final class Combatant {
         this.deflects = new DeflectJudge(timing);
     }
 
+    /**
+     * Before its first tick, in a rebuilt world (a data reload, or game time re-anchoring; slice 5c-1): it takes over
+     * {@code old}'s meters as they stood at {@code oldTick}, as of {@code newTick}, the same moment on this world's
+     * ticks: Breath, Winded, Posture and Rhythm, each held to its own maximum, so new rules never heal, their timers
+     * running on. A stagger still running goes on in STAGGER. Nothing else: its attack in progress went with the old
+     * world, and the new world sets its guard, its drains and its combat flag again.
+     */
+    public void carry(Combatant old, long oldTick, long newTick) {
+        breath.carry(old.breath, oldTick, newTick);
+        posture.carry(old.posture, oldTick, newTick);
+        rhythm.carry(old.rhythm, oldTick, newTick);
+        if (posture.staggered(newTick)) {
+            stagger(newTick);
+        }
+    }
+
     /** A fresh combatant sharing this one's rules, moveset and Pulse (a snapshot slot). */
     public Combatant blank() {
         return new Combatant(rules, timing, breathRules, postureRules, rhythmRules, moves, pulse, 0);

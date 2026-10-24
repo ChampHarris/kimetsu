@@ -37,11 +37,13 @@ import net.minecraft.gametest.framework.GameTestRunner;
 import net.minecraft.gametest.framework.TestData;
 import net.minecraft.gametest.framework.TestEnvironmentDefinition;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -50,6 +52,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Rotation;
@@ -84,7 +87,15 @@ public final class CombatGameTests {
             FUNCTIONS.register("the_record_names_each_tick", () -> CombatGameTests::theRecordNamesEachTick),
             FUNCTIONS.register("a_vanilla_hit_with_the_blade_does_nothing", () -> CombatGameTests::vanillaBladeHit),
             FUNCTIONS.register(
-                    "a_player_without_the_channel_has_no_session", () -> CombatGameTests::noChannelNoSession));
+                    "a_player_without_the_channel_has_no_session", () -> CombatGameTests::noChannelNoSession),
+            FUNCTIONS.register("an_unloaded_demon_leaves_alive", () -> CombatGameTests::anUnloadedDemonLeavesAlive));
+
+    /** Tests that wait on chunks generating, with {@link #CHUNK_TICKS} to do it in. */
+    private static final List<String> SLOW = List.of("an_unloaded_demon_leaves_alive");
+
+    /** Tests that rebuild every arena the server runs: each batch of its own, so no other test's fight is rebuilt. */
+    private static final List<DeferredHolder<Consumer<GameTestHelper>, Consumer<GameTestHelper>>> ALONE = List.of(
+            FUNCTIONS.register("a_reload_keeps_the_demons_wounds", () -> CombatGameTests::aReloadKeepsTheDemonsWounds));
 
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Identifier EMPTY_STRUCTURE = Identifier.withDefaultNamespace("empty");
@@ -98,6 +109,12 @@ public final class CombatGameTests {
     private static final long HOLD_AFTER_MS = 200;
     /** The floor each fight stands on, in blocks from the test's corner. */
     private static final int FLOOR = 9;
+    /** How far a chunk of its own lies from a test's, in chunks: no test's tickets keep it loaded. */
+    private static final int FAR_CHUNKS = 64;
+    /** A test that waits on chunks generating: the server runs its ticks back to back, so 600 pass in a second. */
+    private static final int CHUNK_TICKS = 6000;
+    /** How long a chunk ticks again before a test calls what it lost gone: a second. */
+    private static final int BACK_TICKS = 20;
 
     private CombatGameTests() {}
 
@@ -110,24 +127,34 @@ public final class CombatGameTests {
         Holder<TestEnvironmentDefinition<?>> environment =
                 event.registerEnvironment(Identifier.fromNamespaceAndPath(Kimetsu.MOD_ID, "combat"));
         for (var function : TESTS) {
-            event.registerTest(
-                    function.getId(),
-                    new FunctionGameTestInstance(
-                            function.key(),
-                            new TestData<>(
-                                    environment,
-                                    Level.OVERWORLD,
-                                    EMPTY_STRUCTURE,
-                                    MAX_TICKS,
-                                    0,
-                                    true,
-                                    Rotation.NONE,
-                                    false,
-                                    1,
-                                    1,
-                                    false,
-                                    FLOOR)));
+            register(event, function, environment);
         }
+        for (var function : ALONE) { // batches run one after another, one per environment
+            register(event, function, event.registerEnvironment(function.getId()));
+        }
+    }
+
+    private static void register(
+            RegisterGameTestsEvent event,
+            DeferredHolder<Consumer<GameTestHelper>, Consumer<GameTestHelper>> function,
+            Holder<TestEnvironmentDefinition<?>> environment) {
+        event.registerTest(
+                function.getId(),
+                new FunctionGameTestInstance(
+                        function.key(),
+                        new TestData<>(
+                                environment,
+                                Level.OVERWORLD,
+                                EMPTY_STRUCTURE,
+                                SLOW.contains(function.getId().getPath()) ? CHUNK_TICKS : MAX_TICKS,
+                                0,
+                                true,
+                                Rotation.NONE,
+                                false,
+                                1,
+                                1,
+                                false,
+                                FLOOR)));
     }
 
     // ------------------------------------------------------------------------------------------------- the tests
@@ -487,7 +514,154 @@ public final class CombatGameTests {
         h.succeed();
     }
 
+    /**
+     * A real {@code /reload} rebuilds every arena's world (slice 5c-1): the demon's wounds carry over, so it no longer
+     * comes back at full HP, and the entity shows the engine's HP. Its batch is its own: the reload rebuilds every arena
+     * the server runs, and another test's strikes would be cancelled.
+     */
+    private static void aReloadKeepsTheDemonsWounds(GameTestHelper h) {
+        CombatServer c = combat(h);
+        floor(h);
+        Arena arena = arena(h);
+        TestDummy dummy = dummy(h, arena, 4, 7, 180);
+        M1Demon demon = demon(h, arena, 4, 2, 0, body -> new ScriptedBrain(body, dummy::getId));
+        @Nullable Demon[] before = new Demon[1];
+        int[] generation = {Integer.MIN_VALUE};
+        h.runAfterDelay(
+                2,
+                () -> demon.hurtServer(
+                        h.getLevel(), h.getLevel().damageSources().generic(), 1000f));
+        h.runAfterDelay(5, () -> {
+            before[0] = demon.body();
+            generation[0] = c.generation();
+            MinecraftServer server = h.getLevel().getServer();
+            var _ = server.reloadResources(server.getPackRepository().getSelectedIds()); // its failure fails the wait
+        });
+        h.succeedWhen(() -> {
+            Demon old = before[0];
+            Demon now = demon.body();
+            h.assertTrue(old != null && c.generation() > generation[0], "no reload has swapped in yet");
+            h.assertTrue(now != null && now != old, "the reload didn't rebuild the demon's world");
+            if (old == null || now == null) {
+                return;
+            }
+            double max = now.profile().maxHp();
+            h.assertTrue(now.hp() < max / 2, "the reload healed the demon: " + now.hp() + " of " + max);
+            h.assertTrue(
+                    Math.abs(now.hp() - old.hp()) <= 1, "its HP is " + now.hp() + ", not the " + old.hp() + " it had");
+            h.assertTrue(
+                    Math.abs(demon.getHealth() - now.hp()) < 0.1,
+                    "the entity shows " + demon.getHealth() + ", the engine " + now.hp());
+            h.assertTrue(demon.isAlive(), "the reload killed it");
+        });
+    }
+
+    /**
+     * Its chunk going out of tracking takes the demon out of the fight alive (slice 5c-1): {@code MobLeft}, never
+     * {@code MobDied}. A {@code noSave} demon is unloaded with its chunk and gone, even when the chunk itself stays loaded
+     * (B-001), so with its chunk back it stays gone and nothing counts it dead; its return, saved with its wounds, is
+     * 5c-2's (D-063). The chunk is one of its own, far from every test's, unloaded by dropping its forced ticket and
+     * brought back by forcing it.
+     */
+    private static void anUnloadedDemonLeavesAlive(GameTestHelper h) {
+        ServerLevel level = h.getLevel();
+        Arena arena = arena(h);
+        BlockPos origin = h.absolutePos(BlockPos.ZERO);
+        int cx = (origin.getX() >> 4) + FAR_CHUNKS;
+        int cz = (origin.getZ() >> 4) + FAR_CHUNKS;
+        BlockPos at = new BlockPos((cx << 4) + 8, origin.getY() + 1, (cz << 4) + 8);
+        level.setChunkForced(cx, cz, true);
+        @Nullable M1Demon[] demon = new M1Demon[1];
+        boolean[] seen = new boolean[2]; // it left, it died
+        int[] stage = {0};
+        int[] ticks = {0};
+        int[] back = {0}; // ticks its chunk has ticked entities again
+        arena.listen(e -> {
+            M1Demon d = demon[0];
+            if (d != null && e instanceof Outbox.MobLeft l && l.mob() == d.getId()) {
+                seen[0] = true;
+            } else if (d != null && e instanceof Outbox.MobDied x && x.mob() == d.getId()) {
+                seen[1] = true;
+            }
+        });
+        h.onEachTick(() -> {
+            if (++ticks[0] == CHUNK_TICKS - 10 && stage[0] < 5) { // say where it stuck, not just that it timed out
+                throw h.assertionException("stuck at stage " + stage[0] + " (0: the chunk loading, 1: joining, 2: the"
+                        + " wound, 3: leaving, 4: its chunk back); its chunk entity-ticking: "
+                        + level.isPositionEntityTicking(at) + ", holder: "
+                        + level.getChunkSource()
+                                .getChunkDebugData(new ChunkPos(cx, cz))
+                                .replace('\n', ' ') + "; the entity: "
+                        + (demon[0] == null
+                                ? "none"
+                                : "in the level " + (level.getEntity(demon[0].getId()) != null) + ", removed "
+                                        + demon[0].getRemovalReason() + ", ticks " + demon[0].tickCount));
+            }
+            M1Demon d = demon[0];
+            Demon body = d == null ? null : d.body();
+            switch (stage[0]) {
+                case 0 -> { // its chunk ticks entities: in it goes
+                    if (level.isPositionEntityTicking(at)) {
+                        M1Demon made = KimetsuEntities.M1_DEMON.get().create(level, EntitySpawnReason.MOB_SUMMONED);
+                        if (made == null) {
+                            throw h.assertionException("no M1 demon");
+                        }
+                        made.snapTo(at.getX() + 0.5, at.getY(), at.getZ() + 0.5, 0, 0);
+                        made.fightIn(arena);
+                        made.useBrain(b -> new ScriptedBrain(b, () -> -1));
+                        made.setNoAi(true);
+                        level.addFreshEntity(made);
+                        demon[0] = made;
+                        stage[0] = 1;
+                    }
+                }
+                case 1 -> { // it joined: vanilla damage takes it to its floor
+                    if (d != null && body != null) {
+                        d.hurtServer(level, level.damageSources().generic(), 1000f);
+                        stage[0] = 2;
+                    }
+                }
+                case 2 -> { // wounded: its chunk goes
+                    if (body != null && body.hp() < body.profile().maxHp()) {
+                        level.setChunkForced(cx, cz, false);
+                        stage[0] = 3;
+                    }
+                }
+                case 3 -> { // it left alive: its chunk comes back
+                    h.assertFalse(seen[1], "the engine counted it dead");
+                    if (seen[0] && d != null) {
+                        h.assertFalse(arena.world().hasMob(d.getId()), "it left, but the world still has it");
+                        level.setChunkForced(cx, cz, true);
+                        stage[0] = 4;
+                    }
+                }
+                case 4 -> { // its chunk ticking again: the demon stays gone, and nothing counts it dead
+                    h.assertFalse(seen[1], "the engine counted it dead");
+                    if (d != null && level.isPositionEntityTicking(at) && ++back[0] == BACK_TICKS) {
+                        h.assertTrue(
+                                d.getRemovalReason() == Entity.RemovalReason.UNLOADED_TO_CHUNK,
+                                "it went " + d.getRemovalReason() + ", not unloaded with its chunk");
+                        h.assertTrue(
+                                level.getEntity(d.getId()) == null, "an unloaded noSave demon is back in the level");
+                        h.assertFalse(arena.world().hasMob(d.getId()), "it's back in the fight");
+                        stage[0] = 5;
+                        h.succeed();
+                    }
+                }
+                default -> {}
+            }
+        });
+    }
+
     // ------------------------------------------------------------------------------------------------- set-up
+
+    private static CombatServer combat(GameTestHelper h) {
+        CombatServer c = CombatServer.of(h.getLevel().getServer());
+        if (c == null) {
+            throw h.assertionException("the combat server isn't running: the combat data didn't load");
+        }
+        return c;
+    }
 
     private static CombatData data(GameTestHelper h) {
         CombatServer c = CombatServer.of(h.getLevel().getServer());

@@ -35,6 +35,7 @@ public final class Audience {
             case Outbox.ClashStarted _ -> NOBODY;
             case Outbox.ClashEnded _ -> NOBODY;
             case Outbox.MobDied _ -> NOBODY;
+            case Outbox.MobLeft _ -> NOBODY;
             case Outbox.MobState _ -> NOBODY;
             case Outbox.GuardYaw _ -> NOBODY;
             case Outbox.Targeting _ -> NOBODY;
@@ -57,6 +58,7 @@ public final class Audience {
             case Outbox.ClashStarted c -> c.mob();
             case Outbox.ClashEnded c -> c.mob();
             case Outbox.MobDied d -> d.mob();
+            case Outbox.MobLeft l -> l.mob();
             case Outbox.MobState m -> m.mob();
             case Outbox.GuardYaw g -> g.mob();
             case Outbox.Targeting t -> t.mob();
@@ -86,6 +88,7 @@ public final class Audience {
             case Outbox.SwingLanded _ -> NO_STRIKE;
             case Outbox.SwingDealt _ -> NO_STRIKE;
             case Outbox.MobDied _ -> NO_STRIKE;
+            case Outbox.MobLeft _ -> NO_STRIKE;
             case Outbox.MobState _ -> NO_STRIKE;
             case Outbox.GuardYaw _ -> NO_STRIKE;
             case Outbox.Targeting _ -> NO_STRIKE;
@@ -106,6 +109,7 @@ public final class Audience {
             case Outbox.ClashStarted c -> c.fighter();
             case Outbox.ClashEnded c -> c.fighter();
             case Outbox.MobDied d -> d.by(); // −1 when nobody cut it: NOBODY
+            case Outbox.MobLeft _ -> NOBODY;
             case Outbox.Targeting t -> t.fighter();
             case Outbox.Clang c -> c.fighter();
             case Outbox.StrikeLocked _ -> NOBODY;
@@ -137,6 +141,7 @@ public final class Audience {
             case Outbox.SwingLanded _ -> false;
             case Outbox.SwingDealt _ -> false;
             case Outbox.MobDied _ -> false;
+            case Outbox.MobLeft _ -> false;
             case Outbox.MobState _ -> false;
             case Outbox.GuardYaw _ -> false;
             case Outbox.Targeting _ -> false;

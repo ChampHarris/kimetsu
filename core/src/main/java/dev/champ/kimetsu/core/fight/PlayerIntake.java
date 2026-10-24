@@ -6,6 +6,7 @@ import dev.champ.kimetsu.core.judge.InputHorizon;
 import dev.champ.kimetsu.core.judge.RttWindow;
 import dev.champ.kimetsu.core.judge.StampCheck;
 import dev.champ.kimetsu.core.machine.Input;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import org.jspecify.annotations.Nullable;
@@ -25,7 +26,12 @@ import org.jspecify.annotations.Nullable;
  *
  * <p>Each step, held presses whose anchor didn't come are clamped and released (the stamp check's expiry), so a stall
  * doesn't keep every later strike waiting for its hold cap. A fighter that rejoins after a rebuild gets a fresh
- * timeline; the stamp check, the RTT and the jitter they measured carry on. Not thread-safe.
+ * timeline; the stamp check, the RTT and the jitter they measured carry on.
+ *
+ * <p>It keeps each frame until a snapshot includes it whole ({@link #settledSeq}): the latest tick one of its presses
+ * acts at, and how many the stamp check still holds. A press acts at its judged tick, or after the timeline's
+ * watermark if the world has read past that; one the barrier holds and releases after the watermark moved can act a
+ * tick later than counted (step 5's reconciliation closes that). Not thread-safe.
  */
 public final class PlayerIntake {
     /** A key on the wire: its number there, fixed whatever the order here, and its bit in a frame's held state. */
@@ -122,6 +128,19 @@ public final class PlayerIntake {
         public Frame {
             deltas = List.copyOf(deltas);
         }
+
+        /** This frame carrying {@code earlier}'s deltas before its own (a merge): its own stamps, held state and pose. */
+        public Frame after(Frame earlier) {
+            List<Delta> all = new ArrayList<>(earlier.deltas.size() + deltas.size());
+            all.addAll(earlier.deltas);
+            all.addAll(deltas);
+            return new Frame(seq, sendStampMicros, frameTimeMicros, tickTimeMicros, epoch, held, all);
+        }
+
+        /** The same frame with no pose: one merged away loses its tick time. */
+        public Frame withoutPose() {
+            return new Frame(seq, sendStampMicros, frameTimeMicros, InputHorizon.NO_TICK, epoch, held, deltas);
+        }
     }
 
     /** What the intake judged into the fighter's timeline, with the stamp it was sent with: the server's log. */
@@ -131,7 +150,14 @@ public final class PlayerIntake {
 
     public static final Sink NO_SINK = (in, sent) -> {};
 
-    private static final int MAX_PENDING = 64; // the stamp check holds no more
+    /** The presses and releases it holds for a stall's anchor at most (the stamp check holds no more). */
+    public static final int MAX_PENDING = 64;
+
+    private static final int FRAMES = 256; // frames kept until settled: 6 s at the meter's 40 a second
+    private static final long NONE = Long.MIN_VALUE;
+
+    /** A press or release the stamp check holds, and the frame it came in (by the intake's own count). */
+    private record Held(Delta delta, long frame) {}
 
     private final TimingRules rules;
     private final StampCheck check;
@@ -140,9 +166,18 @@ public final class PlayerIntake {
     private @Nullable Fighter fighter;
 
     private final long[] pendingToken = new long[MAX_PENDING];
-    private final @Nullable Delta[] pendingDelta = new Delta[MAX_PENDING];
+    private final @Nullable Held[] pendingDelta = new Held[MAX_PENDING];
     private int pendingCount;
     private long nextToken;
+
+    // the frames no snapshot has included whole, oldest first: numbered by the intake (a client's seq is its own say)
+    private final long[] frameSeq = new long[FRAMES];
+    private final long[] frameActs = new long[FRAMES]; // the latest tick one of its presses acts at
+    private final int[] frameHeld = new int[FRAMES]; // its presses the stamp check holds
+    private int frameHead;
+    private int frameCount;
+    private long frameNext; // the number the next frame gets
+    private long settledSeq = -1;
 
     private int told; // the releasable keys the timeline holds down
     private final long[] releasedAt = new long[Key.ALL.length]; // by wire number: the last release given, judged
@@ -169,6 +204,9 @@ public final class PlayerIntake {
     public void join(Fighter f) {
         fighter = f;
         told = 0;
+        for (int i = 0; i < frameCount; i++) {
+            frameActs[(frameHead + i) % FRAMES] = NONE; // what they gave went with the old timeline
+        }
         long r = rtt.minMicros(now);
         keep(f, r, holdCap(r));
     }
@@ -189,6 +227,8 @@ public final class PlayerIntake {
         pendingUp = 0;
         told = 0;
         Arrays.fill(releasedAt, Long.MIN_VALUE);
+        frameCount = 0; // out of the fight, no frame waits on anything
+        settledSeq = lastSeq;
     }
 
     public @Nullable Fighter fighter() {
@@ -217,6 +257,20 @@ public final class PlayerIntake {
     }
 
     /**
+     * The sequence number of the newest frame the state at the end of {@code settledTick} includes whole, or −1
+     * ({@code Snapshot.lastSeq}): every press it and the frames before it carried acts by then, and the stamp check holds
+     * none of them. Asked with settled ticks that only move on.
+     */
+    public long settledSeq(long settledTick) {
+        while (frameCount > 0 && frameHeld[frameHead] == 0 && frameActs[frameHead] <= settledTick) {
+            settledSeq = frameSeq[frameHead];
+            frameHead = (frameHead + 1) % FRAMES;
+            frameCount--;
+        }
+        return settledSeq;
+    }
+
+    /**
      * The newest stamp the stamp check let a frame count, or {@code Long.MIN_VALUE} before the first frame of this
      * epoch: how far the player's input is known, which bounds the tick a snapshot settles.
      */
@@ -232,6 +286,7 @@ public final class PlayerIntake {
     public boolean frame(Frame f, long arrivalMicros, boolean frozen) {
         lastSeq = f.seq();
         now = arrivalMicros;
+        long no = open(f.seq());
         long r = rtt.minMicros(arrivalMicros);
         long counted = check.frame(f.sendStampMicros(), arrivalMicros, frozen ? 0 : r, f.epoch());
         newest = Math.max(newest, counted);
@@ -239,13 +294,13 @@ public final class PlayerIntake {
         long cap = holdCap(r);
         List<Delta> deltas = f.deltas();
         for (int i = 0; i < deltas.size(); i++) {
-            judge(deltas.get(i), f.frameTimeMicros(), cap);
+            judge(deltas.get(i), f.frameTimeMicros(), cap, no);
         }
         int stale = told & ~f.held() & ~pendingUp;
         if (stale != 0) {
             for (Key k : Key.ALL) {
                 if ((stale & k.bit()) != 0) {
-                    judge(Delta.release(k, f.sendStampMicros()), f.frameTimeMicros(), cap);
+                    judge(Delta.release(k, f.sendStampMicros()), f.frameTimeMicros(), cap, no);
                 }
             }
         }
@@ -315,7 +370,28 @@ public final class PlayerIntake {
         }
     }
 
-    private void judge(Delta d, long frameTimeMicros, long cap) {
+    /** Frame {@code seq} came: it's kept until a snapshot includes it whole. Returns its number. */
+    private long open(long seq) {
+        if (frameCount == FRAMES) { // a client out of the fight whose frames nothing settles: the oldest goes
+            settledSeq = frameSeq[frameHead];
+            frameHead = (frameHead + 1) % FRAMES;
+            frameCount--;
+        }
+        int i = (frameHead + frameCount) % FRAMES;
+        frameSeq[i] = seq;
+        frameActs[i] = NONE;
+        frameHeld[i] = 0;
+        frameCount++;
+        return frameNext++;
+    }
+
+    /** The slot of frame number {@code no}, or −1 once it's settled. */
+    private int slotOf(long no) {
+        long back = frameNext - no; // 1 for the newest
+        return back < 1 || back > frameCount ? -1 : (int) ((frameHead + frameCount - back) % FRAMES);
+    }
+
+    private void judge(Delta d, long frameTimeMicros, long cap, long no) {
         Key k = d.key();
         if (!d.down() && (!k.releasable() || ((told | pendingDown) & k.bit()) == 0)) {
             return; // a key with no release in the machine, or one the timeline never held
@@ -323,19 +399,23 @@ public final class PlayerIntake {
         long token = ++nextToken;
         long judged = check.press(token, d.stampMicros(), frameTimeMicros, cap);
         if (judged == StampCheck.HELD) {
-            hold(token, d);
+            hold(token, d, no);
         } else if (judged != StampCheck.DROPPED) {
-            give(d, judged);
+            give(d, judged, no);
         }
     }
 
-    private void hold(long token, Delta d) {
+    private void hold(long token, Delta d, long no) {
         if (pendingCount == MAX_PENDING) {
             return; // the stamp check never holds more than it has room for
         }
         pendingToken[pendingCount] = token;
-        pendingDelta[pendingCount] = d;
+        pendingDelta[pendingCount] = new Held(d, no);
         pendingCount++;
+        int slot = slotOf(no);
+        if (slot >= 0) {
+            frameHeld[slot]++;
+        }
         if (d.key().releasable()) {
             if (d.down()) {
                 pendingDown |= d.key().bit();
@@ -349,10 +429,11 @@ public final class PlayerIntake {
     private void drain() {
         int n = check.releasedCount();
         for (int i = 0; i < n; i++) {
-            Delta d = take(check.releasedToken(i));
-            if (d == null) {
+            Held h = take(check.releasedToken(i));
+            if (h == null) {
                 continue;
             }
+            Delta d = h.delta();
             if (d.key().releasable()) {
                 if (d.down()) {
                     pendingDown &= ~d.key().bit();
@@ -360,18 +441,22 @@ public final class PlayerIntake {
                     pendingUp &= ~d.key().bit();
                 }
             }
+            int slot = slotOf(h.frame());
+            if (slot >= 0) {
+                frameHeld[slot]--;
+            }
             long judged = check.releasedJudged(i);
             if (judged != StampCheck.DROPPED) {
-                give(d, judged);
+                give(d, judged, h.frame());
             }
         }
         check.clearReleased();
     }
 
-    private @Nullable Delta take(long token) {
+    private @Nullable Held take(long token) {
         for (int i = 0; i < pendingCount; i++) {
             if (pendingToken[i] == token) {
-                Delta d = pendingDelta[i];
+                Held d = pendingDelta[i];
                 pendingCount--;
                 pendingToken[i] = pendingToken[pendingCount];
                 pendingDelta[i] = pendingDelta[pendingCount];
@@ -382,7 +467,7 @@ public final class PlayerIntake {
         return null;
     }
 
-    private void give(Delta d, long judged) {
+    private void give(Delta d, long judged, long no) {
         Fighter f = fighter;
         if (f == null) {
             return;
@@ -399,6 +484,12 @@ public final class PlayerIntake {
         }
         f.timeline().receive(in);
         sink.judged(in, d.stampMicros());
+        int slot = slotOf(no);
+        if (slot >= 0) {
+            long w = f.timeline().watermark();
+            long acts = w == NONE ? in.tick() : Math.max(in.tick(), w + 1);
+            frameActs[slot] = Math.max(frameActs[slot], acts);
+        }
     }
 
     private long holdCap(long rttMicros) {

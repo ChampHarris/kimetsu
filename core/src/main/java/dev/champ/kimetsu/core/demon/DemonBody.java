@@ -118,6 +118,31 @@ final class DemonBody {
         System.arraycopy(o.sAnswer, 0, sAnswer, 0, n);
     }
 
+    /**
+     * A rebuilt world, or the same demon back from an unloaded chunk (slice 5c-1): it takes over {@code o}'s wounds as
+     * they stood at {@code oldTick}, as of {@code newTick}, the same moment on its own ticks. HP, Hunger and Posture are
+     * held to this profile's maxima, so new data never heals it; the HP its wounds took (its vitality), a regeneration
+     * pause, a stagger, a collapse and the Thread they opened run on for the ticks they had left. Nothing else: its
+     * strikes, holds and clash went with the old world, and a stun or a knockdown with them.
+     */
+    void carry(DemonBody o, long oldTick, long newTick) {
+        long shift = newTick - oldTick;
+        hp = Math.min(o.hp, maxHp);
+        hunger.carry(o.hunger);
+        posture.carry(o.posture, oldTick, newTick);
+        damageTaken = o.damageTaken;
+        posture.setDamageTaken(newTick, Math.min(1.0, damageTaken / (double) maxHp));
+        regenPausedUntil = shifted(o.regenPausedUntil, shift);
+        collapsedAt = shifted(o.collapsedAt, shift);
+        brokenAt = shifted(o.brokenAt, shift);
+        hungerOpenUntil = shifted(o.hungerOpenUntil, shift);
+        wasEmpty = o.wasEmpty;
+    }
+
+    private static long shifted(long tick, long shift) {
+        return tick == NONE ? NONE : tick + shift;
+    }
+
     // ------------------------------------------------------------------------------------------- what it's doing
 
     boolean dead(long t) {

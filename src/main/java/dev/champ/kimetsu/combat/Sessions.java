@@ -65,10 +65,12 @@ public final class Sessions {
 
     // ------------------------------------------------------------------------------------------------- players
 
-    /** A connection without the channel (a GameTest's mock player) gets no session: sending to it would throw. */
+    /** A connection without both channels (a GameTest's mock player) gets no session: sending to it would throw. */
     void login(ServerPlayer p) {
         server.checkThread();
-        if (!p.connection.hasChannel(NetMessage.TYPE) || byListener.containsKey(p.connection)) {
+        if (!p.connection.hasChannel(NetMessage.ToClient.TYPE)
+                || !p.connection.hasChannel(NetMessage.ToServer.TYPE)
+                || byListener.containsKey(p.connection)) {
             return;
         }
         PlayerSession s = new PlayerSession(this, p, server.data(), server.epoch());
@@ -127,10 +129,12 @@ public final class Sessions {
 
     // ------------------------------------------------------------------------------------------------- the clock
 
-    /** {@code ServerTickEvent.Pre}, once the tick's record is published: record pushes. */
+    /** {@code ServerTickEvent.Pre}, once the tick's record is published: record pushes, and merges the gates held. */
     void tickStarted(TickRecord published, long nowNanos) {
         for (int i = 0; i < all.size(); i++) {
-            all.get(i).offer(published, nowNanos);
+            PlayerSession s = all.get(i);
+            s.offer(published, nowNanos);
+            s.tickStarted();
         }
     }
 
@@ -141,11 +145,16 @@ public final class Sessions {
         }
     }
 
-    /** A new generation swaps in, before the arenas rebuild: every client gets its data first. */
+    /**
+     * A new generation swaps in, before the arenas rebuild: every client gets its data first, and its record push
+     * goes on under the new clock rules.
+     */
     void generationSwapped(int generation, CombatData data) {
         NetMessage.DataSync d = sync(data, generation);
         for (int i = 0; i < all.size(); i++) {
-            all.get(i).send(d);
+            PlayerSession s = all.get(i);
+            s.send(d);
+            s.push.retune(data.rules().clock());
         }
     }
 

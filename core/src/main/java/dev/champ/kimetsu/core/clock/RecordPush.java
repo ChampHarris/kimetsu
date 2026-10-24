@@ -13,7 +13,7 @@ import org.jspecify.annotations.Nullable;
  * network thread notes the record each pong carried, so both are synchronized (20 and 1 a second, uncontended).
  */
 public final class RecordPush {
-    private final ClockRules rules;
+    private ClockRules rules;
     private @Nullable TickRecord sent; // none until the join's pong burst carries the first record
     private double tokens;
     private long lastNanos;
@@ -45,6 +45,15 @@ public final class RecordPush {
         }
         sent = record;
         return true;
+    }
+
+    /**
+     * A reload changed the clock rules: the push goes on under them, still knowing what the client has (a new one would
+     * push nothing until the next pong), its bucket held to the new burst.
+     */
+    public synchronized void retune(ClockRules rules) {
+        this.rules = rules;
+        tokens = Math.min(tokens, rules.pushBurst());
     }
 
     /** A pong carried {@code record} to this client: it has it. */
