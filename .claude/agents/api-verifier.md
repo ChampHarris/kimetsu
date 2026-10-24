@@ -14,7 +14,7 @@ Training data barely covers Minecraft 26.x. Your job is to stop invented APIs be
 1. List every external symbol the plan or diff uses: classes, methods, fields, events, registries, codecs, JSON fields, Gradle coordinates.
 2. Find each one:
    - Minecraft and NeoForge: `rg -n "<Symbol>" ref-src/` (decompiled sources from `python tools/refsrc.py`). Read the declaration and its callers.
-   - Libraries (PAL, AzureLib, GeckoLib, Iris API, LambDynamicLights): their sources jar if present in `ref-src/libs/`, else the official docs or repository at the pinned version in `gradle.properties`.
+   - Libraries (PAL, AzureLib, GeckoLib, Iris API, LambDynamicLights): their sources jar if present in `ref-src/libs/`, else the official docs or repository at the pinned version (`gradle.properties`; the optional compat libraries such as Iris API and LambDynamicLights are pinned only in `docs/adr/0001-platform-and-stack.md`).
    - Migration notes: the NeoForge primer for the version (`https://docs.neoforged.net/primer/docs/<version>/`).
 3. If `ref-src/` is missing or stale (its `VERSION` file doesn't match `gradle.properties`), say so first and stop.
 

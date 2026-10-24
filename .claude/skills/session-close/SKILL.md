@@ -7,7 +7,7 @@ allowed-tools: Bash(git status*) Bash(git diff*) Bash(git log*) Read Edit
 # /session-close
 
 1. `git status --short` and `git log --oneline -10`: what changed this session.
-2. Update `docs/state.md`, section `## Now` only (replace it; keep it under 25 lines): date, milestone, what was built or decided (with evidence: test counts, spec status), what's next (the single next action first), and blockers waiting on Champ.
+2. Update `docs/state.md`, section `## Now` only (replace it). Two hooks read it: the session start shows only its first part (about 1,400 characters), and the status line takes `**Milestone:**` and the first `1.` item on the line after a `**Next…**` label. So write, in this order: the date and `**Milestone:**`; `**Next:**` with the single next action as `1.` on its own line; what's waiting on Champ; then what was built or decided, with its evidence (test counts, spec status). Keep it short; detail belongs in `docs/decisions.md` and the specs.
 3. Append to `docs/decisions.md` any decision made this session: what, who decided, why, what would reopen it.
 4. Append to `docs/gotchas.md` anything that surprised you about the APIs, tools or build (with the fix), so it never costs time twice. If the gotcha is already there, don't add a copy: bump its `(seen N)` count at the end of its line (add `(seen 2)` the first time). `/retro` turns the most-seen ones into hooks or rules.
 5. Blockers: if `/blocked` recorded anything this session, check its entry in `docs/blockers.md` is current (status, what's needed from Champ). Mark solved ones `**Status:** resolved` with the fix in one line.

@@ -66,7 +66,7 @@ On Windows use `gradlew.bat` in cmd or PowerShell, or `./gradlew` in Git Bash; u
 
 ## Architecture
 - `core/`: plain Java 25, no Minecraft imports (hook-enforced): meters, the Pulse clock, frame data, the combat state machine, hit resolution, the strike scheduler and judge. JUnit only.
-- Mod module: NeoForge glue. Data Attachments (per-entity state, synced on change), SavedData (world state), datapack registries (forms, frame data, arcs, combat rules, later arts, missions, boss phases), `CustomPacketPayload` + `StreamCodec` payloads, events.
+- Mod module: NeoForge glue. Data Attachments (per-entity state, synced on change), SavedData (world state), datapack JSON (frame data, styles, combatant profiles and combat rules load through the `data.CombatDataLoader` reload listener, not a datapack registry: `.claude/rules/content-data.md`; later arcs, arts, missions and boss phases), `CustomPacketPayload` + `StreamCodec` payloads, events.
 - `client.render` / `kfx`: all drawing, on RenderPipelines, submitted render features and post-effect JSON. No raw OpenGL (hook-enforced). Works on Vulkan with no shaderpack first.
 - `src/generated/scope/`: the vanilla-scope datapack for the current milestone. Generated; never edit it by hand. It has its own folder because datagen's `runData` deletes whatever its providers didn't write in `src/generated/resources/`. Change `art/vanilla-scope.json` and rerun the tool; when a milestone starts, bump its `milestone` first.
 - Rules per area load automatically from `.claude/rules/` (Java, rendering, content data, assets, design docs).
@@ -79,7 +79,7 @@ On Windows use `gradlew.bat` in cmd or PowerShell, or `./gradlew` in Git Bash; u
 - **Versions:** `/port-plan <version>` before any Minecraft or NeoForge hop. **Milestone gate:** `/milestone-check` (Champ triggers it).
 - **Effort:** real work starts with Claude asking which effort to use (Ultracode, Max, Extra, High), its recommendation first; Champ's pick holds for the session (`docs/tools/effort.md`). `/max`, `/extra` or `/high <task>` picks directly; only Champ turns Ultracode on (`ultracode` in a message, or `/effort ultracode`).
 - **End of session:** `/session-close` updates `docs/state.md`, `docs/decisions.md` and `docs/gotchas.md`.
-- **Models:** Opus 5.5 runs the session and every agent (each agent file pins `model: opus`, so a Fable session doesn't spawn Fable agents). Fable is for a second opinion on a hard call, through `/advisor fable` and only with Champ's OK; it costs 2.5× as much per token and trails Opus 5.5 on Anthropic's own coding benchmarks. If a safety flag would switch models, Claude Code asks first.
+- **Models:** Opus runs the session and every agent (each agent file pins `model: opus`, so a Fable session doesn't spawn Fable agents). Fable is for a second opinion on a hard call, through `/advisor fable` and only with Champ's OK; at ADR 0003's check (2026-10-22, Opus 5.5 against Fable 5.1) it cost 2.5× as much per token and trailed Opus on Anthropic's own coding benchmarks. If a safety flag would switch models, Claude Code asks first.
 - Build order (GDD): M1 combat core → M2 cold open and Slayer slice → M3 demon core → M4 Domain engine and first bosses → M5 living world → M6 paths and endgame powers → M7 story and factions. Don't pull later features forward.
 
 ## Quality loop (ADR 0003, `docs/tools/quality-gates.md`)

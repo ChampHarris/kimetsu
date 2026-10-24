@@ -17,7 +17,7 @@ paths:
 
 ## Patterns
 - Per-entity state: Data Attachments, synced only when the value changes, never every tick.
-- World state: `SavedData`. Content and every tunable number: datapack registries (`content-data.md`). No balance numbers in Java.
+- World state: `SavedData`. Content and every tunable number: datapack JSON; the combat data loads through the `data.CombatDataLoader` reload listener, not a datapack registry (`content-data.md`). No balance numbers in Java.
 - Networking: `CustomPacketPayload` + `StreamCodec`, registered in the payload registration event. Server-authoritative: the client predicts animation and the Pulse; the server decides hits, meters and outcomes. **Need-to-know:** never send a client information its player isn't entitled to (disguises, Threads, Ghosts, scent).
 - Timing: 20 TPS, 1 tick = 50 ms. Beat maths in milliseconds; input packets carry tick + sub-tick fraction and the server judges with that stamp when it's within a jitter tolerance of `arrival − RTT/2` (R6-05). PvE windows never change size (cues carry their impact tick). Only in PvP does the defender's late edge get `min(RTT/2 + interpolation delay, 80 ms)`.
 - Damage: map the GDD pipeline onto the 26.x damage events after checking their names and order in `ref-src/` (they changed shape across 1.21.x). Mod damage replaces vanilla invulnerability frames with per-attacker, per-swing cooldowns.

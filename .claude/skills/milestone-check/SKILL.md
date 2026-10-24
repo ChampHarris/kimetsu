@@ -27,6 +27,6 @@ Run every check, keep going after failures, and report all of them. Nothing is "
 | 13 | Sims | `python tools/sims/duel_sim.py --fights 2000` and, from M3, `python tools/sims/night_sim.py --nights 300 --moon quarter` | inside the targets of the approved specs, or the change is explained |
 | 14 | Changelog | `CHANGELOG.md` | has an entry for $ARGUMENTS |
 | 15 | Kit health | `python tools/kit_lint.py`, then each `python .claude/hooks/tests/test_*.py` | 0 problems, every hook test passes |
-| 16 | Outside review | the `code-reviewer` agent on the whole milestone (`git diff <previous milestone tag>...HEAD`, plus the milestone's specs) | verdict ship, or Champ accepts each listed finding as debt |
+| 16 | Outside review | the `code-reviewer` agent on the whole milestone (`git diff <previous milestone tag>...HEAD`, or, while the repo has no milestone tags, from the previous milestone's closing commit as `git log --oneline` names it, such as "M0 baseline"; plus the milestone's specs) | verdict ship, or Champ accepts each listed finding as debt |
 
 Then list what Champ must decide (known issues to accept, debt to carry), and update `## Now` in `docs/state.md`. Close with one line suggesting `/retro` (Champ runs it; it turns this milestone's friction into kit changes). When mutation testing lands (ADR 0002 follow-up), add its row here. When the next milestone starts, its first task is to bump `milestone` in `art/vanilla-scope.json` and regenerate the pack (`--datapack src/generated/scope --lock`), so the new removals land with that milestone's work.

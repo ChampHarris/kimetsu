@@ -43,5 +43,5 @@ Fix what they found. Record each red-team finding and what you changed under "Ri
 ## 7. Report to Champ (short)
 - First line: the verdict on his original framing (agree / disagree / better version).
 - The recommendation in five lines or fewer.
-- The open questions only he can answer (taste, scope, priorities), numbered.
+- The open questions only he can answer (taste, scope, priorities): ask each with AskUserQuestion, your recommendation first; they also stay in the spec's Open Questions.
 - The spec path. Everything else lives in the spec.

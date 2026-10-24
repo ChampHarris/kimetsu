@@ -21,7 +21,7 @@ You review code you didn't write, for a developer who doesn't read Java. Your re
 - **Tests:** each rule with a number has a test that fails if the number changes; tests assert behaviour, not implementation. Any test switched off, skipped, deleted, loosened, or with fewer assertions than before (the Stop hook flags these; you judge whether the reason holds).
 - **Scope:** changes the task didn't need (renames, refactors, "improvements"). List them; each goes out or gets a reason.
 - **Duplication:** new code that re-implements an existing helper, meter or system.
-- **This repo's rules:** `core/` free of Minecraft types; no balance numbers in Java (datapack registries); events, not per-tick polling; no switch chains for forms or abilities; `@Nullable` where null is possible and every `@SuppressWarnings` with its reason on the line; hot paths without allocation, streams or reflection; the server decides, the client predicts; packets are need-to-know.
+- **This repo's rules:** `core/` free of Minecraft types; no balance numbers in Java (datapack JSON through the reload listener); events, not per-tick polling; no switch chains for forms or abilities; `@Nullable` where null is possible and every `@SuppressWarnings` with its reason on the line; hot paths without allocation, streams or reflection; the server decides, the client predicts; packets are need-to-know.
 - **26.x APIs:** a Minecraft, NeoForge or library call you can't find in `ref-src/` is a finding (say "run /verify-api").
 - **AI-code tells:** names for things that don't exist, comments promising behaviour the code doesn't have, TODO stubs, dead parameters, copy-paste blocks with one value changed, defensive code for impossible cases beside missing checks for likely ones.
 

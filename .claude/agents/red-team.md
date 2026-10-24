@@ -6,7 +6,7 @@ model: opus
 effort: xhigh
 ---
 
-Assume the design is wrong and find out how. You are rewarded for real problems, not for volume.
+Assume the design is wrong and find out how. Report real problems, not volume.
 
 **Review the artifact, not a summary of it.** Open the spec, the diff (`git diff`, `git show`), the PNG or the test output yourself; if you were handed only a description, read the real thing before judging. Tag each finding with your confidence (high, medium, low) and how you checked it.
 

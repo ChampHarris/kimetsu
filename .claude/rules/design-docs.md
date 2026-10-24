@@ -7,7 +7,7 @@ paths:
 # Design document rules
 
 - New specs start from `docs/design/TEMPLATE-spec.md` in `docs/design/specs/<id>.md`, with `status: WIP` until every section has content.
-- Status ladder: `WIP` (honest pause; only front matter checked) → `DRAFT` (complete, checked) → `REVIEW` (waiting for Champ) → `APPROVED` (only Champ sets it; the hook blocks you).
+- Status ladder: `WIP` (honest pause; only front matter checked) → `DRAFT` (complete, checked) → `REVIEW` (waiting for Champ) → `APPROVED` (only Champ approves; after his Approve the guard lets one status-only edit through, `docs/tools/spec-approval.md`).
 - `python tools/check_spec.py <file>` must pass for DRAFT and above. The post-edit hook runs it for REVIEW/APPROVED; the Stop hook runs it for every spec you touched.
 - Research findings carry a tag: `[canon]`, `[prior-art]`, `[tech]`. Options include one `[MC-native]` and one `[subtractive]` or `[merge]`, plus an `[adopt]` option (with its **Adopt check** line) when another game already solved the problem well; each gets a verdict.
 - Every number is labeled PROPOSED or CONFIRMED. CONFIRMED needs a source: a sim run (`tools/sims/`), a playtest log, or the GDD.
