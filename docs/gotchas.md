@@ -208,6 +208,7 @@ Things that already cost someone time. Read the relevant section before working 
 - A Bash heredoc of about 10 KB or more gets cut off ("unexpected EOF while looking for matching"). Write long scripts with the Write tool and run the file.
 - The guard hook blocks any Bash command that names a spec path together with `status: APPROVED` or "approve", even a read-only one ("Only Champ approves specs, and not through the shell either"). It cost two retries on 2026-10-20. Put a script that only reads in a file and run the file, and keep the literal `APPROVED` out of the command line.
 - PostToolUse and Stop hooks reach Claude through exit code 2 plus stderr; a JSON `decision` on stdout is easy to get wrong. The kit's hooks use `fail_with()` in `_common.py`.
+- `claude plugin install <plugin> --scope project` rewrites `.claude/settings.json` even when the plugin is already enabled there: same settings, keys reordered (the `if` field moves after `command`, `outputStyle` and friends move to the end). Compare the parsed JSON against `git show HEAD:.claude/settings.json`, and if it matches, `git checkout -- .claude/settings.json` keeps the committed layout; the install itself lives outside the repo.
 
 ## Windows
 - Hooks run under Git Bash. Without Git for Windows they fall back to PowerShell and the `sh` launcher fails; install Git for Windows.
