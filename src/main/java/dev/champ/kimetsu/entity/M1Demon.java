@@ -19,6 +19,9 @@ import java.util.EnumSet;
 import java.util.Map;
 import java.util.function.Function;
 import net.minecraft.core.Holder;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
@@ -60,6 +63,11 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
     private @Nullable Demon body;
     private @Nullable DemonBrain ownBrain;
     private Profile.@Nullable Movement movement;
+    // its size, from its profile on the server; synced, so a client's hitbox, picking and culling match
+    private static final EntityDataAccessor<Float> WIDTH =
+            SynchedEntityData.defineId(M1Demon.class, EntityDataSerializers.FLOAT);
+    private static final EntityDataAccessor<Float> HEIGHT =
+            SynchedEntityData.defineId(M1Demon.class, EntityDataSerializers.FLOAT);
     private @Nullable EntityDimensions size;
     private boolean carried;
     private boolean dying;
@@ -174,9 +182,8 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
         body = d;
         movement = walk;
         carried = false;
-        size = EntityDimensions.scalable(
-                (float) (2 * profile.body().halfWidth()), (float) profile.body().height());
-        refreshDimensions();
+        entityData.set(WIDTH, (float) (2 * profile.body().halfWidth()));
+        entityData.set(HEIGHT, (float) profile.body().height());
         attribute(Attributes.MAX_HEALTH, profile.maxHp());
         attribute(Attributes.MOVEMENT_SPEED, walk.walkSpeed());
         attribute(Attributes.FOLLOW_RANGE, profile.senses().targetRange());
@@ -187,6 +194,27 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
         AttributeInstance instance = getAttribute(a);
         if (instance != null) {
             instance.setBaseValue(v);
+        }
+    }
+
+    @Override
+    protected void defineSynchedData(SynchedEntityData.Builder entityData) {
+        super.defineSynchedData(entityData);
+        entityData.define(WIDTH, 0f);
+        entityData.define(HEIGHT, 0f);
+    }
+
+    @Override
+    public void onSyncedDataUpdated(EntityDataAccessor<?> accessor) {
+        super.onSyncedDataUpdated(accessor);
+        if (WIDTH.equals(accessor) || HEIGHT.equals(accessor)) {
+            float w = entityData.get(WIDTH);
+            float h = entityData.get(HEIGHT);
+            if (w > 0 && h > 0) {
+                EntityDimensions d = EntityDimensions.scalable(w, h);
+                size = d;
+                refreshDimensions();
+            }
         }
     }
 

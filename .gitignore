@@ -57,3 +57,4 @@ art/previews/
 .codex/
 .claude/inbox.md
 .claude/inbox-done.md
+/logs/

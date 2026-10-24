@@ -117,6 +117,7 @@ public final class ClockEstimator {
         // Continuity at the latest time the estimate was read, not the receipt: a record handled after the client
         // already read later times would otherwise start its line under values it has handed out.
         long at = Math.max(now, lastQuery);
+        boolean thawed = frozen;
         if (frozen) {
             frozen = false;
             e0 = frozenValue;
@@ -135,7 +136,10 @@ public final class ClockEstimator {
             e0 = value(at);
             d = line - e0;
             hold = false;
-            if (d > beatMicros) { // more than a beat behind: snap forward
+            // more than a beat behind: snap forward; and behind at all leaving a freeze or pause, whose stand-still
+            // left
+            // it up to a tick back, which slewing would take seconds to close with every stamp early (netcode review)
+            if (d > beatMicros || (thawed && d > 0)) {
                 e0 = line;
                 d = 0;
             } else if (d < -beatMicros) { // more than a beat ahead: hold still until the line catches up

@@ -1,0 +1,146 @@
+package dev.champ.kimetsu.client;
+
+import dev.champ.kimetsu.core.clock.ClockEstimator;
+import dev.champ.kimetsu.core.clock.Micros;
+import dev.champ.kimetsu.core.clock.TickRecord;
+import dev.champ.kimetsu.core.data.ClockRules;
+import dev.champ.kimetsu.net.NetMessage;
+import net.neoforged.neoforge.client.network.ClientPacketDistributor;
+import org.jspecify.annotations.Nullable;
+
+/**
+ * The client's combat clock (spec Netcode, "The combat clock on clients"): core's {@link ClockEstimator} fed the
+ * server's pongs and pushed records, on the same clock the pings and every press stamp read ({@code Util.getNanos()},
+ * SDL's counter, which the integrated server shares). Pings go once every sync interval, and in a burst of 4, one a
+ * client tick, when the first record arrives, after an unpause, an unfreeze, a sprint and an epoch. No ping goes before
+ * a record (the server answers none without one) or while the game is paused. After an unpause, input waits until a
+ * record from a later tick than the pause's arrives, since the estimate stands still until then, and a ping goes every
+ * tick until it does: the unpause burst can all be answered before the server's first tick back. Main thread only.
+ */
+final class ClientClock {
+    private static final int BURST = 4;
+
+    private final ClockRules rules;
+    private final ClockEstimator estimator;
+    private final long beatMicros;
+    private @Nullable TickRecord newest;
+    private int epoch;
+    private int burst;
+    private long nextPingNanos = Long.MIN_VALUE;
+    private boolean paused;
+    private long resumeAfter = Long.MIN_VALUE; // a record from a tick after this one ends the pause's wait
+    private int epochAtPause;
+
+    ClientClock(ClockRules rules, int beatTicks, int epoch) {
+        this.rules = rules;
+        this.estimator = new ClockEstimator(rules);
+        this.beatMicros = Micros.ofTicks(beatTicks);
+        this.epoch = epoch;
+    }
+
+    ClockRules rules() {
+        return rules;
+    }
+
+    void onRecord(TickRecord r, long nowNanos) {
+        TickRecord before = newest;
+        note(r);
+        estimator.onRecord(nowNanos, r, beatMicros);
+        if (before == null || (before.frozen() && !r.frozen()) || before.sprinting() != r.sprinting()) {
+            burst = BURST; // the first record, an unfreeze, a sprint's start or end
+        }
+    }
+
+    void onPong(NetMessage.ClockPong p, long t3) {
+        note(p.record());
+        estimator.onPong(p.t0(), p.t1(), p.t2(), t3, p.record(), beatMicros);
+    }
+
+    private void note(TickRecord r) {
+        TickRecord n = newest;
+        if (n == null || r.epoch() > n.epoch() || (r.epoch() == n.epoch() && r.tick() >= n.tick())) {
+            newest = r;
+        }
+        epoch = Math.max(epoch, r.epoch());
+        if (resumeAfter != Long.MIN_VALUE && (r.tick() > resumeAfter || r.epoch() > epochAtPause)) {
+            resumeAfter = Long.MIN_VALUE;
+        }
+    }
+
+    void onEpoch(int e) {
+        epoch = Math.max(epoch, e);
+        estimator.onEpoch();
+        burst = BURST;
+    }
+
+    /** The game paused or unpaused (single player's pause also stops the integrated server's ticks). */
+    void paused(boolean now, long nowNanos) {
+        if (now == paused) {
+            return;
+        }
+        paused = now;
+        if (now) {
+            estimator.pause(nowNanos);
+            TickRecord n = newest;
+            resumeAfter = n != null ? n.tick() : Long.MIN_VALUE;
+            epochAtPause = epoch;
+        } else {
+            estimator.resume();
+            burst = BURST;
+        }
+    }
+
+    /** Each client tick: the ping due, if any. */
+    void tick(long nowNanos) {
+        if (newest == null || paused) {
+            return;
+        }
+        if (burst > 0) {
+            burst--;
+        } else if (resumeAfter == Long.MIN_VALUE && nextPingNanos != Long.MIN_VALUE && nowNanos < nextPingNanos) {
+            return; // after an unpause, a ping every tick until a record from after it comes (the server allows 4/s)
+        }
+        nextPingNanos = nowNanos + rules.syncIntervalCombatMs() * 1_000_000L;
+        ClientPacketDistributor.sendToServer(new NetMessage.ClockPing(nowNanos));
+    }
+
+    /** Whether a record has set the clock. */
+    boolean ready() {
+        return estimator.ready();
+    }
+
+    /** Whether presses may be stamped and sent: the clock is set, the game runs and no unpause is being waited out. */
+    boolean inputOpen() {
+        return ready() && !paused && resumeAfter == Long.MIN_VALUE;
+    }
+
+    /** Whether the server's ticking is frozen ({@code /tick freeze}), which pins the clock at 50·G. */
+    boolean frozen() {
+        TickRecord n = newest;
+        return n != null && (n.frozen() || n.paused());
+    }
+
+    /** The combat time at the client's {@code nanos}, in microseconds. */
+    long micros(long nanos) {
+        return estimator.estimateMicros(nanos);
+    }
+
+    /**
+     * The estimate less the newest record's own conversion at {@code nanos}: in single player, where both ends read
+     * the same counter, the clock's error; online it also holds the two clocks' offset. The debug overlay shows it.
+     */
+    long errorMicros(long nanos) {
+        TickRecord n = newest;
+        return n == null || !ready() ? 0 : micros(nanos) - n.arrivalMicros(nanos);
+    }
+
+    /** The epoch of the newest record or {@code ClockEpoch} the client had, which each input frame carries. */
+    int epoch() {
+        return epoch;
+    }
+
+    @Nullable
+    TickRecord newest() {
+        return newest;
+    }
+}

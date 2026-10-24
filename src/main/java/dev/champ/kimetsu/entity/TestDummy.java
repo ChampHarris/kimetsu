@@ -22,6 +22,9 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.EntityDimensions;
@@ -49,6 +52,13 @@ public final class TestDummy extends PathfinderMob implements ArenaMember {
     private @Nullable Arena arena;
     private @Nullable Arena chosen;
     private @Nullable Fighter fighter;
+    // its size, from its profile on the server; synced, so a client's hitbox, picking and culling match
+    private static final EntityDataAccessor<Float> WIDTH =
+            SynchedEntityData.defineId(TestDummy.class, EntityDataSerializers.FLOAT);
+    private static final EntityDataAccessor<Float> HEIGHT =
+            SynchedEntityData.defineId(TestDummy.class, EntityDataSerializers.FLOAT);
+    private static final EntityDataAccessor<Float> EYE =
+            SynchedEntityData.defineId(TestDummy.class, EntityDataSerializers.FLOAT);
     private @Nullable EntityDimensions size;
 
     public TestDummy(EntityType<? extends TestDummy> type, Level level) {
@@ -158,15 +168,37 @@ public final class TestDummy extends PathfinderMob implements ArenaMember {
         f.toleranceMicros(tolerance);
         a.world().add(f);
         fighter = f;
-        size = EntityDimensions.scalable(
-                        (float) (2 * p.body().halfWidth()), (float) p.body().height())
-                .withEyeHeight((float) p.body().eye());
-        refreshDimensions();
+        entityData.set(EYE, (float) p.body().eye());
+        entityData.set(WIDTH, (float) (2 * p.body().halfWidth()));
+        entityData.set(HEIGHT, (float) p.body().height());
         var health = getAttribute(Attributes.MAX_HEALTH);
         if (health != null) {
             health.setBaseValue(p.hp());
         }
         setHealth((float) p.hp());
+    }
+
+    @Override
+    protected void defineSynchedData(SynchedEntityData.Builder entityData) {
+        super.defineSynchedData(entityData);
+        entityData.define(WIDTH, 0f);
+        entityData.define(HEIGHT, 0f);
+        entityData.define(EYE, 0f);
+    }
+
+    @Override
+    public void onSyncedDataUpdated(EntityDataAccessor<?> accessor) {
+        super.onSyncedDataUpdated(accessor);
+        if (WIDTH.equals(accessor) || HEIGHT.equals(accessor) || EYE.equals(accessor)) {
+            float w = entityData.get(WIDTH);
+            float h = entityData.get(HEIGHT);
+            if (w > 0 && h > 0) {
+                EntityDimensions d = EntityDimensions.scalable(w, h);
+                float e = entityData.get(EYE);
+                size = e > 0 ? d.withEyeHeight(e) : d;
+                refreshDimensions();
+            }
+        }
     }
 
     @Override

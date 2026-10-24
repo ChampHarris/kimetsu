@@ -2,9 +2,11 @@ package dev.champ.kimetsu.combat;
 
 import com.mojang.logging.LogUtils;
 import dev.champ.kimetsu.core.clock.TickNumber;
+import dev.champ.kimetsu.core.clock.TickRecord;
 import dev.champ.kimetsu.data.CombatData;
 import dev.champ.kimetsu.data.CombatDataBuilder;
 import dev.champ.kimetsu.data.CombatDataLoader;
+import dev.champ.kimetsu.net.NetCodec;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -16,8 +18,11 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.ReloadableServerResources;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Util;
 import net.minecraft.world.level.Level;
 import net.neoforged.neoforge.event.TagsUpdatedEvent;
+import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
@@ -43,16 +48,29 @@ public final class CombatServer {
     private @Nullable CombatData data;
     private @Nullable CombatData next;
     private @Nullable TickClock clock;
+    private volatile @Nullable TickRecord published; // the network thread's: carries the wire epoch
+    private final Sessions sessions = new Sessions(this);
     private int epoch;
     private int generation;
 
     private CombatServer(MinecraftServer server, CombatDataBuilder.Result loaded) {
         this.server = server;
-        if (loaded.ok()) {
+        List<String> problems = problems(loaded);
+        if (problems.isEmpty()) {
             take(loaded);
         } else {
-            LOGGER.error("Combat data failed to load; combat is off until a /reload builds: {}", loaded.errors());
+            LOGGER.error("Combat data failed to load; combat is off until a /reload builds: {}", problems);
         }
+    }
+
+    /** Why a load can't run: its build errors, or data too big for the clients' {@code DataSync}; empty if it can. */
+    private static List<String> problems(CombatDataBuilder.Result loaded) {
+        CombatData d = loaded.data();
+        if (!loaded.ok() || d == null) {
+            return loaded.errors();
+        }
+        String wire = NetCodec.dataProblem(Sessions.json(d));
+        return wire != null ? List.of("too big to send to clients: " + wire) : List.of();
     }
 
     /** The combat server running on {@code server}, or null (none, or combat data never loaded). */
@@ -69,6 +87,102 @@ public final class CombatServer {
 
     public static void onServerStopped(ServerStoppedEvent event) {
         current = null;
+    }
+
+    /** The combat server running now, for the network thread, which can't safely ask a server for it; or null. */
+    public static @Nullable CombatServer current() {
+        CombatServer c = current;
+        return c != null && c.published != null ? c : null;
+    }
+
+    /**
+     * The latest tick record, for the network thread (pongs, arrival stamps): the clock's record with the one epoch on
+     * the wire, {@link TickClock#epoch}, which counts re-anchors and survives a change of clock rules; null before the
+     * first tick.
+     */
+    public @Nullable TickRecord published() {
+        return published;
+    }
+
+    public Sessions sessions() {
+        return sessions;
+    }
+
+    public static void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
+        if (event.getEntity() instanceof ServerPlayer p) {
+            CombatServer c = of(p.level().getServer());
+            if (c != null) {
+                c.sessions.login(p);
+            }
+        }
+    }
+
+    public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.getEntity() instanceof ServerPlayer p) {
+            CombatServer c = of(p.level().getServer());
+            if (c != null) {
+                c.sessions.logout(p);
+            }
+        }
+    }
+
+    public static void onRespawn(PlayerEvent.PlayerRespawnEvent event) {
+        if (event.getEntity() instanceof ServerPlayer p) {
+            CombatServer c = of(p.level().getServer());
+            if (c != null) {
+                c.sessions.respawned(p);
+            }
+        }
+    }
+
+    public static void onDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
+        if (event.getEntity() instanceof ServerPlayer p) {
+            CombatServer c = of(p.level().getServer());
+            if (c != null) {
+                c.sessions.changedDimension(p);
+            }
+        }
+    }
+
+    /** A spectator leaves the fight (registered last, so it sees the mode a change really goes to). */
+    public static void onGameModeChange(PlayerEvent.PlayerChangeGameModeEvent event) {
+        if (event.getEntity() instanceof ServerPlayer p) {
+            CombatServer c = of(p.level().getServer());
+            if (c != null) {
+                c.sessions.gameModeChanging(p, event.getNewGameMode());
+            }
+        }
+    }
+
+    /**
+     * A player's death takes it out of the fight (server side; the event also fires on clients for mobs). Registered
+     * last, so a death another listener cancels never reaches it (code review: it left the player out for good).
+     */
+    public static void onDeath(LivingDeathEvent event) {
+        if (event.getEntity() instanceof ServerPlayer p) {
+            CombatServer c = of(p.level().getServer());
+            if (c != null) {
+                c.sessions.died(p);
+            }
+        }
+    }
+
+    public static void onStartTracking(PlayerEvent.StartTracking event) {
+        if (event.getEntity() instanceof ServerPlayer p) {
+            CombatServer c = of(p.level().getServer());
+            if (c != null) {
+                c.sessions.startTracking(p, event.getTarget());
+            }
+        }
+    }
+
+    public static void onStopTracking(PlayerEvent.StopTracking event) {
+        if (event.getEntity() instanceof ServerPlayer p) {
+            CombatServer c = of(p.level().getServer());
+            if (c != null) {
+                c.sessions.stopTracking(p, event.getTarget());
+            }
+        }
     }
 
     /** After every data load: a server that's running takes the new generation, or keeps its own if it failed. */
@@ -108,20 +222,25 @@ public final class CombatServer {
             if (c == null) {
                 clock = new TickClock(server, d.rules().clock());
             }
+            // players who joined while combat was off (the first load failed) get their sessions now
+            for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+                sessions.login(p);
+            }
         } else {
             next = d; // swapped in at the next tick start, between steps
         }
     }
 
     private void reloaded(CombatDataBuilder.Result loaded) {
-        if (loaded.ok()) {
+        List<String> problems = problems(loaded);
+        if (problems.isEmpty()) {
             take(loaded);
             LOGGER.info("Combat data reloaded");
             return;
         }
-        LOGGER.error("Combat data reload failed; keeping the running generation: {}", loaded.errors());
+        LOGGER.error("Combat data reload failed; keeping the running generation: {}", problems);
         Component notice = Component.literal(
-                "[Kimetsu] Combat data reload failed, the old data stays: " + String.join("; ", loaded.errors()));
+                "[Kimetsu] Combat data reload failed, the old data stays: " + String.join("; ", problems));
         for (ServerPlayer p : server.getPlayerList().getPlayers()) {
             if (server.getPlayerList().isOp(p.nameAndId())) {
                 p.sendSystemMessage(notice);
@@ -139,7 +258,7 @@ public final class CombatServer {
         return c;
     }
 
-    private CombatData data() {
+    CombatData data() {
         CombatData d = data;
         if (d == null) {
             throw new IllegalStateException("no combat data");
@@ -155,6 +274,7 @@ public final class CombatServer {
             CombatData old = data();
             data = fresh;
             generation++;
+            sessions.generationSwapped(generation, fresh); // the clients' data before the rebuild's cancels
             if (!fresh.rules().clock().equals(old.rules().clock())) {
                 c.rules(fresh.rules().clock());
                 epoch = c.epoch();
@@ -166,13 +286,27 @@ public final class CombatServer {
             }
         }
         c.onTickStart();
+        TickRecord r = c.record();
+        TickRecord wire = r == null ? null : withEpoch(r, c.epoch());
+        published = wire;
         if (c.epoch() != epoch) {
             epoch = c.epoch();
             long cutoff = c.epochCutoffMicros();
+            sessions.epochMoved(epoch, cutoff); // ClockEpoch before the cancels
             for (int i = 0; i < arenas.size(); i++) {
                 arenas.get(i).onEpoch(cutoff);
             }
         }
+        if (wire != null) {
+            sessions.tickStarted(wire, Util.getNanos());
+        }
+    }
+
+    private static TickRecord withEpoch(TickRecord r, int epoch) {
+        return r.epoch() == epoch
+                ? r
+                : new TickRecord(
+                        r.tick(), r.startNanos(), r.tickLengthNanos(), r.frozen(), r.paused(), r.sprinting(), epoch);
     }
 
     private void tickEnd() {
@@ -183,6 +317,7 @@ public final class CombatServer {
             LOGGER.warn("Game time moved by more than a tick (now {}): the arenas start again", c.tick());
             epoch = c.epoch(); // the re-anchor's epoch: its cancels go out with the rebuild
             generation++;
+            sessions.epochMoved(epoch, cutoff); // ClockEpoch before the rebuild's cancels
             for (int i = 0; i < arenas.size(); i++) {
                 arenas.get(i).rebuild(data(), c.tick(), cutoff);
             }
@@ -193,6 +328,12 @@ public final class CombatServer {
                 arenas.get(i).step(c.tick(), sprinting);
             }
         }
+        TickRecord corrected = c.corrected();
+        TickRecord wire = corrected == null ? null : withEpoch(corrected, c.epoch());
+        if (wire != null) {
+            published = wire;
+        }
+        sessions.tickEnded(wire, Util.getNanos()); // between ticks: joins land before the next step
         c.endMeasured();
     }
 
@@ -201,14 +342,14 @@ public final class CombatServer {
         return clock().nextTick();
     }
 
-    /** The clock epoch (Rule 1.8): slice 5b sends {@code ClockEpoch} when it moves. */
+    /** The clock epoch (Rule 1.8), the one on the wire: {@code ClockEpoch} goes out when it moves. */
     public int epoch() {
         return epoch;
     }
 
     /**
      * Which world generation the arenas run: it moves on a reload and a re-anchor, when every arena's world is
-     * rebuilt; slice 5b sends every tracker a full snapshot when it moves.
+     * rebuilt, and each player's fighter with it, so its next snapshot is whole.
      */
     public int generation() {
         return generation;
@@ -229,6 +370,7 @@ public final class CombatServer {
         if (a == null) {
             a = open(level);
             defaults.put(level.dimension(), a);
+            sessions.arenaOpened(a); // players see a default arena's events; a GameTest's stay its own
         }
         return a;
     }

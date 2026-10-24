@@ -181,15 +181,15 @@ public final class Arena {
             members.get(i).afterStep(n);
         }
         List<Outbox.Event> events = world.outbox().drain();
-        if (!events.isEmpty()) {
-            for (int k = 0; k < events.size(); k++) {
-                for (int i = 0; i < listeners.size(); i++) {
-                    listeners.get(i).accept(events.get(k));
-                }
-            }
+        for (int k = 0; k < events.size(); k++) {
             for (int i = 0; i < listeners.size(); i++) {
-                listeners.get(i).endStep(n);
+                listeners.get(i).accept(events.get(k));
             }
+        }
+        for (int i = 0; i < listeners.size(); i++) {
+            listeners.get(i).endStep(n); // every step: a player's snapshot can change on a quiet one
+        }
+        if (!events.isEmpty()) {
             int count = snap(); // a member may leave, or one join, as it reads an event
             for (int k = 0; k < events.size(); k++) {
                 for (int i = 0; i < count; i++) {

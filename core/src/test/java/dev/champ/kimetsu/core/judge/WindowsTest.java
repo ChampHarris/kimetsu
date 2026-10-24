@@ -39,9 +39,11 @@ class WindowsTest {
         assertEquals(0, w.sdMicros(), 1e-9);
     }
 
+    private static final long RISE = 40_000; // twice the 20 ms tolerance floor, as the intake sets it
+
     @Test
     void rttIsTheMinimumOverTheLastTenSeconds() {
-        RttWindow r = new RttWindow(10_000_000);
+        RttWindow r = new RttWindow(10_000_000, RISE);
         assertEquals(0, r.minMicros(0));
         r.add(1_000_000, 150_000);
         r.add(2_000_000, 120_000);
@@ -53,9 +55,46 @@ class WindowsTest {
 
     @Test
     void withNoRecentEchoTheNewestStands() {
-        RttWindow r = new RttWindow(10_000_000);
+        RttWindow r = new RttWindow(10_000_000, RISE);
         r.add(1_000_000, 150_000);
         r.add(2_000_000, 160_000);
         assertEquals(160_000, r.minMicros(60_000_000));
+    }
+
+    /** Bufferbloat: the minimum alone would hold ref 65 ms early for 10 s, failing every honest frame (netcode review). */
+    @Test
+    void aSustainedRiseIsFollowedAfterTwoEchoes_aLoneSpikeIsNot_aDropAtOnce() {
+        RttWindow r = new RttWindow(10_000_000, RISE);
+        r.add(1_000_000, 20_000);
+        r.add(2_000_000, 21_000);
+        r.add(3_000_000, 150_000);
+        assertEquals(20_000, r.minMicros(3_000_000)); // one spike
+        r.add(4_000_000, 152_000);
+        assertEquals(150_000, r.minMicros(4_000_000)); // two in a row: the rise is real
+        r.add(5_000_000, 20_000);
+        assertEquals(20_000, r.minMicros(5_000_000)); // a drop needs no proof: the minimum takes it
+
+        RttWindow spiky = new RttWindow(10_000_000, RISE);
+        spiky.add(1_000_000, 20_000);
+        spiky.add(2_000_000, 150_000);
+        spiky.add(3_000_000, 22_000);
+        spiky.add(4_000_000, 150_000);
+        assertEquals(20_000, spiky.minMicros(4_000_000)); // spikes apart are jitter
+        RttWindow small = new RttWindow(10_000_000, RISE);
+        small.add(1_000_000, 20_000);
+        small.add(2_000_000, 55_000);
+        small.add(3_000_000, 55_000);
+        assertEquals(20_000, small.minMicros(3_000_000)); // within the tolerance floor: the minimum stands
+    }
+
+    @Test
+    void aRiseFollowedAfterTheRingWrapped_keepsOnlyTheRise() {
+        RttWindow r = new RttWindow(100_000_000, RISE);
+        for (int i = 0; i < 40; i++) {
+            r.add(i * 1_000_000L, 20_000);
+        }
+        r.add(40_000_000, 150_000);
+        r.add(41_000_000, 160_000);
+        assertEquals(150_000, r.minMicros(41_000_000));
     }
 }

@@ -496,8 +496,9 @@ public final class CombatWorld {
 
     /**
      * Rule 1.8, between ticks: vanilla dropped its backlog, so every pending strike is cancelled (the demon goes back
-     * to circling), every player's presses stamped after {@code cutoffMicros} are discarded, and the horizons start
-     * over. The cancels reach the players' machines in the next tick, settling the Feints their presses claimed; a
+     * to circling), every player's presses stamped after {@code cutoffMicros} are discarded, and the horizons and pose
+     * histories start over. The cancels reach the players' machines in the next tick, settling the Feints their presses
+     * claimed; a
      * player already decided keeps its verdict.
      */
     public void onEpoch(long cutoffMicros) {
@@ -523,6 +524,7 @@ public final class CombatWorld {
             Fighter f = fighters.get(i);
             f.timeline().onEpoch(cutoffMicros);
             f.horizon().reset();
+            f.poses().clear(); // filed on the old timeline, ahead of every new pose: every put would throw
         }
     }
 

@@ -17,7 +17,13 @@ import dev.champ.kimetsu.core.data.TimingRules;
  * client running ahead of the server by more than the stamp tolerance (up to the spec's 36 ms for a beat after a TPS
  * drop, against a 20 ms tolerance) has its stamps clamped back, and an honest tick frame sent just after its tick
  * starts would otherwise be refused. A tick a tick ahead of its clamped stamp only commits a pose earlier than it
- * had to. A frame whose tick time fails still counts for presses.
+ * had to. Nor more than two ticks before the earliest the server can vouch the frame was sent (its stamp check's ref −
+ * tolerance; an honest pose frame leaves at most a tick and a client tick's run after its tick's start): a client
+ * holding its pose frames back can't file where it moved to under a time before it moved (netcode review). A frame
+ * whose tick time fails still counts for presses.
+ *
+ * <p>A fighter whose client sends no fresh pose (no demon in its view, or a client that stops) gets the server's own
+ * through {@link #serverPose}, which the same order holds: no client pose is filed before it afterwards.
  */
 public final class InputHorizon {
     private final TimingRules rules;
@@ -38,22 +44,49 @@ public final class InputHorizon {
     public static final long NO_TICK = Long.MIN_VALUE;
 
     /**
-     * A frame arrived: the send stamp the stamp check let it count ({@link StampCheck#frame}), its frame time, and the
-     * nominal time of the client tick whose pose it carries, or {@link #NO_TICK}. The pose is as of the tick time,
-     * which a late tick sends well after. Returns whether the tick time was accepted as a fresh pose, the one the mod
-     * then records in the player's pose history; false for {@link #NO_TICK}.
+     * A frame arrived: the send stamp the stamp check let it count ({@link StampCheck#frame}), its frame time, the
+     * nominal time of the client tick whose pose it carries, or {@link #NO_TICK}, and the earliest the server vouches
+     * it was sent ({@link StampCheck#vouchedMicros}). The pose is as of the tick time, which a late tick sends well
+     * after. Returns whether the tick time was accepted as a fresh pose, the one the mod then records in the player's
+     * pose history; false for {@link #NO_TICK}.
      */
-    public boolean frame(long sendStampMicros, long frameTimeMicros, long tickTimeMicros) {
+    public boolean frame(long sendStampMicros, long frameTimeMicros, long tickTimeMicros, long vouchedMicros) {
         long judged = sendStampMicros - StampCheck.halfFrame(rules, frameTimeMicros);
         horizon = Math.max(horizon, judged);
         if (tickTimeMicros == NO_TICK
                 || tickTimeMicros > sendStampMicros + Micros.PER_TICK
+                || (vouchedMicros != UNVOUCHED && tickTimeMicros < vouchedMicros - 2 * Micros.PER_TICK)
                 || Math.floorMod(tickTimeMicros, Micros.PER_TICK) != 0
                 || (tickHorizon != Long.MIN_VALUE && tickTimeMicros <= tickHorizon)) {
             return false;
         }
         tickHorizon = tickTimeMicros;
         return true;
+    }
+
+    /** {@link #frame}'s vouched time for a feeder with no link to check, which the server trusts (the test dummy). */
+    public static final long UNVOUCHED = Long.MIN_VALUE;
+
+    /** A frame from a feeder the server trusts: {@link #frame} with no vouched floor. */
+    public boolean frame(long sendStampMicros, long frameTimeMicros, long tickTimeMicros) {
+        return frame(sendStampMicros, frameTimeMicros, tickTimeMicros, UNVOUCHED);
+    }
+
+    /**
+     * The server records its own pose of the player at {@code timeMicros}; returns false (record nothing) unless that's
+     * later than every pose so far. It's a position answer like a client tick's.
+     */
+    public boolean serverPose(long timeMicros) {
+        if (tickHorizon != Long.MIN_VALUE && timeMicros <= tickHorizon) {
+            return false;
+        }
+        tickHorizon = timeMicros;
+        return true;
+    }
+
+    /** How far the player's poses are known: the newest accepted, or {@code Long.MIN_VALUE} before the first. */
+    public long poseHorizonMicros() {
+        return tickHorizon;
     }
 
     /**

@@ -6,6 +6,7 @@ import dev.champ.kimetsu.combat.Arena;
 import dev.champ.kimetsu.combat.CombatServer;
 import dev.champ.kimetsu.combat.DamagePath;
 import dev.champ.kimetsu.core.clock.Micros;
+import dev.champ.kimetsu.core.clock.TickRecord;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.demon.Demon;
 import dev.champ.kimetsu.core.fight.Outbox;
@@ -17,6 +18,7 @@ import dev.champ.kimetsu.data.SlayerProfile;
 import dev.champ.kimetsu.entity.KimetsuEntities;
 import dev.champ.kimetsu.entity.M1Demon;
 import dev.champ.kimetsu.entity.TestDummy;
+import dev.champ.kimetsu.item.KimetsuItems;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -36,10 +38,14 @@ import net.minecraft.gametest.framework.TestData;
 import net.minecraft.gametest.framework.TestEnvironmentDefinition;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.animal.pig.Pig;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantment;
@@ -49,6 +55,8 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.common.util.FakePlayer;
+import net.neoforged.neoforge.common.util.FakePlayerFactory;
 import net.neoforged.neoforge.event.RegisterGameTestsEvent;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -72,7 +80,11 @@ public final class CombatGameTests {
             FUNCTIONS.register("demon_killed_mid_strike", () -> CombatGameTests::demonKilledMidStrike),
             FUNCTIONS.register("vanilla_damage_floors_the_demon", () -> CombatGameTests::vanillaDamageFloorsTheDemon),
             FUNCTIONS.register("mod_damage_passes_armour", () -> CombatGameTests::modDamagePassesArmour),
-            FUNCTIONS.register("mod_hits_one_tick_apart", () -> CombatGameTests::modHitsOneTickApart));
+            FUNCTIONS.register("mod_hits_one_tick_apart", () -> CombatGameTests::modHitsOneTickApart),
+            FUNCTIONS.register("the_record_names_each_tick", () -> CombatGameTests::theRecordNamesEachTick),
+            FUNCTIONS.register("a_vanilla_hit_with_the_blade_does_nothing", () -> CombatGameTests::vanillaBladeHit),
+            FUNCTIONS.register(
+                    "a_player_without_the_channel_has_no_session", () -> CombatGameTests::noChannelNoSession));
 
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Identifier EMPTY_STRUCTURE = Identifier.withDefaultNamespace("empty");
@@ -398,6 +410,81 @@ public final class CombatGameTests {
                 h.succeed();
             });
         });
+    }
+
+    /**
+     * What the network thread converts arrivals with (Rule 1.2): a record published at every tick's start, naming the
+     * tick the engine steps in it and carrying the one epoch on the wire. The conversion itself is core's to test: this
+     * server runs its ticks back to back (T̄ measures microseconds), so wall time means nothing here.
+     */
+    private static void theRecordNamesEachTick(GameTestHelper h) {
+        long[] last = {Long.MIN_VALUE, 0};
+        h.onEachTick(() -> {
+            CombatServer c = CombatServer.current();
+            TickRecord r = c != null ? c.published() : null;
+            if (c == null || r == null) {
+                throw h.assertionException("no tick record published");
+            }
+            long next = c.arenaFor(h.getLevel()).nextTick();
+            h.assertTrue(r.tick() == next, "the record names tick " + r.tick() + ", the engine steps " + next);
+            h.assertTrue(r.tick() > last[0], "tick " + r.tick() + " after " + last[0]);
+            h.assertTrue(
+                    r.epoch() == c.epoch(), "the record's epoch " + r.epoch() + " isn't the server's " + c.epoch());
+            last[0] = r.tick();
+            last[1]++;
+        });
+        h.runAfterDelay(40, () -> {
+            h.assertTrue(last[1] >= 30, "only " + last[1] + " ticks checked");
+            h.succeed();
+        });
+    }
+
+    /**
+     * A vanilla melee hit with the blade, as a client that skips the mod's capture would send it, does nothing on the
+     * server ({@code onLeftClickEntity} and the cancelled {@code AttackEntityEvent}); the same fake player's bare hand
+     * hurts, so the hit itself lands.
+     */
+    private static void vanillaBladeHit(GameTestHelper h) {
+        floor(h);
+        Pig bladed = h.spawn(EntityTypes.PIG, 2, FLOOR + 1, 2);
+        Pig bare = h.spawn(EntityTypes.PIG, 4, FLOOR + 1, 2);
+        FakePlayer p = FakePlayerFactory.getMinecraft(h.getLevel());
+        Vec3 at = h.absoluteVec(new Vec3(3, FLOOR + 1, 1));
+        p.snapTo(at.x, at.y, at.z, 0, 0);
+
+        // Both hits at the same empty charge (the fake player never ticks): about a fifth of a hit, enough to show
+        // the bare hand hurts where the blade doesn't.
+        p.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(KimetsuItems.NICHIRIN_BLADE.get()));
+        p.resetAttackStrengthTicker();
+        p.attack(bladed);
+        h.assertTrue(
+                bladed.getHealth() == bladed.getMaxHealth(), "the blade's vanilla hit hurt: " + bladed.getHealth());
+
+        p.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+        p.resetAttackStrengthTicker();
+        p.attack(bare);
+        h.assertTrue(bare.getHealth() < bare.getMaxHealth(), "the bare hand didn't hurt: the test proves nothing");
+        p.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+        h.succeed();
+    }
+
+    /**
+     * A player whose connection lacks the mod's channel (vanilla's mock player, whose login fires the logged-in event)
+     * gets no session: sending it the combat data would throw.
+     */
+    @SuppressWarnings("removal") // the only helper that logs a player in; vanilla's own tests still use it
+    private static void noChannelNoSession(GameTestHelper h) {
+        CombatServer c = CombatServer.of(h.getLevel().getServer());
+        if (c == null) {
+            throw h.assertionException("the combat server isn't running: the combat data didn't load");
+        }
+        ServerPlayer p = h.makeMockServerPlayerInLevel();
+        try {
+            h.assertTrue(c.sessions().session(p.connection) == null, "a player without the channel got a session");
+        } finally {
+            h.getLevel().getServer().getPlayerList().remove(p);
+        }
+        h.succeed();
     }
 
     // ------------------------------------------------------------------------------------------------- set-up

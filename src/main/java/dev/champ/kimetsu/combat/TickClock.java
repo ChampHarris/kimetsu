@@ -27,6 +27,7 @@ final class TickClock {
     private boolean runs;
     private boolean sprinting;
     private boolean inTick;
+    private long reached; // the game time Post found
     private boolean recordWrong;
     private long expected;
     private long stepped = TickNumber.NONE;
@@ -67,6 +68,7 @@ final class TickClock {
      */
     TickNumber.Step onTickEnd() {
         long gameTime = server.overworld().getGameTime();
+        reached = gameTime;
         recordWrong = gameTime != expected;
         TickNumber.Step s = TickNumber.atEnd(gameTime, stepped);
         if (s == TickNumber.Step.REANCHOR) {
@@ -113,9 +115,20 @@ final class TickClock {
         return epochs + schedule.epoch();
     }
 
-    /** Whether this tick's record named the wrong tick (Pre's guess was wrong): slice 5b sends a fresh one. */
+    /** Whether this tick's record named the wrong tick (Pre's guess was wrong): a fresh one goes out. */
     boolean recordWrong() {
         return recordWrong;
+    }
+
+    /** This tick's record under the tick it really reached, once Post found Pre's guess wrong; else null. */
+    @Nullable
+    TickRecord corrected() {
+        TickRecord r = record;
+        if (!recordWrong || r == null) {
+            return null;
+        }
+        return new TickRecord(
+                reached, r.startNanos(), r.tickLengthNanos(), r.frozen(), r.paused(), r.sprinting(), r.epoch());
     }
 
     /** Where Rule 1.8 discards presses after a drop: those stamped after the last tick that ran before it. */

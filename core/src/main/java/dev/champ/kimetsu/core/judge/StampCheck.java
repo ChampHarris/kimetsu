@@ -20,7 +20,9 @@ import java.util.Arrays;
  * between the two frames' stamps accepts.
  *
  * <p>Stamps never go backwards: a frame or press stamped before the last one is raised to it. A {@code ClockEpoch}
- * (Rule 1.8) resets that, and old-epoch presses stamped after the last tick before the stall are dropped.
+ * (Rule 1.8) resets that, and old-epoch presses stamped after the last tick before the stall are dropped. A press is
+ * never later than the frame that carries it (an honest client sends it after it happened), and no stamp is taken from
+ * more than {@link #STAMP_RANGE_MICROS} before ref, which no stall comes near, so the arithmetic on it can't overflow.
  */
 public final class StampCheck {
     /** {@link #press} result: the press waits for an anchor; it comes out of {@link #releasedJudged}. */
@@ -29,6 +31,8 @@ public final class StampCheck {
     public static final long DROPPED = Long.MIN_VALUE + 1;
 
     private static final int MAX_HELD = 64; // 16 events a frame through a 4-frame burst
+    /** The furthest before ref a stamp is taken from: a sanity bound, far past the 300 ms stall bracket. */
+    static final long STAMP_RANGE_MICROS = 10_000_000;
 
     private final TimingRules rules;
     private final JitterWindow jitter;
@@ -89,12 +93,12 @@ public final class StampCheck {
             frame = Long.MIN_VALUE;
             jitter.clear();
         }
-        long s = Math.max(stampMicros, frameFloor);
+        ref = arrivalMicros - rttMicros / 2;
+        long s = Math.max(Math.max(stampMicros, ref - STAMP_RANGE_MICROS), frameFloor);
         frameFloor = s;
         previousFrame = frame != Long.MIN_VALUE ? frame : s - Micros.PER_TICK; // a first frame brackets one tick
         frame = s;
         jitter.add(arrivalMicros, s);
-        ref = arrivalMicros - rttMicros / 2;
         tolerance = tolerance(rules, jitter.sdMicros());
         passes = !oldEpoch && Math.abs(s - ref) <= tolerance;
         if (passes) {
@@ -111,7 +115,7 @@ public final class StampCheck {
         if (oldEpoch && stampMicros > epochCutoff) {
             return DROPPED;
         }
-        long s = Math.max(stampMicros, pressFloor);
+        long s = Math.max(Math.max(Math.min(stampMicros, frame), ref - STAMP_RANGE_MICROS), pressFloor);
         pressFloor = s;
         long half = halfFrame(rules, frameTimeMicros);
         long dev = s - ref;
@@ -190,6 +194,19 @@ public final class StampCheck {
 
     public int heldCount() {
         return heldCount;
+    }
+
+    /** The player left the fight: the presses held for an anchor go with it, never into the next fighter. */
+    public void clearHeld() {
+        heldCount = 0;
+    }
+
+    /**
+     * The earliest the last frame can have been sent by the server's own measure, ref − tolerance: a pose the client
+     * files under an older time is one the server can't vouch for ({@link InputHorizon#frame}).
+     */
+    public long vouchedMicros() {
+        return ref - tolerance;
     }
 
     /**

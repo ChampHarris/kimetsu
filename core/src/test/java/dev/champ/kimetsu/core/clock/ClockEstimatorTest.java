@@ -155,8 +155,28 @@ class ClockEstimatorTest {
         est.onRecord(resume, new TickRecord(221, resume, 50.0 * MS, false, false, false, 0), BEAT);
         assertFalse(est.frozen());
         long v = est.estimateMicros(resume);
-        assertEquals(e + 50_000, v); // ahead of the line: held, never back
+        // a tick behind the line, which slewing would take 3 s to close with every stamp early: it snaps forward
+        assertEquals(Micros.ofTicks(221), v);
         assertTrue(est.estimateMicros(resume + 2000 * MS) > v);
+    }
+
+    @Test
+    void leavingAFreezeAheadOfTheLine_holdsRatherThanStepsBack() {
+        long now = 10_000 * MS;
+        ClockEstimator est = started(now);
+        long at = now + 1000 * MS;
+        est.onRecord(at, new TickRecord(219, 219 * 50.0 * MS, 50.0 * MS, true, false, false, 0), BEAT);
+        est.stepFrozen(100_000); // two steps the server's record hasn't caught up with
+        long e = Micros.ofTicks(219) + 100_000;
+        long resume = at + 7000 * MS;
+        est.onRecord(resume, new TickRecord(220, resume, 50.0 * MS, false, false, false, 0), BEAT);
+        assertEquals(e, est.estimateMicros(resume)); // 50 ms ahead: never back
+        long previous = e;
+        for (long t = resume; t < resume + 2000 * MS; t += 5 * MS) {
+            long v = est.estimateMicros(t);
+            assertTrue(v >= previous, "stepped back at " + t);
+            previous = v;
+        }
     }
 
     @Test

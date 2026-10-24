@@ -52,17 +52,39 @@ class StampCheckTest {
         assertEquals(20_000, StampCheck.tolerance(Fixtures.timing(), 0));
     }
 
+    /** A primed check, then a frame due at S + 50 ms (its ref) stamped {@code aheadMicros} later than that. */
+    private static StampCheck late(long aheadMicros) {
+        StampCheck check = primed();
+        check.frame(S + 50_000 + aheadMicros, S + 50_000 + ONE_WAY, RTT, 0);
+        return check;
+    }
+
     @Test
     void aStampInsideTheToleranceStandsLessHalfAFrame() {
         assertEquals(S - HALF, primed().press(1, S, FRAME, CAP));
         assertEquals(S - 20_000 - HALF, primed().press(1, S - 20_000, FRAME, CAP));
-        assertEquals(S + 20_000 - HALF, primed().press(1, S + 20_000, FRAME, CAP));
+        assertEquals(S + 70_000 - HALF, late(20_000).press(1, S + 70_000, FRAME, CAP)); // 20 ms past its ref
+    }
+
+    @Test
+    void aPressStampedAfterItsOwnFrame_isTakenAtTheFramesStamp() {
+        assertEquals(S - HALF, primed().press(1, S + 15_000, FRAME, CAP)); // no honest client sends it before
     }
 
     @Test
     void aStampPastTheToleranceIsClampedToItsEdge() {
-        assertEquals(S + 20_000 - HALF, primed().press(1, S + 21_000, FRAME, CAP));
-        assertEquals(S + 20_000 - HALF, primed().press(1, S + 900_000, FRAME, CAP));
+        assertEquals(S + 70_000 - HALF, late(21_000).press(1, S + 71_000, FRAME, CAP));
+        StampCheck far = late(900_000); // its own jitter lifts the tolerance to the 80 ms cap
+        assertEquals(80_000, far.toleranceMicros());
+        assertEquals(S + 50_000 + 80_000 - HALF, far.press(1, S + 950_000, FRAME, CAP));
+    }
+
+    @Test
+    void noStampIsTakenFromMoreThanTenSecondsBeforeRef() {
+        StampCheck check = new StampCheck(Fixtures.timing(), 0);
+        long ref = 20_000_000;
+        long counted = check.frame(Long.MIN_VALUE / 2, ref + ONE_WAY, RTT, 0); // garbage, not a stall
+        assertEquals(ref - StampCheck.STAMP_RANGE_MICROS, counted);
     }
 
     @Test

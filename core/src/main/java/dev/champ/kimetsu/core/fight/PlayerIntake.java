@@ -1,0 +1,420 @@
+package dev.champ.kimetsu.core.fight;
+
+import dev.champ.kimetsu.core.clock.Micros;
+import dev.champ.kimetsu.core.data.TimingRules;
+import dev.champ.kimetsu.core.judge.InputHorizon;
+import dev.champ.kimetsu.core.judge.RttWindow;
+import dev.champ.kimetsu.core.judge.StampCheck;
+import dev.champ.kimetsu.core.machine.Input;
+import java.util.Arrays;
+import java.util.List;
+import org.jspecify.annotations.Nullable;
+
+/**
+ * One player's input on the server (Rule 2.1; Netcode, "Input frames"): its frames, in arrival order, through the stamp
+ * check and the input horizon into its fighter's timeline. The mod's session feeds it on the main thread; the network
+ * thread only turns each frame's arrival into combat time.
+ *
+ * <p>Each frame: the stamp check counts its send stamp against its arrival less half the RTT (no RTT for an arrival
+ * converted while ticking was frozen or paused: its time is pinned, as the client's clock is); the hold cap follows from
+ * that RTT and the tolerance the frame left; each press and release is judged, or held for a stall's anchor; what the
+ * check judges goes to the fighter's timeline; and the horizon takes the counted stamp with the frame's tick time. The
+ * frame's held state settles what its deltas missed: a guard or Breathe the timeline holds down that the client says is
+ * up, with no release on its way, is released at the frame's stamp, so a lost release can't leave a key held. A press
+ * is never made up, since one without its own stamp can't be judged.
+ *
+ * <p>Each step, held presses whose anchor didn't come are clamped and released (the stamp check's expiry), so a stall
+ * doesn't keep every later strike waiting for its hold cap. A fighter that rejoins after a rebuild gets a fresh
+ * timeline; the stamp check, the RTT and the jitter they measured carry on. Not thread-safe.
+ */
+public final class PlayerIntake {
+    /** A key on the wire: its number there, fixed whatever the order here, and its bit in a frame's held state. */
+    public enum Key {
+        ATTACK(0, Input.Kind.ATTACK, null),
+        GUARD(1, Input.Kind.GUARD_DOWN, Input.Kind.GUARD_UP),
+        BREATHE(2, Input.Kind.BREATHE_DOWN, Input.Kind.BREATHE_UP),
+        INHALE(3, Input.Kind.INHALE, null),
+        POMMEL(4, Input.Kind.POMMEL, null),
+        STEP(5, Input.Kind.STEP, null),
+        JUMP(6, Input.Kind.JUMP, null),
+        SNEAK(7, Input.Kind.SNEAK, null);
+
+        private static final Key[] ALL = values();
+
+        private final int wire;
+        private final Input.Kind press;
+        private final Input.@Nullable Kind release;
+
+        Key(int wire, Input.Kind press, Input.@Nullable Kind release) {
+            this.wire = wire;
+            this.press = press;
+            this.release = release;
+        }
+
+        public int wire() {
+            return wire;
+        }
+
+        public int bit() {
+            return 1 << wire;
+        }
+
+        /** The key with wire number {@code wire}, or null for one this version doesn't know. */
+        public static @Nullable Key of(int wire) {
+            for (Key k : ALL) {
+                if (k.wire == wire) {
+                    return k;
+                }
+            }
+            return null;
+        }
+
+        /** Whether the machine has a release for it (Guard and Breathe): only those can be left held. */
+        public boolean releasable() {
+            return release != null;
+        }
+    }
+
+    /**
+     * One press or release in a frame, at the combat time it was polled.
+     *
+     * @param slot for a Breathe release, the radial slot it was released toward, or −1
+     * @param fallBlocks for an attack press, how far above the ground the player was while falling (0 when not): the
+     *     server's own reading, never the client's (the wire doesn't carry it: a client-declared height fired the
+     *     falling form from the ground); slice 5c takes it from the server's collision check
+     */
+    public record Delta(Key key, boolean down, long stampMicros, int slot, double fallBlocks) {
+        public static Delta press(Key key, long stampMicros) {
+            return new Delta(key, true, stampMicros, -1, 0);
+        }
+
+        public static Delta release(Key key, long stampMicros) {
+            return new Delta(key, false, stampMicros, -1, 0);
+        }
+
+        public static Delta release(Key key, long stampMicros, int slot) {
+            return new Delta(key, false, stampMicros, slot, 0);
+        }
+
+        public static Delta attack(long stampMicros, double fallBlocks) {
+            return new Delta(Key.ATTACK, true, stampMicros, -1, fallBlocks);
+        }
+    }
+
+    /**
+     * One input frame as the server read it.
+     *
+     * @param sendStampMicros the combat time it was sent at, the stamp the stamp check reads
+     * @param frameTimeMicros the client's frame time, which the judge corrects by half
+     * @param tickTimeMicros the start of the client tick whose pose it carries, or {@link InputHorizon#NO_TICK}
+     * @param epoch the epoch of the last tick record the client had
+     * @param held the keys held as it was sent ({@link Key#bit})
+     */
+    public record Frame(
+            long seq,
+            long sendStampMicros,
+            long frameTimeMicros,
+            long tickTimeMicros,
+            int epoch,
+            int held,
+            List<Delta> deltas) {
+
+        public Frame {
+            deltas = List.copyOf(deltas);
+        }
+    }
+
+    /** What the intake judged into the fighter's timeline, with the stamp it was sent with: the server's log. */
+    public interface Sink {
+        void judged(Input in, long sentStampMicros);
+    }
+
+    public static final Sink NO_SINK = (in, sent) -> {};
+
+    private static final int MAX_PENDING = 64; // the stamp check holds no more
+
+    private final TimingRules rules;
+    private final StampCheck check;
+    private final RttWindow rtt;
+    private final Sink sink;
+    private @Nullable Fighter fighter;
+
+    private final long[] pendingToken = new long[MAX_PENDING];
+    private final @Nullable Delta[] pendingDelta = new Delta[MAX_PENDING];
+    private int pendingCount;
+    private long nextToken;
+
+    private int told; // the releasable keys the timeline holds down
+    private final long[] releasedAt = new long[Key.ALL.length]; // by wire number: the last release given, judged
+    private int pendingDown; // releasable keys with a press the stamp check holds
+    private int pendingUp; // and with a release it holds
+    private long lastSeq = -1;
+    private long newest = Long.MIN_VALUE;
+    private long now;
+
+    /** A player joining at the server's current clock {@code epoch}. */
+    public PlayerIntake(TimingRules rules, int epoch, Sink sink) {
+        this.rules = rules;
+        this.check = new StampCheck(rules, epoch);
+        // a rise past twice the tolerance floor puts ref off by more than the floor: honest frames start failing
+        this.rtt = new RttWindow(Micros.ofMillis(rules.rttWindowMs()), 2 * Micros.ofMillis(rules.toleranceMinMs()));
+        Arrays.fill(releasedAt, Long.MIN_VALUE);
+        this.sink = sink;
+    }
+
+    /**
+     * The player is in the fight as {@code f}: a fresh timeline, so nothing is held in it; the RTT, tolerance and hold
+     * cap measured so far go with it.
+     */
+    public void join(Fighter f) {
+        fighter = f;
+        told = 0;
+        long r = rtt.minMicros(now);
+        keep(f, r, holdCap(r));
+    }
+
+    /**
+     * The player left the fight; its frames are still checked, so the stamp check keeps its measure of the link. What
+     * it held for the timeline goes: a held press would otherwise expire into the next fighter's first tick.
+     */
+    public void leave() {
+        fighter = null;
+        check.clearHeld();
+        check.clearReleased();
+        for (int i = 0; i < pendingCount; i++) {
+            pendingDelta[i] = null;
+        }
+        pendingCount = 0;
+        pendingDown = 0;
+        pendingUp = 0;
+        told = 0;
+        Arrays.fill(releasedAt, Long.MIN_VALUE);
+    }
+
+    public @Nullable Fighter fighter() {
+        return fighter;
+    }
+
+    /** The server's own echo came back at {@code nowMicros} after {@code rttMicros}. */
+    public void echo(long nowMicros, long rttMicros) {
+        now = nowMicros;
+        rtt.add(nowMicros, rttMicros);
+        Fighter f = fighter;
+        if (f != null) {
+            long r = rtt.minMicros(nowMicros);
+            keep(f, r, holdCap(r));
+        }
+    }
+
+    /** The RTT the judge uses now: the minimum echo over the window, 0 before the first. */
+    public long rttMicros() {
+        return rtt.minMicros(now);
+    }
+
+    /** The sequence number of the last frame taken, or −1. */
+    public long lastSeq() {
+        return lastSeq;
+    }
+
+    /**
+     * The newest stamp the stamp check let a frame count, or {@code Long.MIN_VALUE} before the first frame of this
+     * epoch: how far the player's input is known, which bounds the tick a snapshot settles.
+     */
+    public long newestFrameMicros() {
+        return newest;
+    }
+
+    /**
+     * A frame, in arrival order, and when it arrived in combat time; {@code frozen} if that arrival was converted while
+     * ticking was frozen or paused. Returns whether its tick time was taken as a fresh pose, which the caller then
+     * records in the fighter's pose history at that time.
+     */
+    public boolean frame(Frame f, long arrivalMicros, boolean frozen) {
+        lastSeq = f.seq();
+        now = arrivalMicros;
+        long r = rtt.minMicros(arrivalMicros);
+        long counted = check.frame(f.sendStampMicros(), arrivalMicros, frozen ? 0 : r, f.epoch());
+        newest = Math.max(newest, counted);
+        drain(); // presses an earlier stall held, anchored by this frame
+        long cap = holdCap(r);
+        List<Delta> deltas = f.deltas();
+        for (int i = 0; i < deltas.size(); i++) {
+            judge(deltas.get(i), f.frameTimeMicros(), cap);
+        }
+        int stale = told & ~f.held() & ~pendingUp;
+        if (stale != 0) {
+            for (Key k : Key.ALL) {
+                if ((stale & k.bit()) != 0) {
+                    judge(Delta.release(k, f.sendStampMicros()), f.frameTimeMicros(), cap);
+                }
+            }
+        }
+        Fighter ft = fighter;
+        if (ft == null) {
+            return false;
+        }
+        boolean pose = ft.horizon().frame(counted, f.frameTimeMicros(), f.tickTimeMicros(), check.vouchedMicros());
+        keep(ft, r, cap);
+        return pose;
+    }
+
+    /** Before step {@code n}: held presses past their deadline are clamped and released. */
+    public void beforeStep(long n) {
+        check.expire(Micros.ofTicks(n));
+        drain();
+        Fighter f = fighter;
+        if (f != null) {
+            f.earliestHeldMicros(check.earliestHeldJudged());
+        }
+    }
+
+    /** {@link #serverPose}'s answer when the client's own poses are fresh enough. */
+    public static final long NO_SERVER_POSE = Long.MIN_VALUE;
+
+    /**
+     * Before step {@code n}: the time at which the caller records the server's own pose of the player, or {@link
+     * #NO_SERVER_POSE}. That's when the fighter has none yet, or the client has sent no fresh one for longer than the
+     * hold cap (no demon in its view, a stall past what any strike waits for, or a client that stops): its position
+     * as the server has it now, as of half the RTT ago, the age of the newest movement it has. Within the hold cap a
+     * stalled client's own poses still come in time, so it isn't judged on the server's guess.
+     */
+    public long serverPose(long n) {
+        Fighter f = fighter;
+        if (f == null) {
+            return NO_SERVER_POSE;
+        }
+        long nowMicros = Micros.ofTicks(n);
+        long r = rtt.minMicros(nowMicros);
+        long known = f.horizon().poseHorizonMicros();
+        if (known != Long.MIN_VALUE && nowMicros - holdCap(r) <= known) {
+            return NO_SERVER_POSE;
+        }
+        long at = nowMicros - r / 2;
+        return f.horizon().serverPose(at) ? at : NO_SERVER_POSE;
+    }
+
+    /**
+     * The server crossed clock epoch {@code epoch} (Rule 1.8); presses stamped after {@code cutoffMicros} on the old
+     * timeline are discarded. The world resets the fighter's timeline and horizon itself.
+     */
+    public void onEpoch(int epoch, long cutoffMicros) {
+        check.onEpoch(epoch, cutoffMicros);
+        newest = Long.MIN_VALUE; // the new timeline starts behind the old one
+        // the timeline drops what was stamped after the cutoff, so a release given to it then is undone: the key is
+        // down again there, and the next frame's held state releases it if the client says it's up (code review)
+        for (Key k : Key.ALL) {
+            if (k.releasable() && releasedAt[k.wire()] > cutoffMicros) {
+                told |= k.bit();
+                releasedAt[k.wire()] = Long.MIN_VALUE;
+            }
+        }
+        drain();
+        Fighter f = fighter;
+        if (f != null) {
+            f.earliestHeldMicros(check.earliestHeldJudged());
+        }
+    }
+
+    private void judge(Delta d, long frameTimeMicros, long cap) {
+        Key k = d.key();
+        if (!d.down() && (!k.releasable() || ((told | pendingDown) & k.bit()) == 0)) {
+            return; // a key with no release in the machine, or one the timeline never held
+        }
+        long token = ++nextToken;
+        long judged = check.press(token, d.stampMicros(), frameTimeMicros, cap);
+        if (judged == StampCheck.HELD) {
+            hold(token, d);
+        } else if (judged != StampCheck.DROPPED) {
+            give(d, judged);
+        }
+    }
+
+    private void hold(long token, Delta d) {
+        if (pendingCount == MAX_PENDING) {
+            return; // the stamp check never holds more than it has room for
+        }
+        pendingToken[pendingCount] = token;
+        pendingDelta[pendingCount] = d;
+        pendingCount++;
+        if (d.key().releasable()) {
+            if (d.down()) {
+                pendingDown |= d.key().bit();
+            } else {
+                pendingUp |= d.key().bit();
+            }
+        }
+    }
+
+    /** What the stamp check released since the last drain, in its order, to the timeline (the dropped discarded). */
+    private void drain() {
+        int n = check.releasedCount();
+        for (int i = 0; i < n; i++) {
+            Delta d = take(check.releasedToken(i));
+            if (d == null) {
+                continue;
+            }
+            if (d.key().releasable()) {
+                if (d.down()) {
+                    pendingDown &= ~d.key().bit();
+                } else {
+                    pendingUp &= ~d.key().bit();
+                }
+            }
+            long judged = check.releasedJudged(i);
+            if (judged != StampCheck.DROPPED) {
+                give(d, judged);
+            }
+        }
+        check.clearReleased();
+    }
+
+    private @Nullable Delta take(long token) {
+        for (int i = 0; i < pendingCount; i++) {
+            if (pendingToken[i] == token) {
+                Delta d = pendingDelta[i];
+                pendingCount--;
+                pendingToken[i] = pendingToken[pendingCount];
+                pendingDelta[i] = pendingDelta[pendingCount];
+                pendingDelta[pendingCount] = null;
+                return d;
+            }
+        }
+        return null;
+    }
+
+    private void give(Delta d, long judged) {
+        Fighter f = fighter;
+        if (f == null) {
+            return;
+        }
+        Key k = d.key();
+        Input.Kind kind = d.down() ? k.press : k.release;
+        if (kind == null) {
+            return;
+        }
+        Input in = new Input(kind, judged, d.slot(), d.fallBlocks());
+        if (k.releasable()) {
+            told = d.down() ? told | k.bit() : told & ~k.bit();
+            releasedAt[k.wire()] = d.down() ? Long.MIN_VALUE : judged;
+        }
+        f.timeline().receive(in);
+        sink.judged(in, d.stampMicros());
+    }
+
+    private long holdCap(long rttMicros) {
+        return InputHorizon.holdCapMicros(rules, rttMicros, tolerance());
+    }
+
+    /** The tolerance at the last frame; the floor before the first. */
+    private long tolerance() {
+        long t = check.toleranceMicros();
+        return t > 0 ? t : Micros.ofMillis(rules.toleranceMinMs());
+    }
+
+    private void keep(Fighter f, long rttMicros, long cap) {
+        f.rttMicros(rttMicros);
+        f.toleranceMicros(tolerance());
+        f.holdCapMicros(cap);
+        f.earliestHeldMicros(check.earliestHeldJudged());
+    }
+}

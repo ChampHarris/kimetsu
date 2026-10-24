@@ -3,10 +3,14 @@ package dev.champ.kimetsu;
 import com.mojang.logging.LogUtils;
 import dev.champ.kimetsu.combat.CombatServer;
 import dev.champ.kimetsu.combat.DamagePath;
+import dev.champ.kimetsu.command.KimetsuCommand;
 import dev.champ.kimetsu.data.CombatDataLoader;
 import dev.champ.kimetsu.entity.KimetsuEntities;
 import dev.champ.kimetsu.gametest.CombatGameTests;
 import dev.champ.kimetsu.gametest.ScopeGameTests;
+import dev.champ.kimetsu.item.KimetsuItems;
+import dev.champ.kimetsu.net.KimetsuNet;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -25,8 +29,10 @@ public final class Kimetsu {
     public Kimetsu(IEventBus modBus, ModContainer container) {
         LOGGER.info("Kimetsu: Breath & Blood {} loading", container.getModInfo().getVersion());
         KimetsuEntities.register(modBus);
+        KimetsuItems.register(modBus);
         ScopeGameTests.register(modBus);
         CombatGameTests.register(modBus);
+        modBus.addListener(KimetsuNet::onRegisterPayloads);
 
         IEventBus game = NeoForge.EVENT_BUS;
         game.addListener(CombatDataLoader::onAddReloadListeners);
@@ -37,5 +43,14 @@ public final class Kimetsu {
         game.addListener(CombatServer::onTickEnd);
         game.addListener(DamagePath::onIncomingDamage);
         game.addListener(DamagePath::onDamagePre);
+        game.addListener(CombatServer::onLogin);
+        game.addListener(CombatServer::onLogout);
+        game.addListener(CombatServer::onRespawn);
+        game.addListener(CombatServer::onDimension);
+        game.addListener(EventPriority.LOWEST, CombatServer::onDeath); // last: a cancelled death never reaches it
+        game.addListener(EventPriority.LOWEST, CombatServer::onGameModeChange);
+        game.addListener(CombatServer::onStartTracking);
+        game.addListener(CombatServer::onStopTracking);
+        game.addListener(KimetsuCommand::onRegisterCommands);
     }
 }

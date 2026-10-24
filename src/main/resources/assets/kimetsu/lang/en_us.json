@@ -12,5 +12,13 @@
   "death.attack.kimetsu.demon_claw.item": "%1$s was torn apart by %2$s",
   "death.attack.kimetsu.demon_claw.player": "%1$s was torn apart by %2$s",
   "entity.kimetsu.m1_demon": "Demon",
-  "entity.kimetsu.test_dummy": "Test Dummy"
+  "entity.kimetsu.test_dummy": "Test Dummy",
+  "key.category.kimetsu.combat": "Kimetsu: Combat",
+  "key.kimetsu.attack": "Attack",
+  "key.kimetsu.guard": "Guard",
+  "key.kimetsu.breathe": "Breathe",
+  "key.kimetsu.inhale": "Inhale",
+  "key.kimetsu.pommel": "Pommel Strike",
+  "key.kimetsu.debug_overlay": "Combat Debug Overlay",
+  "item.kimetsu.nichirin_blade": "Nichirin Blade"
 }
