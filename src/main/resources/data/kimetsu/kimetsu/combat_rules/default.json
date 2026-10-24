@@ -114,7 +114,8 @@
     "mushin_spend_to_tier": 3
   },
   "fights": {
-    "engage_blocks": 32.0
+    "engage_blocks": 32.0,
+    "end_ticks": 1200
   },
   "meta": {
     "status": "PROPOSED",

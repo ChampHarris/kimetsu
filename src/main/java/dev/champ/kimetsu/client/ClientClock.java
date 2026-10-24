@@ -28,6 +28,7 @@ final class ClientClock {
     private int epoch;
     private int burst;
     private long lastPingNanos = Long.MIN_VALUE;
+    private long intervalNanos; // between the last two pings, for the overlay (S524's MCTest check)
     private boolean paused;
     private long resumeAfter = Long.MIN_VALUE; // a record from a tick after this one ends the pause's wait
     private int epochAtPause;
@@ -107,8 +108,16 @@ final class ClientClock {
                 && nowNanos - lastPingNanos < interval) {
             return; // after an unpause, a ping every tick until a record from after it comes (the server allows 4/s)
         }
+        if (lastPingNanos != Long.MIN_VALUE) {
+            intervalNanos = nowNanos - lastPingNanos;
+        }
         lastPingNanos = nowNanos;
         ClientPacketDistributor.sendToServer(new NetMessage.ClockPing(nowNanos));
+    }
+
+    /** The time between the last two pings, in ms (0 before the second): the overlay shows it. */
+    long pingIntervalMillis() {
+        return intervalNanos / 1_000_000;
     }
 
     /** Whether a record has set the clock. */

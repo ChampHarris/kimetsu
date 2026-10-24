@@ -864,6 +864,7 @@ class FrameDataTest {
                 "grab_escape_inputs");
         rejects(() -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 1, 300), "history_ticks");
         rejects(() -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 0), "in_combat_ticks");
-        rejects(() -> new FightRules(0.5), "engage_blocks");
+        rejects(() -> new FightRules(0.5, 1200), "engage_blocks");
+        rejects(() -> new FightRules(32, 0), "end_ticks");
     }
 }

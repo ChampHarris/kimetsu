@@ -3,6 +3,7 @@ package dev.champ.kimetsu.combat;
 import com.google.gson.JsonElement;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.TickRecord;
+import dev.champ.kimetsu.core.fight.PlayerIntake;
 import dev.champ.kimetsu.data.CombatData;
 import dev.champ.kimetsu.net.NetMessage;
 import java.util.ArrayList;
@@ -107,6 +108,20 @@ public final class Sessions {
             arenaOpened(arena);
         }
         return s;
+    }
+
+    /**
+     * The seam's input (slice 5c-2): input frame {@code f} from {@code p}'s client, run as if the gate let it through
+     * on its arrival at {@code arrivalMicros} in combat time (the wire's own path stamps that on the network thread).
+     * GameTests only.
+     */
+    public void frameForTest(ServerPlayer p, PlayerIntake.Frame f, long arrivalMicros) {
+        server.checkThread();
+        PlayerSession s = byListener.get(p.connection);
+        if (s == null) {
+            throw new IllegalStateException(p.getScoreboardName() + " has no session");
+        }
+        s.frameForTest(f, arrivalMicros);
     }
 
     void logout(ServerPlayer p) {

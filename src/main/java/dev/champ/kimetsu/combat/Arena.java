@@ -2,6 +2,7 @@ package dev.champ.kimetsu.combat;
 
 import dev.champ.kimetsu.core.data.Moveset;
 import dev.champ.kimetsu.core.fight.CombatWorld;
+import dev.champ.kimetsu.core.fight.Fights;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.data.CombatData;
 import dev.champ.kimetsu.data.CombatDataBuilder;
@@ -12,14 +13,17 @@ import java.util.List;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Util;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import org.jspecify.annotations.Nullable;
 
 /**
  * One engine world and the mod entities fighting in it (D-052): each dimension has a default arena, and each combat
  * GameTest opens its own, so parallel tests can't strike each other's dummies or share a per-beat cap. Its world is
  * built from one data generation and rebuilt whole on a reload, since the engine keys things by its data objects'
- * identity. Each step's events go to its listeners first (slice 5b's router, GameTests), then to its members, whose
- * side effects (vanilla damage, a death) send vanilla packets at once: so the engine's events lead. Main thread only.
+ * identity. Each step's events go to its listeners first (slice 5b's router, GameTests), then to its fights and its
+ * fight log, then to its members, whose side effects (vanilla damage, a death) send vanilla packets at once: so the
+ * engine's events lead. Its fights (D-068) and its log outlive a rebuild, since a {@code /reload} ends no fight. Main
+ * thread only.
  */
 public final class Arena {
     /** What sees an arena's events. */
@@ -37,16 +41,37 @@ public final class Arena {
     private @Nullable ArenaMember[] snapshot = new ArenaMember[8]; // the members a dispatch walks: no allocation
     private CombatData data;
     private CombatWorld world;
+    private final Fights fights;
+    private @Nullable FightLog log;
     private boolean closed;
     private boolean sprinting;
     private long stepNanos;
     private int steps;
+    private long lastStep; // the step last begun (before the first, the one before it)
 
     Arena(CombatServer server, ServerLevel level, CombatData data) {
         this.server = server;
         this.level = level;
         this.data = data;
         this.world = newWorld(data);
+        this.lastStep = server.nextTick() - 1;
+        this.fights = new Fights(data.rules().fights(), new Fights.Listener() {
+            @Override
+            public void started(Fights.Fight f, long step) {
+                FightLog l = log;
+                if (l != null) {
+                    l.started(f, step);
+                }
+            }
+
+            @Override
+            public void ended(Fights.Fight f, long step, Fights.End why) {
+                FightLog l = log;
+                if (l != null) {
+                    l.ended(f, step, why);
+                }
+            }
+        });
     }
 
     private CombatWorld newWorld(CombatData d) {
@@ -74,6 +99,51 @@ public final class Arena {
 
     public CombatServer server() {
         return server;
+    }
+
+    /** Its combatants' fights (Rule 13.1, D-068). */
+    public Fights fights() {
+        return fights;
+    }
+
+    /** Its fight log, or null while it has none. */
+    public @Nullable FightLog log() {
+        return log;
+    }
+
+    /**
+     * Its fight log from now on, or none: the one it had is closed. The combat server gives each dimension's arena a
+     * file while logging is on; a GameTest gives its own arena one in memory.
+     */
+    public void log(@Nullable FightLog next) {
+        FightLog old = log;
+        if (old != null && old != next) {
+            old.close();
+        }
+        log = next;
+    }
+
+    /** The step it last began: what its log stamps on what happens between steps. */
+    public long lastStep() {
+        return lastStep;
+    }
+
+    /** Combatant {@code id} was defeated (a player's death; a mob's comes as its {@code MobDied}): D-068. */
+    public void defeated(int id) {
+        fights.defeated(id, lastStep);
+    }
+
+    /**
+     * The engine's {@code amount} on its member {@code target}, dealt by combatant {@code by}, through the damage path
+     * (Rule 12); a hit {@code hurtServer} refuses goes to the fight log.
+     */
+    public void hurt(LivingEntity target, double amount, int by) {
+        if (!DamagePath.hurt(target, DamagePath.DEMON_CLAW, amount, entity(by))) {
+            FightLog l = log;
+            if (l != null) {
+                l.refused(lastStep, target.getId(), by, amount);
+            }
+        }
     }
 
     /** The tick a combatant joining now begins with. */
@@ -167,13 +237,28 @@ public final class Arena {
         CombatWorld old = world;
         old.onEpoch(cutoffMicros);
         List<Outbox.Event> cancels = old.outbox().drain();
+        FightLog l = log;
+        long shift = tick - (lastStep + 1); // a re-anchor renumbers the ticks; a reload goes on at the next one
+        if (shift != 0) {
+            fights.rebase(shift); // first: the cancels below are stamped on the new numbering
+            lastStep += shift;
+        }
         for (int k = 0; k < cancels.size(); k++) {
+            Outbox.Event e = cancels.get(k);
             for (int i = 0; i < listeners.size(); i++) {
-                listeners.get(i).accept(cancels.get(k));
+                listeners.get(i).accept(e);
+            }
+            fights.accept(e, tick - 1);
+            if (l != null) {
+                l.event(e, tick - 1);
             }
         }
         for (int i = 0; i < listeners.size(); i++) {
             listeners.get(i).endStep(tick - 1);
+        }
+        fights.rules(d.rules().fights());
+        if (l != null) {
+            l.rebuilt(tick - 1, server.generation(), shift);
         }
         data = d;
         world = newWorld(d);
@@ -192,6 +277,7 @@ public final class Arena {
     void step(long n, boolean sprint) {
         long began = Util.getNanos();
         sprinting = sprint;
+        lastStep = n;
         for (int i = 0; i < members.size(); i++) {
             members.get(i).beforeStep(n);
         }
@@ -200,11 +286,18 @@ public final class Arena {
             members.get(i).afterStep(n);
         }
         List<Outbox.Event> events = world.outbox().drain();
+        FightLog l = log;
         for (int k = 0; k < events.size(); k++) {
+            Outbox.Event e = events.get(k);
             for (int i = 0; i < listeners.size(); i++) {
-                listeners.get(i).accept(events.get(k));
+                listeners.get(i).accept(e);
+            }
+            fights.accept(e, n); // a fight it opens is logged before the event that opened it
+            if (l != null) {
+                l.event(e, n);
             }
         }
+        fights.endStep(n);
         for (int i = 0; i < listeners.size(); i++) {
             listeners.get(i).endStep(n); // every step: a player's snapshot can change on a quiet one
         }
@@ -222,7 +315,11 @@ public final class Arena {
                 snapshot[i] = null;
             }
         }
-        stepNanos += Util.getNanos() - began;
+        if (l != null) {
+            l.endStep(this, n, members);
+        }
+        stepNanos +=
+                Util.getNanos() - began; // with the log's lines while it's on (dev runs; GameTest arenas have none)
         steps++;
     }
 
@@ -241,6 +338,7 @@ public final class Arena {
     void close() {
         closed = true;
         listeners.clear();
+        log(null);
         int n = snap();
         members.clear();
         for (int i = 0; i < n; i++) {

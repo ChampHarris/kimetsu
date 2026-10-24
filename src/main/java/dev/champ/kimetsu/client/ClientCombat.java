@@ -190,6 +190,15 @@ public final class ClientCombat {
                 Math.floorDiv(now, beat),
                 Math.floorMod(now, beat) / 1000,
                 beat / 1000));
+        long tick = Math.floorDiv(now, Micros.PER_TICK);
+        long until = c.view.combatUntil();
+        lines.add(String.format(
+                Locale.ROOT,
+                "%s  ping every %d ms",
+                until > tick
+                        ? String.format(Locale.ROOT, "combat %.1f s left", Micros.ofTicks(until - tick) / 1e6)
+                        : "out of combat",
+                clock.pingIntervalMillis()));
         NetMessage.Snapshot s = c.view.snapshot();
         if (s != null) {
             long t = s.settledTick();

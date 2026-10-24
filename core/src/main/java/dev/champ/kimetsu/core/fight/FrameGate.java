@@ -27,6 +27,9 @@ import org.jspecify.annotations.Nullable;
  * the meter allows. An honest client's frame debt stays shallow: a tick start hands over at most one merge, which the
  * refill outpaces while its stamps keep more than half the server's pace.
  *
+ * <p>For the fight log it counts the frames it holds back into a merge and the longest gap between two frames'
+ * arrivals (the stall lengths the stamp check's bracket is sized for), each since the last time they were taken.
+ *
  * <p>Not thread-safe: the caller guards it, on the network thread where frames arrive and on the main thread where
  * they run, and tells it when each frame it let through starts to run there ({@link #ran}), since a merge mustn't
  * overtake one.
@@ -54,6 +57,9 @@ public final class FrameGate {
     private @Nullable Pass held;
     private int queued; // frames let through that haven't started on the main thread
     private @Nullable Abuse abuse;
+    private long lastArrivalNanos = Long.MIN_VALUE;
+    private long longestGapNanos; // since the last take
+    private int heldBack; // frames held back into a merge since the last take
 
     public FrameGate(FrameMeter.Limits limits) {
         this.meter = new FrameMeter(limits);
@@ -87,6 +93,10 @@ public final class FrameGate {
         if (abuse != null) {
             return List.of();
         }
+        if (lastArrivalNanos != Long.MIN_VALUE) {
+            longestGapNanos = Math.max(longestGapNanos, arrivalNanos - lastArrivalNanos);
+        }
+        lastArrivalNanos = arrivalNanos;
         meter.credit(
                 f.sendStampMicros(),
                 arrivalMicros,
@@ -115,6 +125,7 @@ public final class FrameGate {
             now = new Pass(merged, arrivalMicros, frozen);
         } else {
             held = new Pass(merged, arrivalMicros, frozen);
+            heldBack++;
             if (count > PlayerIntake.MAX_PENDING) {
                 abuse = Abuse.MERGE_OVERFLOW;
             }
@@ -156,6 +167,20 @@ public final class FrameGate {
     /** Why the client was cut off, or null. */
     public @Nullable Abuse abuse() {
         return abuse;
+    }
+
+    /** The longest gap between two frames' arrivals since the last take, in ns (0 for none); counting starts again. */
+    public long takeLongestGapNanos() {
+        long g = longestGapNanos;
+        longestGapNanos = 0;
+        return g;
+    }
+
+    /** How many frames it held back into a merge since the last take; counting starts again. */
+    public int takeMerged() {
+        int m = heldBack;
+        heldBack = 0;
+        return m;
     }
 
     /** {@code m} goes by itself, whatever the meter holds: charged for it, and without a pose. */

@@ -2,6 +2,7 @@ package dev.champ.kimetsu.combat;
 
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.data.CombatData;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A mod entity that fights in an arena: the engine combatant behind it is fed what the level did before each step and
@@ -26,6 +27,10 @@ public interface ArenaMember {
 
     /** An event step {@code n} sent: each member gets every one and takes those that concern it. */
     void onEvent(Outbox.Event e);
+
+    /** The arena it fights in, or null while it's in none. */
+    @Nullable
+    Arena arena();
 
     /** Whether it's a hostile combatant to players (a demon; D-055: the blade near one is only ever the Attack). */
     default boolean hostile() {

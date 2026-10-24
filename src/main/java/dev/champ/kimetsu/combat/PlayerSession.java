@@ -75,6 +75,35 @@ public final class PlayerSession implements ArenaMember {
     private long lastEchoNanos = Long.MIN_VALUE;
     private int epoch; // the last epoch crossed, and where its presses were cut off: a fresh intake needs them
     private long epochCutoff = Long.MAX_VALUE; // none: the stamp check's own default
+    private long arrivalMicros = Long.MIN_VALUE; // the arrival of the frame the intake is judging, for the fight log
+    private final PlayerIntake.Sink sink = new PlayerIntake.Sink() {
+        @Override
+        public void judged(Input in, PlayerIntake.Delta d, long frameTimeMicros, boolean held) {
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(
+                        "{} {} sent {} judged {} ({} µs)",
+                        name,
+                        in.kind(),
+                        d.stampMicros(),
+                        in.stampMicros(),
+                        in.stampMicros() - d.stampMicros());
+            }
+            Arena a = arena;
+            FightLog log = a != null ? a.log() : null;
+            if (a != null && log != null) {
+                log.press(a.lastStep(), combatId(), in, d, frameTimeMicros, held, arrivalMicros, fighter);
+            }
+        }
+
+        @Override
+        public void dropped(PlayerIntake.Delta d, PlayerIntake.Drop why) {
+            Arena a = arena;
+            FightLog log = a != null ? a.log() : null;
+            if (a != null && log != null) {
+                log.dropped(a.lastStep(), combatId(), d, why);
+            }
+        }
+    };
 
     private final List<Outbox.Event> buffer = new ArrayList<>();
     private NetMessage.@Nullable Snapshot shown; // the last snapshot sent
@@ -101,19 +130,7 @@ public final class PlayerSession implements ArenaMember {
         this.timing = data.rules().timing();
         this.leadMicros = Micros.ofMillis(timing.toleranceMaxMs());
         this.epoch = epoch;
-        this.intake = new PlayerIntake(timing, epoch, this::log);
-    }
-
-    private void log(Input in, long sentStampMicros) {
-        if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug(
-                    "{} {} sent {} judged {} ({} µs)",
-                    player.getScoreboardName(),
-                    in.kind(),
-                    sentStampMicros,
-                    in.stampMicros(),
-                    in.stampMicros() - sentStampMicros);
-        }
+        this.intake = new PlayerIntake(timing, epoch, sink);
     }
 
     public ServerPlayer player() {
@@ -128,9 +145,12 @@ public final class PlayerSession implements ArenaMember {
         return fighter;
     }
 
-    /** The arena it fights in, or null while it isn't in a fight. */
-    @Nullable
-    Arena arena() {
+    /**
+     * The arena it fights in, or null while it isn't in a fight. A press that comes then reaches no timeline and no
+     * fight log: it's nobody's input.
+     */
+    @Override
+    public @Nullable Arena arena() {
         return arena;
     }
 
@@ -245,8 +265,13 @@ public final class PlayerSession implements ArenaMember {
         leave();
     }
 
+    /** Its player died: a defeat (D-068), and out of the fight until it respawns. */
     void died() {
         dead = true;
+        Arena a = arena;
+        if (a != null) {
+            a.defeated(combatId());
+        }
         leave();
     }
 
@@ -295,6 +320,7 @@ public final class PlayerSession implements ArenaMember {
         if (closed) {
             return; // queued work still runs after a disconnect
         }
+        this.arrivalMicros = arrivalMicros;
         if (intake.frame(f, arrivalMicros, frozen)) {
             Fighter ft = fighter;
             if (ft != null) {
@@ -383,7 +409,7 @@ public final class PlayerSession implements ArenaMember {
         long rtt = intake.rttMicros();
         timing = rules;
         leadMicros = Micros.ofMillis(rules.toleranceMaxMs());
-        intake = new PlayerIntake(rules, currentEpoch, this::log);
+        intake = new PlayerIntake(rules, currentEpoch, sink);
         if (epoch == currentEpoch) {
             intake.onEpoch(epoch, epochCutoff);
         }
@@ -570,12 +596,34 @@ public final class PlayerSession implements ArenaMember {
         int id = player.getId();
         switch (e) {
             case Outbox.StrikeResult r
-            when r.fighter() == id && r.damage() > 0 ->
-                DamagePath.hurt(player, DamagePath.DEMON_CLAW, r.damage(), a.entity(r.attacker()));
-            case Outbox.HoldEnded h
-            when h.fighter() == id && h.damage() > 0 ->
-                DamagePath.hurt(player, DamagePath.DEMON_CLAW, h.damage(), a.entity(h.mob()));
+            when r.fighter() == id && r.damage() > 0 -> a.hurt(player, r.damage(), r.attacker());
+            case Outbox.HoldEnded h when h.fighter() == id && h.damage() > 0 -> a.hurt(player, h.damage(), h.mob());
             default -> {}
         }
+    }
+
+    /**
+     * Once a second, from its arena's fight log: the link's measures since the last (the longest gap between its
+     * frames' arrivals, the frames merged), taken whether or not it fights; written, with its meters, while it does.
+     * Returns whether it wrote a line.
+     */
+    boolean second(FightLog log, long n, boolean inFight) {
+        long gap;
+        int merged;
+        synchronized (gate) {
+            gap = gate.takeLongestGapNanos();
+            merged = gate.takeMerged();
+        }
+        Fighter f = fighter;
+        if (f == null || !inFight) {
+            return false;
+        }
+        log.second(n, combatId(), f, intake.rttMicros(), gap, merged);
+        return true;
+    }
+
+    /** A GameTest's frame for this player, as if it arrived at {@code arrivalMicros} ({@link Sessions#frameForTest}). */
+    void frameForTest(PlayerIntake.Frame f, long arrivalMicros) {
+        frame(f, arrivalMicros, false);
     }
 }

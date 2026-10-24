@@ -23,7 +23,8 @@ class LastSeqTest {
     private final Arena a = new Arena();
     private final Arena.Player p = a.player(1).silentFrom(1); // fed by the intake alone
     private final List<Input> judged = new ArrayList<>();
-    private final PlayerIntake intake = new PlayerIntake(Fixtures.timing(), 0, (in, sent) -> judged.add(in));
+    private final PlayerIntake intake =
+            new PlayerIntake(Fixtures.timing(), 0, (in, d, frameTime, held) -> judged.add(in));
 
     LastSeqTest() {
         intake.echo(0, RTT);

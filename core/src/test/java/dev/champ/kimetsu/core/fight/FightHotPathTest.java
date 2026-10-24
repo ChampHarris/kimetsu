@@ -6,6 +6,7 @@ import dev.champ.kimetsu.core.Fixtures;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.PulseSchedule;
 import dev.champ.kimetsu.core.data.DemonProfile;
+import dev.champ.kimetsu.core.data.FightRules;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.HungerRules;
 import dev.champ.kimetsu.core.demon.Demon;
@@ -127,6 +128,50 @@ class FightHotPathTest {
         assertTrue(
                 clean >= 6,
                 "quiet ticks allocated in " + (windows.length - clean) + " of 10 windows: " + Arrays.toString(windows));
+    }
+
+    @Test
+    void aStepWithNoTriggerEndsNoFightAndAllocatesNothing() {
+        // the arena's fights after every step (D-068): six open fights and strikes waiting for their impacts
+        Fights fights = new Fights(new FightRules(32, Integer.MAX_VALUE), new Fights.Listener() {
+            @Override
+            public void started(Fights.Fight f, long step) {}
+
+            @Override
+            public void ended(Fights.Fight f, long step, Fights.End why) {}
+        });
+        long far = Long.MAX_VALUE / 2;
+        for (int p = 1; p <= 4; p++) {
+            fights.accept(new Outbox.AttackStarted(p, 10 + p % 2, p, "swipe", 0, 1, 2, far, p, true), 0);
+        }
+        Outbox.Event view = new Outbox.GuardYaw(10, 0, 3); // not a trigger
+        Runnable step = () -> {
+            long t = ++n;
+            fights.accept(view, t);
+            fights.endStep(t);
+        };
+        for (int i = 0; i < 50_000; i++) {
+            step.run();
+        }
+        com.sun.management.ThreadMXBean bean = (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
+        long[] windows = new long[10];
+        for (int win = 0; win < windows.length; win++) {
+            long before = bean.getCurrentThreadAllocatedBytes();
+            for (int i = 0; i < 1_000; i++) {
+                step.run();
+            }
+            windows[win] = bean.getCurrentThreadAllocatedBytes() - before;
+        }
+        assertTrue(fights.open().size() == 6, "a fight ended: " + fights.open().size() + " open");
+        System.out.println("quiet fight steps: bytes allocated per window of 1,000: " + Arrays.toString(windows));
+        int clean = 0;
+        for (long bytes : windows) {
+            clean += bytes == 0 ? 1 : 0;
+        }
+        assertTrue(
+                clean >= 6,
+                "quiet fight steps allocated in " + (windows.length - clean) + " of 10 windows: "
+                        + Arrays.toString(windows));
     }
 
     @Test

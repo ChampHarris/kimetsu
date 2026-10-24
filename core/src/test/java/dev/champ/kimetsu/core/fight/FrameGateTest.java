@@ -140,6 +140,27 @@ class FrameGateTest {
     }
 
     @Test
+    void itCountsTheFramesItMergesAndTheLongestGapBetweenArrivals_eachSinceTheLastTake() {
+        FrameGate g = gate();
+        long t = 1_000_000;
+        offer(g, frame(0, t, 0, 0), t);
+        offer(g, frame(1, t + 50_000, 0, 0), t + 50_000);
+        offer(g, frame(2, t + 100_000, 0, 0), t + 400_000); // a 350 ms stall: TCP delivers the burst together
+        offer(g, frame(3, t + 120_000, 0, 0), t + 400_000);
+        assertEquals(350_000_000, g.takeLongestGapNanos()); // arrivals in combat µs × 1000
+        assertEquals(0, g.takeLongestGapNanos(), "taken");
+        assertEquals(0, g.takeMerged(), "nothing over the limit yet");
+
+        FrameGate h = gate();
+        long seq = drain(h, t);
+        assertEquals(0, h.takeMerged(), "the burst went through");
+        assertTrue(offer(h, frame(seq++, t, 0, 0), t).isEmpty());
+        assertTrue(offer(h, frame(seq, t, 0, 0), t).isEmpty());
+        assertEquals(2, h.takeMerged());
+        assertEquals(0, h.takeMerged(), "taken");
+    }
+
+    @Test
     void aMergeLeftWhenFramesStopGoesAtTheNextTickStart_withoutItsPose_onceNothingIsQueuedAhead() {
         FrameGate g = gate();
         long t = 1_000_000;

@@ -24,8 +24,8 @@ import org.jspecify.annotations.Nullable;
  * test dummy, which plays one) through {@code hurtServer} with the mod's own damage types, which the bypass tags in
  * {@code data/minecraft/tags/damage_type/} take past armour, shields, enchantments, effects and the damage cooldown.
  * A demon's HP is the engine's: vanilla damage on it becomes the engine's outside damage (Rule 8.6), and a death the
- * engine didn't decide is caught (Rule 12.5). A player in combat heals by nothing vanilla (Rule 12.7). The fight log's
- * telemetry is still to come (slice 5c-2).
+ * engine didn't decide is caught (Rule 12.5). A player in combat heals by nothing vanilla (Rule 12.7). The fight log
+ * gets the game's own account of every damage its combatants take ({@link #onDamagePost}).
  */
 public final class DamagePath {
     public static final ResourceKey<DamageType> NICHIRIN = key("nichirin");
@@ -77,6 +77,43 @@ public final class DamagePath {
         if (event.getEntity() instanceof M1Demon demon && demon.deathNet(event.getSource())) {
             event.setCanceled(true);
         }
+    }
+
+    /**
+     * The fight log's telemetry (spec, S692): what the game made of damage on a combatant whose arena logs, after
+     * armour, absorption and the rest: a demon's own health takes nothing but the engine's mirror (Rule 8.6), and a
+     * player's should take the engine's amount whole.
+     */
+    public static void onDamagePost(LivingDamageEvent.Post event) {
+        LivingEntity e = event.getEntity();
+        Arena a = arenaOf(e);
+        FightLog log = a != null ? a.log() : null;
+        if (a == null || log == null) {
+            return;
+        }
+        DamageSource s = event.getSource();
+        log.damage(
+                a.lastStep(),
+                e.getId(),
+                s.typeHolder().getRegisteredName(),
+                event.getOriginalDamage(),
+                event.getInflictedDamage(),
+                event.getHealthDamage(),
+                event.getBlockedDamage(),
+                e.getHealth());
+    }
+
+    /** The arena {@code e} fights in, as a mod combatant or a player with a session; null for anything else. */
+    private static @Nullable Arena arenaOf(LivingEntity e) {
+        if (e instanceof ArenaMember m) {
+            return m.arena();
+        }
+        if (e instanceof ServerPlayer p) {
+            CombatServer c = CombatServer.of(p.level().getServer());
+            PlayerSession session = c != null ? c.sessions().session(p.connection) : null;
+            return session != null ? session.arena() : null;
+        }
+        return null;
     }
 
     /**

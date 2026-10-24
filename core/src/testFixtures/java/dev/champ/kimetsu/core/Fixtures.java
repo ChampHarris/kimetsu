@@ -222,7 +222,8 @@ public final class Fixtures {
     }
 
     public static FightRules fights() {
-        return new FightRules(32); // Input frames, D-055: a hostile combatant within 32 blocks engages
+        // Input frames, D-055: a hostile combatant within 32 blocks engages; Rule 13.1: a fight ends after 60 s
+        return new FightRules(32, 1200);
     }
 
     public static HitRules hits() {

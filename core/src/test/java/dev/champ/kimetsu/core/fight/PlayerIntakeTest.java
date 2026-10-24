@@ -193,11 +193,20 @@ class PlayerIntakeTest {
     private static final class Judged implements PlayerIntake.Sink {
         final List<Input> inputs = new ArrayList<>();
         final List<Long> sent = new ArrayList<>();
+        final List<Boolean> held = new ArrayList<>();
+        final List<String> dropped = new ArrayList<>();
 
         @Override
-        public void judged(Input in, long sentStampMicros) {
+        public void judged(Input in, PlayerIntake.Delta d, long frameTimeMicros, boolean wasHeld) {
             inputs.add(in);
-            sent.add(sentStampMicros);
+            sent.add(d.stampMicros());
+            held.add(wasHeld);
+            assertEquals(FRAME, frameTimeMicros, "the frame time it was polled in");
+        }
+
+        @Override
+        public void dropped(PlayerIntake.Delta d, PlayerIntake.Drop why) {
+            dropped.add(d.key() + (d.down() ? " down " : " up ") + d.stampMicros() + " " + why);
         }
     }
 
@@ -258,6 +267,7 @@ class PlayerIntakeTest {
                 1_095_000,
                 false);
         assertTrue(sink.inputs.isEmpty());
+        assertEquals(List.of("GUARD down 1020000 OLD_EPOCH"), sink.dropped, "the log sees the drop");
 
         // the new timeline starts behind the old one's floors
         PlayerIntake.Frame next = new PlayerIntake.Frame(
@@ -298,7 +308,26 @@ class PlayerIntakeTest {
         in.beforeStep(due);
         long ref = 1_500_000 - 75_000;
         assertEquals(List.of(Input.guard(ref - p.f.toleranceMicros() - FRAME / 2)), sink.inputs);
+        assertEquals(List.of(true), sink.held, "it waited for an anchor");
         assertEquals(Long.MAX_VALUE, p.f.earliestHeldMicros());
+    }
+
+    @Test
+    void aStalledPressStampedAfterAnEpochsCutoff_isDroppedWhenTheEpochComes_andTheLogIsTold() {
+        Judged sink = new Judged();
+        PlayerIntake in = intake(new Arena().player(1).silentFrom(1), sink, 0);
+        in.frame(frame(0, 1_000_000, 0), 1_075_000, false);
+        in.frame(
+                frame(
+                        1,
+                        1_050_000,
+                        PlayerIntake.Key.GUARD.bit(),
+                        PlayerIntake.Delta.press(PlayerIntake.Key.GUARD, 1_050_000)),
+                1_500_000,
+                false); // held for an anchor
+        in.onEpoch(1, 1_020_000); // the server stalled: the press was stamped after its last tick
+        assertTrue(sink.inputs.isEmpty());
+        assertEquals(List.of("GUARD down 1050000 OLD_EPOCH"), sink.dropped);
     }
 
     @Test
@@ -320,6 +349,8 @@ class PlayerIntakeTest {
                 List.of(Input.guard(1_000_000 - FRAME / 2), Input.of(Input.Kind.GUARD_UP, 1_050_000 - FRAME / 2)),
                 sink.inputs);
         assertEquals(List.of(1_000_000L, 1_050_000L), sink.sent);
+        assertEquals(List.of(false, false), sink.held, "judged as they came");
+        assertTrue(sink.dropped.isEmpty());
     }
 
     @Test

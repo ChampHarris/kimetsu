@@ -70,6 +70,11 @@ final class ClientView {
         return tick < combatUntil;
     }
 
+    /** The tick its combat flag drops at, by the last snapshot; {@code Long.MIN_VALUE} out of combat (the overlay's). */
+    long combatUntil() {
+        return combatUntil;
+    }
+
     /**
      * The client's entity {@code mob} left its level (out of tracking range, or its chunk unloaded): its state goes with
      * it. A mob's events reach its trackers alone, and vanilla ends the tracking before the mob leaves, so the {@code

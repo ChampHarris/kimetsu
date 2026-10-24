@@ -182,6 +182,11 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
     }
 
     @Override
+    public @Nullable Arena arena() {
+        return arena;
+    }
+
+    @Override
     public boolean hostile() {
         return true;
     }

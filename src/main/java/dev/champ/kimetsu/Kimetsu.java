@@ -46,6 +46,7 @@ public final class Kimetsu {
         game.addListener(CombatServer::onTickEnd);
         game.addListener(DamagePath::onIncomingDamage);
         game.addListener(DamagePath::onDamagePre);
+        game.addListener(DamagePath::onDamagePost);
         game.addListener(DamagePath::onHeal);
         game.addListener(EventPriority.HIGHEST, DamagePath::onDeath); // first: nothing acts on a death it cancels
         game.addListener(M1Demon::onMount);

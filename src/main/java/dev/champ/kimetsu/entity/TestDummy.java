@@ -3,7 +3,6 @@ package dev.champ.kimetsu.entity;
 import dev.champ.kimetsu.combat.Arena;
 import dev.champ.kimetsu.combat.ArenaMember;
 import dev.champ.kimetsu.combat.CombatServer;
-import dev.champ.kimetsu.combat.DamagePath;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.PulseSchedule;
 import dev.champ.kimetsu.core.data.Moveset;
@@ -182,6 +181,11 @@ public final class TestDummy extends PathfinderMob implements ArenaMember {
         return getId();
     }
 
+    @Override
+    public @Nullable Arena arena() {
+        return arena;
+    }
+
     /** It joins with a fresh fighter; one that had a fighter (a rebuilt world, or back in tracking) carries its meters. */
     @Override
     public void join(Arena a, CombatData data, long tick) {
@@ -281,11 +285,8 @@ public final class TestDummy extends PathfinderMob implements ArenaMember {
         }
         switch (e) {
             case Outbox.StrikeResult r
-            when r.fighter() == getId() && r.damage() > 0 ->
-                DamagePath.hurt(this, DamagePath.DEMON_CLAW, r.damage(), a.entity(r.attacker()));
-            case Outbox.HoldEnded h
-            when h.fighter() == getId() && h.damage() > 0 ->
-                DamagePath.hurt(this, DamagePath.DEMON_CLAW, h.damage(), a.entity(h.mob()));
+            when r.fighter() == getId() && r.damage() > 0 -> a.hurt(this, r.damage(), r.attacker());
+            case Outbox.HoldEnded h when h.fighter() == getId() && h.damage() > 0 -> a.hurt(this, h.damage(), h.mob());
             default -> {}
         }
     }

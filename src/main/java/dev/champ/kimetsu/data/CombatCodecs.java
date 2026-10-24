@@ -458,9 +458,10 @@ public final class CombatCodecs {
                             st.historyTicks(),
                             st.inCombatTicks())));
 
-    static final Codec<FightRules> FIGHTS = RecordCodecBuilder.create(
-            i -> i.group(Codec.DOUBLE.fieldOf("engage_blocks").forGetter(FightRules::engageBlocks))
-                    .apply(i, FightRules::new));
+    static final Codec<FightRules> FIGHTS = RecordCodecBuilder.create(i -> i.group(
+                    Codec.DOUBLE.fieldOf("engage_blocks").forGetter(FightRules::engageBlocks),
+                    Codec.INT.fieldOf("end_ticks").forGetter(FightRules::endTicks))
+            .apply(i, FightRules::new));
 
     static final Codec<HitRules> HITS = RecordCodecBuilder.create(i -> i.group(
                     Codec.INT.fieldOf("sub_steps").forGetter(HitRules::subSteps),

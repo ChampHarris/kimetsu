@@ -7,11 +7,15 @@ import dev.champ.kimetsu.data.CombatData;
 import dev.champ.kimetsu.data.CombatDataBuilder;
 import dev.champ.kimetsu.data.CombatDataLoader;
 import dev.champ.kimetsu.net.NetCodec;
+import java.nio.file.Path;
 import java.security.SecureRandom;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import net.minecraft.gametest.framework.GameTestServer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
@@ -20,6 +24,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Util;
 import net.minecraft.world.level.Level;
+import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.event.TagsUpdatedEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
@@ -52,9 +57,12 @@ public final class CombatServer {
     private final Sessions sessions = new Sessions(this);
     private volatile int epoch; // the network thread reads it too: it moves before ClockEpoch goes out
     private int generation;
+    private boolean logging; // the fight log: dev runs, until 5d's SYNCED switch
 
     private CombatServer(MinecraftServer server, CombatDataBuilder.Result loaded) {
         this.server = server;
+        // not the GameTest server: its default arenas run the tests' side effects, and a test logs in memory
+        this.logging = !FMLEnvironment.isProduction() && !(server instanceof GameTestServer);
         List<String> problems = problems(loaded);
         if (problems.isEmpty()) {
             take(loaded);
@@ -86,6 +94,12 @@ public final class CombatServer {
     }
 
     public static void onServerStopped(ServerStoppedEvent event) {
+        CombatServer c = current;
+        if (c != null) {
+            for (int i = 0; i < c.arenas.size(); i++) {
+                c.arenas.get(i).log(null); // flushed and closed
+            }
+        }
         current = null;
     }
 
@@ -401,8 +415,47 @@ public final class CombatServer {
             a = open(level);
             defaults.put(level.dimension(), a);
             sessions.arenaOpened(a); // players see a default arena's events; a GameTest's stay its own
+            if (logging) {
+                a.log(fileLog(level));
+            }
         }
         return a;
+    }
+
+    /** Whether the dimensions' arenas keep fight logs (D-069). */
+    public boolean logging() {
+        return logging;
+    }
+
+    /**
+     * The fight log on or off for every dimension's arena until the server stops ({@code /kimetsu debug log}): on
+     * starts each a file for today, appended to if it's there; off closes them. A GameTest's arena keeps its own.
+     */
+    public void logging(boolean on) {
+        checkThread();
+        logging = on;
+        for (Map.Entry<ResourceKey<Level>, Arena> e : defaults.entrySet()) {
+            Arena a = e.getValue();
+            FightLog had = a.log();
+            if (!on) {
+                a.log(null);
+            } else if (had == null || had.off()) {
+                a.log(fileLog(a.level()));
+            }
+        }
+    }
+
+    /** Where the fight logs go: {@code kimetsu/fights/} in the server's directory ({@code run/} in dev). */
+    public Path logFolder() {
+        return server.getServerDirectory().resolve("kimetsu").resolve("fights");
+    }
+
+    /** {@code level}'s arena's log for today: {@code <date>-<dimension>.jsonl}. */
+    private FightLog fileLog(ServerLevel level) {
+        String dimension = level.dimension().identifier().toString();
+        String file = LocalDate.now(ZoneId.systemDefault()) + "-"
+                + dimension.replace(':', '_').replace('/', '_') + ".jsonl";
+        return FightLog.toFile(dimension, logFolder().resolve(file));
     }
 
     /** A new arena in {@code level} of its own (a GameTest's). */

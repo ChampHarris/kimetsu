@@ -143,12 +143,30 @@ public final class PlayerIntake {
         }
     }
 
-    /** What the intake judged into the fighter's timeline, with the stamp it was sent with: the server's log. */
-    public interface Sink {
-        void judged(Input in, long sentStampMicros);
+    /** Why a press or release never reached the timeline. */
+    public enum Drop {
+        /** Stamped after the stall on the old timeline, sent before the client heard of the epoch (Rule 1.8). */
+        OLD_EPOCH,
+        /** More held for a stall's anchor than the stamp check holds: never with an honest client. */
+        PENDING_FULL
     }
 
-    public static final Sink NO_SINK = (in, sent) -> {};
+    /**
+     * What the intake did with each press and release, for the fight log. One that comes while the player is out of
+     * the fight goes to no timeline and isn't told: it's nobody's input.
+     */
+    public interface Sink {
+        /**
+         * {@code in} went to the fighter's timeline, judged from {@code d} (its stamp as sent), polled in a frame
+         * {@code frameTimeMicros} long; {@code held} if it waited for a later frame to anchor a stall's bracket.
+         */
+        void judged(Input in, Delta d, long frameTimeMicros, boolean held);
+
+        /** {@code d} never reached the timeline, {@code why}. */
+        default void dropped(Delta d, Drop why) {}
+    }
+
+    public static final Sink NO_SINK = (in, d, frameTime, held) -> {};
 
     /** The presses and releases it holds for a stall's anchor at most (the stamp check holds no more). */
     public static final int MAX_PENDING = 64;
@@ -156,8 +174,8 @@ public final class PlayerIntake {
     private static final int FRAMES = 256; // frames kept until settled: 6 s at the meter's 40 a second
     private static final long NONE = Long.MIN_VALUE;
 
-    /** A press or release the stamp check holds, and the frame it came in (by the intake's own count). */
-    private record Held(Delta delta, long frame) {}
+    /** A press or release the stamp check holds, the frame it came in (by the intake's own count) and its length. */
+    private record Held(Delta delta, long frame, long frameTimeMicros) {}
 
     private final TimingRules rules;
     private final StampCheck check;
@@ -399,18 +417,21 @@ public final class PlayerIntake {
         long token = ++nextToken;
         long judged = check.press(token, d.stampMicros(), frameTimeMicros, cap);
         if (judged == StampCheck.HELD) {
-            hold(token, d, no);
-        } else if (judged != StampCheck.DROPPED) {
-            give(d, judged, no);
+            hold(token, d, no, frameTimeMicros);
+        } else if (judged == StampCheck.DROPPED) {
+            sink.dropped(d, Drop.OLD_EPOCH);
+        } else {
+            give(d, judged, no, frameTimeMicros, false);
         }
     }
 
-    private void hold(long token, Delta d, long no) {
+    private void hold(long token, Delta d, long no, long frameTimeMicros) {
         if (pendingCount == MAX_PENDING) {
-            return; // the stamp check never holds more than it has room for
+            sink.dropped(d, Drop.PENDING_FULL); // the stamp check never holds more than it has room for
+            return;
         }
         pendingToken[pendingCount] = token;
-        pendingDelta[pendingCount] = new Held(d, no);
+        pendingDelta[pendingCount] = new Held(d, no, frameTimeMicros);
         pendingCount++;
         int slot = slotOf(no);
         if (slot >= 0) {
@@ -446,8 +467,10 @@ public final class PlayerIntake {
                 frameHeld[slot]--;
             }
             long judged = check.releasedJudged(i);
-            if (judged != StampCheck.DROPPED) {
-                give(d, judged, h.frame());
+            if (judged == StampCheck.DROPPED) {
+                sink.dropped(d, Drop.OLD_EPOCH);
+            } else {
+                give(d, judged, h.frame(), h.frameTimeMicros(), true);
             }
         }
         check.clearReleased();
@@ -467,7 +490,7 @@ public final class PlayerIntake {
         return null;
     }
 
-    private void give(Delta d, long judged, long no) {
+    private void give(Delta d, long judged, long no, long frameTimeMicros, boolean held) {
         Fighter f = fighter;
         if (f == null) {
             return;
@@ -483,7 +506,7 @@ public final class PlayerIntake {
             releasedAt[k.wire()] = d.down() ? Long.MIN_VALUE : judged;
         }
         f.timeline().receive(in);
-        sink.judged(in, d.stampMicros());
+        sink.judged(in, d, frameTimeMicros, held);
         int slot = slotOf(no);
         if (slot >= 0) {
             long w = f.timeline().watermark();

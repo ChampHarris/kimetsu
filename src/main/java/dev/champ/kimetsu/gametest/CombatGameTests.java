@@ -1,16 +1,23 @@
 package dev.champ.kimetsu.gametest;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.mojang.logging.LogUtils;
 import dev.champ.kimetsu.Kimetsu;
 import dev.champ.kimetsu.combat.Arena;
 import dev.champ.kimetsu.combat.CombatServer;
 import dev.champ.kimetsu.combat.DamagePath;
+import dev.champ.kimetsu.combat.FightLog;
 import dev.champ.kimetsu.combat.PlayerSession;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.TickRecord;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.demon.Demon;
+import dev.champ.kimetsu.core.fight.Fights;
 import dev.champ.kimetsu.core.fight.Outbox;
+import dev.champ.kimetsu.core.fight.PlayerIntake;
+import dev.champ.kimetsu.core.judge.InputHorizon;
 import dev.champ.kimetsu.core.machine.Input;
 import dev.champ.kimetsu.core.machine.State;
 import dev.champ.kimetsu.core.meter.Fixed;
@@ -23,6 +30,7 @@ import dev.champ.kimetsu.entity.KimetsuEntities;
 import dev.champ.kimetsu.entity.M1Demon;
 import dev.champ.kimetsu.entity.TestDummy;
 import dev.champ.kimetsu.item.KimetsuItems;
+import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -69,6 +77,7 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.storage.ServerLevelData;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.common.CommonHooks;
@@ -106,14 +115,17 @@ public final class CombatGameTests {
             FUNCTIONS.register(
                     "the_blade_mines_only_away_from_fights", () -> CombatGameTests::theBladeMinesOnlyAwayFromFights),
             FUNCTIONS.register("no_shortcuts_in_combat", () -> CombatGameTests::noShortcutsInCombat),
-            FUNCTIONS.register("the_death_net_holds", () -> CombatGameTests::theDeathNetHolds));
+            FUNCTIONS.register("the_death_net_holds", () -> CombatGameTests::theDeathNetHolds),
+            FUNCTIONS.register("the_fight_log_explains_a_fight", () -> CombatGameTests::theFightLogExplainsAFight),
+            FUNCTIONS.register("a_players_death_ends_its_fights", () -> CombatGameTests::aPlayersDeathEndsItsFights));
 
     /** Tests that wait on chunks generating, with {@link #CHUNK_TICKS} to do it in. */
     private static final List<String> SLOW = List.of("an_unloaded_demon_leaves_alive");
 
     /** Tests that rebuild every arena the server runs: each batch of its own, so no other test's fight is rebuilt. */
     private static final List<DeferredHolder<Consumer<GameTestHelper>, Consumer<GameTestHelper>>> ALONE = List.of(
-            FUNCTIONS.register("a_reload_keeps_the_demons_wounds", () -> CombatGameTests::aReloadKeepsTheDemonsWounds));
+            FUNCTIONS.register("a_reload_keeps_the_demons_wounds", () -> CombatGameTests::aReloadKeepsTheDemonsWounds),
+            FUNCTIONS.register("a_reanchor_keeps_open_fights", () -> CombatGameTests::aReanchorKeepsOpenFights));
 
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Identifier EMPTY_STRUCTURE = Identifier.withDefaultNamespace("empty");
@@ -125,6 +137,8 @@ public final class CombatGameTests {
     private static final int MAX_TICKS = 600;
     /** How long the dummy's last guard press holds past an impact: past any verdict, short of the next strike. */
     private static final long HOLD_AFTER_MS = 200;
+    /** A session player's frame time: 60 frames a second. */
+    private static final long FRAME_MICROS = 16_667;
     /** The floor each fight stands on, in blocks from the test's corner. */
     private static final int FLOOR = 9;
     /** How far a chunk of its own lies from a test's, in chunks: no test's tickets keep it loaded. */
@@ -589,6 +603,66 @@ public final class CombatGameTests {
     }
 
     /**
+     * A re-anchor renumbers the ticks without ending a fight (D-069): while a demon's swipe on a dummy has both fights
+     * open, game time jumps twice a fight's quiet time, and every arena is rebuilt on the new numbering. The log's
+     * {@code rebuild} line carries the shift; both fights are still open steps later, each opened at its old step plus
+     * the shift, and none has ended. Its batch is its own: the re-anchor rebuilds every arena the server runs.
+     */
+    private static void aReanchorKeepsOpenFights(GameTestHelper h) {
+        CombatServer c = combat(h);
+        floor(h);
+        Arena arena = arena(h);
+        StringWriter into = new StringWriter();
+        arena.log(FightLog.toMemory("test", into));
+        TestDummy dummy = dummy(h, arena, 4, 6.5, 180);
+        FrameData swipe = attack(h, arena.data(), "swipe");
+        long start = arena.nextTick();
+        M1Demon demon = demon(h, arena, 4, 4, 0, b -> new ScriptedBrain(b, dummy::getId).at(start + 5, swipe));
+        long jump = 2L * arena.data().rules().fights().endTicks();
+        long[] from = {Long.MIN_VALUE, Long.MIN_VALUE}; // each fight's first step before the jump
+        int[] generation = {Integer.MIN_VALUE};
+        h.onEachTick(() -> {
+            Fights.Fight mine = arena.fights().fight(demon.getId());
+            Fights.Fight its = arena.fights().fight(dummy.getId());
+            if (generation[0] != Integer.MIN_VALUE || mine == null || its == null) {
+                return;
+            }
+            if (!(h.getLevel().getServer().overworld().getLevelData() instanceof ServerLevelData d)) {
+                throw h.assertionException("the overworld's level data can't move game time");
+            }
+            from[0] = mine.from();
+            from[1] = its.from();
+            generation[0] = c.generation();
+            d.setGameTime(d.getGameTime() + jump); // the arenas see it at this tick's end
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(
+                    generation[0] != Integer.MIN_VALUE && c.generation() > generation[0], "no re-anchor has come yet");
+            List<JsonObject> lines = new ArrayList<>();
+            for (String line : into.toString().lines().toList()) {
+                lines.add(JsonParser.parseString(line).getAsJsonObject()); // throws on a line that isn't JSON
+            }
+            JsonObject rebuild = first(lines, "rebuild");
+            h.assertTrue(rebuild != null, "no rebuild line");
+            if (rebuild == null) {
+                return;
+            }
+            long shift = rebuild.get("shift").getAsLong();
+            h.assertTrue(shift >= jump, "the rebuild shifted the ticks by " + shift + ", game time jumped " + jump);
+            h.assertTrue(arena.lastStep() >= rebuild.get("n").getAsLong() + 3, "too few steps since the rebuild");
+            h.assertTrue(!has(lines, "fight_end"), "the re-anchor ended a fight");
+            Fights.Fight mine = arena.fights().fight(demon.getId());
+            Fights.Fight its = arena.fights().fight(dummy.getId());
+            h.assertTrue(mine != null && its != null, "a fight isn't open after the re-anchor");
+            if (mine == null || its == null) {
+                return;
+            }
+            h.assertValueEqual(mine.from(), from[0] + shift, "the demon's fight's first step on the new numbering");
+            h.assertValueEqual(its.from(), from[1] + shift, "the dummy's fight's first step on the new numbering");
+        });
+    }
+
+    /**
      * Its chunk going out of tracking takes the demon out of the fight alive (slice 5c-1): {@code MobLeft}, never
      * {@code MobDied}. It's unloaded with its chunk, saved first (B-001), so the object that left stays gone; with its
      * chunk back, it comes back from its save (slice 5c-2, D-063; spec Tests, "Saving"): a new object with the same UUID,
@@ -964,6 +1038,208 @@ public final class CombatGameTests {
             demon.kill(level);
         });
         h.runAfterDelay(40, () -> h.succeedWhen(() -> h.assertTrue(demon.isDeadOrDying(), "/kill didn't kill it")));
+    }
+
+    /**
+     * The fight log explains a fight (spec Telemetry, D-069), through the test seam: a scripted swipe on a session
+     * player, answered by a guard frame 30 ms before its impact, is a Perfect; a second, left alone, hits; then the
+     * demon dies. The arena's log, in memory, holds a valid JSON line for each event; the guard press as sent and as
+     * judged (half a frame earlier); the game's own account of the hit, the engine's damage whole; a second of the
+     * player's; and both fights, opened by the first strike, the demon's ended by its death and the player's by its only
+     * foe's (D-068).
+     */
+    private static void theFightLogExplainsAFight(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        StringWriter into = new StringWriter();
+        arena.log(FightLog.toMemory("test", into));
+        ServerPlayer p = player(h, arena, 4, 6.5);
+        p.connection
+                .markClientLoaded(); // vanilla holds a player invulnerable until its client loads: a mock's never does
+        FrameData swipe = attack(h, arena.data(), "swipe");
+        long start = arena.nextTick();
+        M1Demon demon = demon(
+                h,
+                arena,
+                4,
+                4,
+                0,
+                b -> new ScriptedBrain(b, p::getId).at(start + 40, swipe).at(start + 100, swipe));
+        long rtt = Micros.ofMillis(50); // the seam's echo
+        long[] impacts = {Long.MIN_VALUE, Long.MIN_VALUE};
+        List<Outbox.StrikeResult> results = new ArrayList<>();
+        arena.listen(e -> {
+            if (e instanceof Outbox.AttackStarted a && a.target() == p.getId()) {
+                impacts[impacts[0] == Long.MIN_VALUE ? 0 : 1] = Micros.ofTicks(a.impactTick());
+            } else if (e instanceof Outbox.StrikeResult r && r.fighter() == p.getId()) {
+                results.add(r);
+            }
+        });
+        long[] sent = {Long.MIN_VALUE, Long.MIN_VALUE}; // the guard press and its release
+        boolean[] killed = new boolean[1];
+        h.onEachTick(() -> {
+            long now = Micros.ofTicks(arena.nextTick());
+            long impact = impacts[0];
+            if (impact == Long.MIN_VALUE) {
+                return;
+            }
+            int epoch = combat(h).epoch();
+            long press = impact - Micros.ofMillis(30);
+            if (sent[0] == Long.MIN_VALUE && now >= press + rtt / 2) {
+                sent[0] = press;
+                combat(h)
+                        .sessions()
+                        .frameForTest(
+                                p,
+                                new PlayerIntake.Frame(
+                                        0,
+                                        press,
+                                        FRAME_MICROS,
+                                        InputHorizon.NO_TICK,
+                                        epoch,
+                                        PlayerIntake.Key.GUARD.bit(),
+                                        List.of(PlayerIntake.Delta.press(PlayerIntake.Key.GUARD, press))),
+                                press + rtt / 2);
+            }
+            long release = impact + Micros.ofMillis(100);
+            if (sent[0] != Long.MIN_VALUE && sent[1] == Long.MIN_VALUE && now >= release + rtt / 2) {
+                sent[1] = release; // the guard is up again, and the frame stamped past the impact decides it
+                combat(h)
+                        .sessions()
+                        .frameForTest(
+                                p,
+                                new PlayerIntake.Frame(
+                                        1, release, FRAME_MICROS, InputHorizon.NO_TICK, epoch, 0, List.of()),
+                                release + rtt / 2);
+            }
+            if (results.size() == 2 && !killed[0]) {
+                killed[0] = true;
+                demon.kill(h.getLevel());
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(killed[0], "the strikes on the player so far: " + results);
+            List<JsonObject> lines = new ArrayList<>();
+            for (String line : into.toString().lines().toList()) {
+                lines.add(JsonParser.parseString(line).getAsJsonObject()); // throws on a line that isn't JSON
+            }
+            h.assertTrue(
+                    has(lines, "fight_end", "id", demon.getId(), "why", "DEFEATED"),
+                    "the demon's fight didn't end at its death");
+            h.assertTrue(
+                    has(lines, "fight_end", "id", p.getId(), "why", "FOES_DEFEATED"),
+                    "the player's fight didn't end with its only foe's");
+            h.assertTrue(has(lines, "fight_start", "id", p.getId()), "no fight started for the player");
+            h.assertTrue(has(lines, "fight_start", "id", demon.getId()), "no fight started for the demon");
+            h.assertTrue(has(lines, "MobDied", "mob", demon.getId()), "no MobDied line");
+            h.assertTrue(has(lines, "second", "id", p.getId()), "no second of the player's");
+            h.assertValueEqual(results.get(0).kind(), Verdict.Kind.PERFECT, "the answered strike");
+            h.assertValueEqual(results.get(1).kind(), Verdict.Kind.HIT, "the strike left alone");
+            JsonObject press = first(lines, "press", "kind", "GUARD_DOWN");
+            h.assertTrue(press != null, "no line for the guard press");
+            if (press != null) {
+                h.assertValueEqual(press.get("id").getAsInt(), p.getId(), "the press's player");
+                h.assertValueEqual(press.get("sent").getAsLong(), sent[0], "the press as sent");
+                h.assertValueEqual(press.get("judged").getAsLong(), sent[0] - FRAME_MICROS / 2, "the press as judged");
+                h.assertValueEqual(press.get("rtt").getAsLong(), rtt, "the RTT it was judged with");
+                h.assertFalse(press.get("held").getAsBoolean(), "it came on time: nothing held it");
+            }
+            JsonObject hurt = first(lines, "damage", "id", p.getId());
+            h.assertTrue(hurt != null, "no damage line for the hit");
+            if (hurt != null) {
+                h.assertTrue(
+                        Math.abs(hurt.get("health").getAsDouble()
+                                        - results.get(1).damage())
+                                < 1e-4,
+                        "health lost " + hurt.get("health") + ", the engine's damage "
+                                + results.get(1).damage());
+                h.assertValueEqual(hurt.get("source").getAsString(), "kimetsu:demon_claw", "the damage's source");
+            }
+        });
+    }
+
+    /**
+     * A player's death is a defeat (D-068), through the test seam: a scripted swipe on a session player opens both
+     * fights, and the player is killed before it lands. Its fight ends DEFEATED, and the demon's, whose only foe it
+     * was, FOES_DEFEATED; the player has left the fight, and once the swipe's impact has passed no fight is open and
+     * none has started since the death.
+     */
+    private static void aPlayersDeathEndsItsFights(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        StringWriter into = new StringWriter();
+        arena.log(FightLog.toMemory("test", into));
+        ServerPlayer p = player(h, arena, 4, 6.5);
+        p.connection
+                .markClientLoaded(); // vanilla holds a player invulnerable until its client loads: a mock's never does
+        FrameData swipe = attack(h, arena.data(), "swipe");
+        long start = arena.nextTick();
+        M1Demon demon = demon(h, arena, 4, 4, 0, b -> new ScriptedBrain(b, p::getId).at(start + 40, swipe));
+        long[] impact = {Long.MIN_VALUE};
+        arena.listen(e -> {
+            if (e instanceof Outbox.AttackStarted a && a.target() == p.getId()) {
+                impact[0] = a.impactTick();
+            }
+        });
+        int[] linesAtDeath = {-1};
+        h.onEachTick(() -> {
+            if (linesAtDeath[0] < 0
+                    && arena.fights().fight(p.getId()) != null
+                    && arena.fights().fight(demon.getId()) != null) {
+                p.kill(h.getLevel());
+                linesAtDeath[0] = (int) into.toString().lines().count();
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(linesAtDeath[0] >= 0, "no fight opened for both the player and the demon");
+            h.assertTrue(p.isDeadOrDying(), "the player didn't die");
+            h.assertTrue(
+                    impact[0] != Long.MIN_VALUE && arena.lastStep() > impact[0] + 1,
+                    "the swipe's impact hasn't passed yet");
+            List<JsonObject> lines = new ArrayList<>();
+            for (String line : into.toString().lines().toList()) {
+                lines.add(JsonParser.parseString(line).getAsJsonObject()); // throws on a line that isn't JSON
+            }
+            h.assertTrue(
+                    has(lines, "fight_end", "id", p.getId(), "why", "DEFEATED"),
+                    "the player's death didn't end its fight");
+            h.assertTrue(
+                    has(lines, "fight_end", "id", demon.getId(), "why", "FOES_DEFEATED"),
+                    "the demon's fight didn't end with its only foe's death");
+            h.assertTrue(arena.fights().open().isEmpty(), "fights still open after the death");
+            h.assertTrue(
+                    !has(lines.subList(linesAtDeath[0], lines.size()), "fight_start"),
+                    "a fight started after the death");
+            h.assertTrue(arena.world().fighter(p.getId()) == null, "the dead player still fights");
+            PlayerSession s = combat(h).sessions().session(p.connection);
+            h.assertTrue(s != null && s.arena() == null, "the dead player's session is still in the arena");
+        });
+    }
+
+    /** Whether a line of type {@code t} has each key-value pair of {@code pairs} (numbers as ints). */
+    private static boolean has(List<JsonObject> lines, String t, Object... pairs) {
+        return first(lines, t, pairs) != null;
+    }
+
+    private static @Nullable JsonObject first(List<JsonObject> lines, String t, Object... pairs) {
+        for (JsonObject o : lines) {
+            if (!o.get("t").getAsString().equals(t)) {
+                continue;
+            }
+            boolean all = true;
+            for (int i = 0; i < pairs.length; i += 2) {
+                JsonElement v = o.get((String) pairs[i]);
+                Object want = pairs[i + 1];
+                all &= v != null
+                        && (want instanceof Integer n
+                                ? v.getAsInt() == n
+                                : v.getAsString().equals(want));
+            }
+            if (all) {
+                return o;
+            }
+        }
+        return null;
     }
 
     /** Whether the server refuses {@code p}'s click to start breaking the block at {@code at} (relative). */
