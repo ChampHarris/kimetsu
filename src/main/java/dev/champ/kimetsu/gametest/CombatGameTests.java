@@ -11,10 +11,13 @@ import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.demon.Demon;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.machine.Input;
+import dev.champ.kimetsu.core.machine.State;
+import dev.champ.kimetsu.core.meter.Fixed;
 import dev.champ.kimetsu.core.strike.Verdict;
 import dev.champ.kimetsu.data.CombatData;
 import dev.champ.kimetsu.data.CombatDataBuilder;
 import dev.champ.kimetsu.data.SlayerProfile;
+import dev.champ.kimetsu.entity.KimetsuAttachments;
 import dev.champ.kimetsu.entity.KimetsuEntities;
 import dev.champ.kimetsu.entity.M1Demon;
 import dev.champ.kimetsu.entity.TestDummy;
@@ -113,6 +116,8 @@ public final class CombatGameTests {
     private static final int FAR_CHUNKS = 64;
     /** A test that waits on chunks generating: the server runs its ticks back to back, so 600 pass in a second. */
     private static final int CHUNK_TICKS = 6000;
+    /** The Hunger a wounded demon's regeneration spends before its save, so the save shows it (1 a HP, 1 HP/s). */
+    private static final int SPENT_HUNGER = 3;
     /** How long a chunk ticks again before a test calls what it lost gone: a second. */
     private static final int BACK_TICKS = 20;
 
@@ -558,13 +563,15 @@ public final class CombatGameTests {
 
     /**
      * Its chunk going out of tracking takes the demon out of the fight alive (slice 5c-1): {@code MobLeft}, never
-     * {@code MobDied}. A {@code noSave} demon is unloaded with its chunk and gone, even when the chunk itself stays loaded
-     * (B-001), so with its chunk back it stays gone and nothing counts it dead; its return, saved with its wounds, is
-     * 5c-2's (D-063). The chunk is one of its own, far from every test's, unloaded by dropping its forced ticket and
-     * brought back by forcing it.
+     * {@code MobDied}. It's unloaded with its chunk, saved first (B-001), so the object that left stays gone; with its
+     * chunk back, it comes back from its save (slice 5c-2, D-063; spec Tests, "Saving"): a new object with the same UUID,
+     * in its level's default arena (a test's arena isn't saved), with the wounds it was saved with in its
+     * {@code "v": 1} {@code kimetsu:combatant}, not attacking. The chunk is one of its own, far from every test's,
+     * unloaded by dropping its forced ticket and brought back by forcing it.
      */
     private static void anUnloadedDemonLeavesAlive(GameTestHelper h) {
         ServerLevel level = h.getLevel();
+        CombatServer c = combat(h);
         Arena arena = arena(h);
         BlockPos origin = h.absolutePos(BlockPos.ZERO);
         int cx = (origin.getX() >> 4) + FAR_CHUNKS;
@@ -585,9 +592,9 @@ public final class CombatGameTests {
             }
         });
         h.onEachTick(() -> {
-            if (++ticks[0] == CHUNK_TICKS - 10 && stage[0] < 5) { // say where it stuck, not just that it timed out
+            if (++ticks[0] == CHUNK_TICKS - 10 && stage[0] < 6) { // say where it stuck, not just that it timed out
                 throw h.assertionException("stuck at stage " + stage[0] + " (0: the chunk loading, 1: joining, 2: the"
-                        + " wound, 3: leaving, 4: its chunk back); its chunk entity-ticking: "
+                        + " wound, 3: leaving, 4: its chunk back, 5: back from its save); its chunk entity-ticking: "
                         + level.isPositionEntityTicking(at) + ", holder: "
                         + level.getChunkSource()
                                 .getChunkDebugData(new ChunkPos(cx, cz))
@@ -621,8 +628,10 @@ public final class CombatGameTests {
                         stage[0] = 2;
                     }
                 }
-                case 2 -> { // wounded: its chunk goes
-                    if (body != null && body.hp() < body.profile().maxHp()) {
+                case 2 -> { // wounded, and its regeneration has spent some Hunger: its chunk goes
+                    if (body != null
+                            && body.hp() < body.profile().maxHp()
+                            && body.hunger() <= body.profile().hunger().max() - SPENT_HUNGER) {
                         level.setChunkForced(cx, cz, false);
                         stage[0] = 3;
                     }
@@ -635,16 +644,48 @@ public final class CombatGameTests {
                         stage[0] = 4;
                     }
                 }
-                case 4 -> { // its chunk ticking again: the demon stays gone, and nothing counts it dead
+                case 4 -> { // its chunk ticking again: the object that left stays gone, and nothing counts it dead
                     h.assertFalse(seen[1], "the engine counted it dead");
                     if (d != null && level.isPositionEntityTicking(at) && ++back[0] == BACK_TICKS) {
                         h.assertTrue(
                                 d.getRemovalReason() == Entity.RemovalReason.UNLOADED_TO_CHUNK,
                                 "it went " + d.getRemovalReason() + ", not unloaded with its chunk");
-                        h.assertTrue(
-                                level.getEntity(d.getId()) == null, "an unloaded noSave demon is back in the level");
+                        h.assertTrue(level.getEntity(d.getId()) == null, "the unloaded object is back in the level");
                         h.assertFalse(arena.world().hasMob(d.getId()), "it's back in the fight");
                         stage[0] = 5;
+                    }
+                }
+                case 5 -> { // back from its save: a new object, its wounds as saved, not attacking, alive
+                    h.assertFalse(seen[1], "the engine counted it dead");
+                    if (d != null
+                            && level.getEntity(d.getUUID()) instanceof M1Demon n
+                            && n.getId() != d.getId()
+                            && n.body() != null) {
+                        Demon now = n.body();
+                        Demon.Wounds saved = d.getExistingDataOrNull(KimetsuAttachments.COMBATANT);
+                        if (now == null || saved == null) {
+                            throw h.assertionException("it wasn't saved with its wounds");
+                        }
+                        double max = now.profile().maxHp();
+                        h.assertTrue(now.hp() < max / 2, "it came back healed: " + now.hp() + " of " + max);
+                        h.assertTrue(
+                                Math.abs(now.hp() - Fixed.toUnits(saved.hp())) <= 1,
+                                "its HP is " + now.hp() + ", not the " + Fixed.toUnits(saved.hp())
+                                        + " it was saved with");
+                        h.assertTrue(
+                                Fixed.toUnits(saved.hunger())
+                                        <= now.profile().hunger().max() - SPENT_HUNGER,
+                                "it was saved with " + Fixed.toUnits(saved.hunger()) + " Hunger, none of it spent");
+                        h.assertTrue(
+                                Math.abs(now.hunger() - Fixed.toUnits(saved.hunger())) <= 1,
+                                "its Hunger is " + now.hunger() + ", not the " + Fixed.toUnits(saved.hunger())
+                                        + " it was saved with");
+                        State s = now.state(now.head());
+                        h.assertTrue(s == State.GUARD || s == State.NEUTRAL, "it came back " + s);
+                        h.assertTrue(c.arenaFor(level).world().hasMob(n.getId()), "it isn't in the default arena");
+                        h.assertTrue(n.isAlive(), "it came back dead");
+                        stage[0] = 6;
+                        n.discard(); // its arena is the level's, not the test's: it goes with the test
                         h.succeed();
                     }
                 }

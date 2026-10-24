@@ -148,17 +148,67 @@ public final class Demon implements StrikeMob {
     }
 
     /**
+     * A demon's wounds as a save holds them (slice 5c-2, D-063; the spec's {@code kimetsu:combatant}): its HP, Hunger
+     * and Posture and the HP its wounds took this fight, in thousandths; and the ticks left, counting the tick being
+     * run, of its stagger, its Posture recovery delay, its regeneration pause, its collapse (through the tick it rises
+     * at the end of), and the Threads a Posture break and empty Hunger opened, each 0 for none; and whether its Hunger
+     * was empty, so a refill opens the Thread. Nothing it was doing: an attack in progress isn't saved.
+     */
+    public record Wounds(
+            long hp,
+            long hunger,
+            long posture,
+            long damageTaken,
+            long staggerLeft,
+            long recoveryDelay,
+            long regenPauseLeft,
+            long collapseLeft,
+            long breakThreadLeft,
+            long hungerThreadLeft,
+            boolean hungerWasEmpty) {
+        public Wounds {
+            if (hp < 0
+                    || hunger < 0
+                    || posture < 0
+                    || damageTaken < 0
+                    || staggerLeft < 0
+                    || recoveryDelay < 0
+                    || regenPauseLeft < 0
+                    || collapseLeft < 0
+                    || breakThreadLeft < 0
+                    || hungerThreadLeft < 0) {
+                throw new IllegalArgumentException("wounds are never negative: " + hp + ", " + hunger + ", " + posture
+                        + ", " + damageTaken + ", " + staggerLeft + ", " + recoveryDelay + ", " + regenPauseLeft + ", "
+                        + collapseLeft + ", " + breakThreadLeft + ", " + hungerThreadLeft);
+            }
+        }
+    }
+
+    /** Its wounds as they stand in the tick being run, the one after {@link #head}. */
+    public Wounds wounds() {
+        return live.wounds(head + 1);
+    }
+
+    /**
      * Before its first tick: it takes over {@code old}'s wounds as {@code old} last stood (slice 5c-1, D-061), when a
-     * data reload or game time re-anchoring rebuilds its world, or when it comes back from an unloaded chunk: its HP,
-     * Hunger and Posture, held to this profile's maxima so new data never heals it, the HP its wounds took, and a
-     * regeneration pause, a stagger, a collapse and the Thread they opened, running on from where they were. A demon
+     * data reload or game time re-anchoring rebuilds its world, or when it comes back from an unloaded chunk. A demon
      * away in an unloaded chunk was frozen in time: what it had left of them it still has.
      */
     public void carry(Demon old) {
+        carry(old.wounds());
+    }
+
+    /**
+     * Before its first tick: it takes over wounds {@code w}, its own from before a rebuild or from its save (slice 5c-2):
+     * HP, Hunger and Posture held to this profile's maxima, so new data never heals it, and each timer running on for
+     * the ticks it had left, from this first tick. A demon that comes back with a stagger or a collapse still running is
+     * in it (Champ, D-062).
+     */
+    public void carry(Wounds w) {
         if (head != born - 1) {
             throw new IllegalStateException("a demon carries before its first tick: it has run to " + head);
         }
-        live.carry(old.live, old.head, head);
+        live.restore(w, born);
         snapshot(head);
     }
 

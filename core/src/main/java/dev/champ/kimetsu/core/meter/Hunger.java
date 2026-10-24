@@ -33,7 +33,12 @@ public final class Hunger {
 
     /** A rebuilt world (slice 5c-1): it takes over {@code old}'s Hunger, held to this maximum. */
     public void carry(Hunger old) {
-        value = Math.min(old.value, max);
+        carry(old.value);
+    }
+
+    /** The same from what a save holds: {@code value} thousandths, held to [0, max]. */
+    public void carry(long value) {
+        this.value = Math.clamp(value, 0, max);
     }
 
     /** Cellular Hardening: strictly above the line. */

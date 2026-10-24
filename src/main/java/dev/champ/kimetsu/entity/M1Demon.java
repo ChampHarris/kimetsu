@@ -36,6 +36,7 @@ import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
@@ -103,12 +104,18 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
 
     // ------------------------------------------------------------------------------------------------- joining
 
+    /**
+     * In the level: it joins its arena. Only if the level holds it, since a load the level refused (its UUID already
+     * there, or a cancelled join event) is told it was added all the same ({@code processPendingLoads}), and joining
+     * then would leave a body fighting with no entity.
+     */
     @Override
     public void onAddedToLevel() {
         super.onAddedToLevel();
         if (level() instanceof ServerLevel level) {
             CombatServer combat = CombatServer.of(level.getServer());
-            if (combat != null) {
+            Entity held = level.getEntity(getUUID());
+            if (combat != null && held != null && held.getId() == getId()) {
                 Arena a = chosen != null ? chosen : combat.arenaFor(level);
                 arena = a;
                 a.add(this);
@@ -119,9 +126,9 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
     /**
      * Gone from the level. Killed or discarded, it's dead to the engine, as {@code /kill} is. Otherwise it went out of
      * tracking (its chunk hidden or unloaded), so it leaves the fight alive (slice 5c-1): its strikes still to land are
-     * cancelled. Either way its chunk's entities unload in the same tick, and a {@code noSave} one is gone for good
-     * (B-001; saving it is 5c-2's, D-063). Only if the chunk shows again before its entities finished loading does the
-     * same object come back, and then it rejoins when it ticks ({@link #tick}).
+     * cancelled. Its chunk's entities unload in the same tick, saved first (B-001, D-063): it comes back from its save as
+     * a new object, with its wounds ({@link #join}). Only if the chunk shows again before its entities finished unloading
+     * does the same object come back, and then it rejoins when it ticks ({@link #tick}).
      */
     @Override
     public void onRemovedFromLevel() {
@@ -174,7 +181,8 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
 
     /**
      * It joins with a fresh engine body on {@code data}; one that had a body (a rebuilt world, or back from an unloaded
-     * chunk) carries its wounds over, held to the profile's maxima, so a {@code /reload} no longer heals it.
+     * chunk) carries its wounds over, held to the profile's maxima, so a {@code /reload} no longer heals it; one loaded
+     * from its save carries the wounds it was saved with (D-063), its timers frozen while it was away.
      */
     @Override
     public void join(Arena a, CombatData data, long tick) {
@@ -197,8 +205,11 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
                 getYRot(),
                 a.server().seed());
         Demon old = body;
+        Demon.Wounds saved = getExistingDataOrNull(KimetsuAttachments.COMBATANT);
         if (old != null) {
             d.carry(old);
+        } else if (saved != null) {
+            d.carry(saved);
         }
         Function<Demon, Brain> make = brains;
         Brain brain;
@@ -227,6 +238,29 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
         if (instance != null) {
             instance.setBaseValue(v);
         }
+    }
+
+    /**
+     * Saved (with its chunk, or as the server stops): its wounds go in {@code kimetsu:combatant} as they stand, set here
+     * because vanilla writes attachments before {@code addAdditionalSaveData}. Not yet joined, it keeps the ones it was
+     * loaded with.
+     */
+    @Override
+    public void saveWithoutId(ValueOutput output) {
+        Demon b = body;
+        if (b != null && !level().isClientSide()) {
+            setData(KimetsuAttachments.COMBATANT, b.wounds()); // synced to nobody: the attachment has no sync
+        }
+        super.saveWithoutId(output);
+    }
+
+    /**
+     * A dead demon isn't written: loaded, its corpse would join the fight and rise. It's still unloaded with its chunk,
+     * as vanilla's own {@code noSave} entities are ({@code shouldBeSaved} false would keep it in memory instead).
+     */
+    @Override
+    public boolean saveAsPassenger(ValueOutput output) {
+        return !dying && !isDeadOrDying() && super.saveAsPassenger(output);
     }
 
     @Override

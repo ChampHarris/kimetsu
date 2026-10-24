@@ -72,17 +72,35 @@ public final class Posture {
      * carried, nor vitality, which the demon sets again from the wounds it carries.
      */
     public void carry(Posture old, long oldTick, long newTick) {
-        long shift = newTick - oldTick;
+        carry(old.at(oldTick), old.staggerLeft(oldTick), old.recoveryDelay(oldTick), newTick);
+    }
+
+    /**
+     * The same from what a save holds (slice 5c-2): {@code value} at {@code tick}, held to [0, max]; a stagger with
+     * {@code staggerLeft} ticks to run from {@code tick} (0 for none), no longer than these rules' stagger, which leaves
+     * it at 0 until then; recovery held off {@code recoveryDelay} ticks more.
+     */
+    public void carry(long value, long staggerLeft, long recoveryDelay, long tick) {
         drain = 0;
         vitality = 1.0;
-        regenFrom = old.regenFrom + shift;
-        if (old.staggered(oldTick)) {
-            staggerUntil = old.staggerUntil + shift;
-            replace(new Segment(0, 0, newTick, max));
+        regenFrom = tick + recoveryDelay;
+        if (staggerLeft > 0) {
+            staggerUntil = tick + Math.min(staggerLeft, rules.staggerTicks());
+            replace(new Segment(0, 0, tick, max));
             return;
         }
         staggerUntil = Long.MIN_VALUE;
-        replace(new Segment(Math.min(old.at(oldTick), max), rate(newTick), newTick, max));
+        replace(new Segment(Math.clamp(value, 0, max), rate(tick), tick, max));
+    }
+
+    /** The ticks its stagger has left from {@code tick}, 0 if it isn't staggered. */
+    public long staggerLeft(long tick) {
+        return staggered(tick) ? staggerUntil - tick : 0;
+    }
+
+    /** The ticks before recovery may start from {@code tick}, 0 if it may now. */
+    public long recoveryDelay(long tick) {
+        return Math.max(0, regenFrom - tick);
     }
 
     /** The same state as {@code other}, the version aside. */

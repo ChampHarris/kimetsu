@@ -119,28 +119,58 @@ final class DemonBody {
     }
 
     /**
-     * A rebuilt world, or the same demon back from an unloaded chunk (slice 5c-1): it takes over {@code o}'s wounds as
-     * they stood at {@code oldTick}, as of {@code newTick}, the same moment on its own ticks. HP, Hunger and Posture are
-     * held to this profile's maxima, so new data never heals it; the HP its wounds took (its vitality), a regeneration
-     * pause, a stagger, a collapse and the Thread they opened run on for the ticks they had left. Nothing else: its
-     * strikes, holds and clash went with the old world, and a stun or a knockdown with them.
+     * Its wounds as they stand in tick {@code now}, the tick being run (slice 5c-2): HP, Hunger, Posture and the HP its
+     * wounds took, and the ticks each of its stagger, recovery delay, regeneration pause, collapse and the Threads a
+     * Posture break or empty Hunger opened has left counting {@code now}. Nothing else: its strikes, holds and clash go
+     * with the world it leaves, and a stun or a knockdown with them. A guard counter going with them refunds the Posture
+     * its guard staked (Rule 11.4: dropped by anything but its own stop), as a restore would, which a stagger blocks.
      */
-    void carry(DemonBody o, long oldTick, long newTick) {
-        long shift = newTick - oldTick;
-        hp = Math.min(o.hp, maxHp);
-        hunger.carry(o.hunger);
-        posture.carry(o.posture, oldTick, newTick);
-        damageTaken = o.damageTaken;
-        posture.setDamageTaken(newTick, Math.min(1.0, damageTaken / (double) maxHp));
-        regenPausedUntil = shifted(o.regenPausedUntil, shift);
-        collapsedAt = shifted(o.collapsedAt, shift);
-        brokenAt = shifted(o.brokenAt, shift);
-        hungerOpenUntil = shifted(o.hungerOpenUntil, shift);
-        wasEmpty = o.wasEmpty;
+    Demon.Wounds wounds(long now) {
+        long kept = posture.at(now);
+        if (!posture.staggered(now)) {
+            kept = Math.min(Fixed.of(p.posture().max()), kept + stake);
+        }
+        return new Demon.Wounds(
+                hp,
+                hunger.value(),
+                kept,
+                damageTaken,
+                posture.staggerLeft(now),
+                posture.recoveryDelay(now),
+                left(regenPausedUntil, now),
+                collapsedAt == NONE ? 0 : left(collapsedAt + p.collapse().ticks() + 1, now), // it rises at its end
+                brokenAt == NONE ? 0 : left(brokenAt + p.threadTicks(), now),
+                left(hungerOpenUntil, now),
+                wasEmpty);
     }
 
-    private static long shifted(long tick, long shift) {
-        return tick == NONE ? NONE : tick + shift;
+    private static long left(long until, long now) {
+        return until == NONE ? 0 : Math.max(0, until - now);
+    }
+
+    /**
+     * Before its first tick, {@code now}: it takes over wounds {@code w} (a rebuilt world, the same demon back from an
+     * unloaded chunk, or one loaded from its save). HP, Hunger and Posture are held to this profile's maxima, so new data
+     * never heals it; every timer runs on for the ticks it had left, cut to the longest this profile runs it (a
+     * collapse's recovery hold the longest delay), so a reloaded profile or a save edited by hand can't stretch one, and
+     * a collapse or a Thread never starts later than {@code now}.
+     */
+    void restore(Demon.Wounds w, long now) {
+        int lying = p.collapse().ticks() + 1;
+        hp = Math.min(w.hp(), maxHp);
+        hunger.carry(w.hunger());
+        long delay = Math.min(w.recoveryDelay(), Math.max(p.posture().delayTicks(), lying));
+        posture.carry(w.posture(), w.staggerLeft(), delay, now);
+        damageTaken = w.damageTaken();
+        posture.setDamageTaken(now, Math.min(1.0, damageTaken / (double) maxHp));
+        long pause = Math.min(w.regenPauseLeft(), p.regen().pauseTicks());
+        regenPausedUntil = pause > 0 ? now + pause : NONE;
+        collapsedAt = w.collapseLeft() > 0 ? now + Math.min(w.collapseLeft(), lying) - lying : NONE;
+        brokenAt =
+                w.breakThreadLeft() > 0 ? now + Math.min(w.breakThreadLeft(), p.threadTicks()) - p.threadTicks() : NONE;
+        long refilled = Math.min(w.hungerThreadLeft(), p.threadTicks());
+        hungerOpenUntil = refilled > 0 ? now + refilled : NONE;
+        wasEmpty = w.hungerWasEmpty();
     }
 
     // ------------------------------------------------------------------------------------------- what it's doing

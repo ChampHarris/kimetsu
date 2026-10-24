@@ -18,7 +18,7 @@ Format (newest last):
 ```
 
 ## B-001 — A demon whose chunk unloads never comes back, so the unload GameTest's return can't pass
-- **Status:** resolved
+- **Status:** resolved (D-063: parked; D-066: built, the demon is saved and comes back from disk with its wounds, which `an_unloaded_demon_leaves_alive` now checks)
 - **Date:** 2026-10-24 · **Task:** slice 5c-1 (D-060, D-062), GameTest `an_unloaded_demon_leaves_alive`, spec `m1-combat-core` Edge Cases ("Chunk unload or logout mid-fight", S617)
 - **Symptom:** `./gradlew runGameTestServer --dependency-verification strict` → `kimetsu:an_unloaded_demon_leaves_alive ... stuck at stage 4 ...; as it left: holder 34 St: minecraft:full Ch: minecraft:full INACCESSIBLE, removed UNLOADED_TO_CHUNK; ... the entity: in the level false, removed UNLOADED_TO_CHUNK` → `1 required tests failed`. Stages 0–3 pass (it leaves alive: `MobLeft`, no `MobDied`).
 - **Files:** src/main/java/dev/champ/kimetsu/gametest/CombatGameTests.java, src/main/java/dev/champ/kimetsu/entity/M1Demon.java, src/main/java/dev/champ/kimetsu/entity/TestDummy.java

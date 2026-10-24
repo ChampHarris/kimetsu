@@ -5,6 +5,7 @@ import dev.champ.kimetsu.combat.CombatServer;
 import dev.champ.kimetsu.combat.DamagePath;
 import dev.champ.kimetsu.command.KimetsuCommand;
 import dev.champ.kimetsu.data.CombatDataLoader;
+import dev.champ.kimetsu.entity.KimetsuAttachments;
 import dev.champ.kimetsu.entity.KimetsuEntities;
 import dev.champ.kimetsu.gametest.CombatGameTests;
 import dev.champ.kimetsu.gametest.ScopeGameTests;
@@ -29,6 +30,7 @@ public final class Kimetsu {
     public Kimetsu(IEventBus modBus, ModContainer container) {
         LOGGER.info("Kimetsu: Breath & Blood {} loading", container.getModInfo().getVersion());
         KimetsuEntities.register(modBus);
+        KimetsuAttachments.register(modBus);
         KimetsuItems.register(modBus);
         ScopeGameTests.register(modBus);
         CombatGameTests.register(modBus);
