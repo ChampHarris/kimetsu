@@ -148,7 +148,12 @@ public final class CombatGameTests {
             FUNCTIONS.register("a_reanchor_keeps_open_fights", () -> CombatGameTests::aReanchorKeepsOpenFights));
 
     private static final Logger LOGGER = LogUtils.getLogger();
-    private static final Identifier EMPTY_STRUCTURE = Identifier.withDefaultNamespace("empty");
+    /**
+     * Each test's structure: empty, 16×4×16 from the test's corner (written by {@code tools/make_test_floor.py}). The
+     * runner force-loads the chunks its box touches and starts the test once they tick entities, so the box holds the
+     * floor and room past it; its barrier walls stand clear of every push, and it has sky access, no ceiling (D-087).
+     */
+    private static final Identifier FLOOR_STRUCTURE = Identifier.fromNamespaceAndPath(Kimetsu.MOD_ID, "test_floor");
     /** The Performance Budget's server time for one fight's tick. */
     private static final double BUDGET_MICROS = 50;
 
@@ -199,7 +204,7 @@ public final class CombatGameTests {
                         new TestData<>(
                                 environment,
                                 Level.OVERWORLD,
-                                EMPTY_STRUCTURE,
+                                FLOOR_STRUCTURE,
                                 SLOW.contains(function.getId().getPath()) ? CHUNK_TICKS : MAX_TICKS,
                                 0,
                                 true,
@@ -207,7 +212,7 @@ public final class CombatGameTests {
                                 false,
                                 1,
                                 1,
-                                false,
+                                true,
                                 FLOOR)));
     }
 
@@ -1968,9 +1973,10 @@ public final class CombatGameTests {
     }
 
     /**
-     * A stone floor for the fight, its chunks force-loaded: a test keeps only its structure's chunks loaded (here the
-     * one under {@code minecraft:empty}), and an entity in a chunk beside them doesn't tick, so a demon spawned across
-     * the border never walks. The runner unforces every forced chunk when the batch ends.
+     * A stone floor for the fight, in chunks that already tick entities. An entity in a chunk that doesn't stands
+     * still: a dummy there lives its push late or never, and a demon never walks. Forcing a chunk doesn't make it tick
+     * entities in time, since the chunks around it must generate first, so the test's structure covers the floor
+     * ({@link #FLOOR_STRUCTURE}) and the runner starts the test only once those chunks tick (D-087).
      */
     private static void floor(GameTestHelper h) {
         for (int x = 0; x < FLOOR; x++) {
@@ -1982,7 +1988,9 @@ public final class CombatGameTests {
         BlockPos b = h.absolutePos(new BlockPos(FLOOR - 1, 0, FLOOR - 1));
         for (int cx = Math.min(a.getX(), b.getX()) >> 4; cx <= Math.max(a.getX(), b.getX()) >> 4; cx++) {
             for (int cz = Math.min(a.getZ(), b.getZ()) >> 4; cz <= Math.max(a.getZ(), b.getZ()) >> 4; cz++) {
-                h.getLevel().setChunkForced(cx, cz, true);
+                h.assertTrue(
+                        h.getLevel().areEntitiesActuallyLoadedAndTicking(new ChunkPos(cx, cz)),
+                        "the floor's chunk [" + cx + ", " + cz + "] doesn't tick entities yet");
             }
         }
     }
