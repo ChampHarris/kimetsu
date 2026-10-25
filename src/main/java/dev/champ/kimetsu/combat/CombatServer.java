@@ -26,6 +26,7 @@ import net.minecraft.util.Util;
 import net.minecraft.world.level.Level;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.event.TagsUpdatedEvent;
+import net.neoforged.neoforge.event.entity.EntityTeleportEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
@@ -180,6 +181,19 @@ public final class CombatServer {
             CombatServer c = of(p.level().getServer());
             if (c != null) {
                 c.sessions.changedDimension(p);
+            }
+        }
+    }
+
+    /**
+     * A teleport the server makes (a command, a pearl, chorus fruit), at the lowest priority: where it really goes,
+     * the movement bound's next reference (D-070; vanilla's set-backs fire none).
+     */
+    public static void onTeleport(EntityTeleportEvent event) {
+        if (!event.isCanceled() && event.getEntity() instanceof ServerPlayer p) {
+            CombatServer c = of(p.level().getServer());
+            if (c != null) {
+                c.sessions.teleporting(p, event.getTargetX(), event.getTargetY(), event.getTargetZ());
             }
         }
     }

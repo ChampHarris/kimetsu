@@ -194,6 +194,11 @@ final class FightLogJson {
                         .num("distance", p.distance())
                         .num("ticks", p.ticks())
                         .bool("splats", p.splats());
+            case Outbox.PoseClamped c ->
+                num("fighter", c.fighter())
+                        .num("tick", c.tick())
+                        .num("rawBlocks", c.rawBlocks())
+                        .num("allowedBlocks", c.allowedBlocks());
         }
         return end();
     }

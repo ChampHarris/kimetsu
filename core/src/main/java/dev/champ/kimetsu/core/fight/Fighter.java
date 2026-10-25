@@ -2,6 +2,8 @@ package dev.champ.kimetsu.core.fight;
 
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.PulseSchedule;
+import dev.champ.kimetsu.core.data.FrameData;
+import dev.champ.kimetsu.core.data.MoveRules;
 import dev.champ.kimetsu.core.hit.Combo;
 import dev.champ.kimetsu.core.hit.PoseRing;
 import dev.champ.kimetsu.core.hit.SwingTrack;
@@ -11,15 +13,18 @@ import dev.champ.kimetsu.core.machine.Timeline;
 /**
  * One player in the fight loop: its Timeline (presses at their stamps, the barrier, state at any recent tick), its
  * input horizon (how far its input is known, Rule 2.9), its pose history (32 entries, from vanilla's movement packets,
- * Rule 2.10), its Pulse, its body, its combo count (Rule 7.5), its swing registry (Rule 7.4), and the hold cap the mod
- * works out from its RTT and stamp tolerance.
+ * Rule 2.10) and the movement bound that files it ({@link MoveBound}), its Pulse, its body, its combo count (Rule
+ * 7.5), its swing registry (Rule 7.4), and the hold cap the mod works out from its RTT and stamp tolerance.
  */
 public final class Fighter {
     private final int id;
     private final Timeline timeline;
     private final InputHorizon horizon;
     private final PulseSchedule pulse;
-    private final PoseRing poses = new PoseRing(32);
+    private static final int POSES = 32;
+
+    private final PoseRing poses = new PoseRing(POSES);
+    private final MoveBound bound = new MoveBound(POSES);
     private final double halfWidth;
     private final double height;
     private final double eye;
@@ -27,7 +32,6 @@ public final class Fighter {
     final SwingTrack track = new SwingTrack();
     private long holdCapMicros;
     private long earliestHeldMicros = Long.MAX_VALUE;
-    private double moveBoundBlocksPerTick;
     long sweptThrough; // the last tick whose active windows the loop has looked at
     long lastClash = Long.MIN_VALUE; // the impact tick of its last micro-clash (Rule 10.1's cooldown)
     private long rttMicros;
@@ -96,9 +100,53 @@ public final class Fighter {
         return pulse;
     }
 
-    /** Its pose history: the mod records each accepted client-tick frame's pose here (Rule 2.10). */
+    /**
+     * Its pose history (Rule 2.10), as the bound filed it: the mod stages each accepted client-tick frame's pose
+     * ({@link #stagePose}) and the loop files it at the next tick's start. Read only, once anything is staged.
+     */
     public PoseRing poses() {
         return poses;
+    }
+
+    /** Its movement bound from now on: {@code rules}, a Step's envelope from {@code step}, and the machine's numbers. */
+    public void movement(MoveRules rules, FrameData step, int bufferTicks) {
+        bound.configure(rules, step, bufferTicks, timeline.historyTicks());
+    }
+
+    /**
+     * The position vanilla accepted for it at {@code timeMicros} (its movement packet, or the server's own when the
+     * client sends none), its eyes {@code eye} above its feet (NaN standing), with {@code scale} its bound's scale (the
+     * tick rate times its speed's gain; infinite when nothing bounds it): filed, bounded, when the next tick begins.
+     */
+    public void stagePose(
+            long timeMicros, double x, double y, double z, double yaw, double pitch, double eye, double scale) {
+        bound.stage(timeMicros, x, y, z, yaw, pitch, eye, scale);
+    }
+
+    /** The server teleported it: the next pose staged starts the bound afresh. */
+    public void teleported() {
+        bound.teleported();
+    }
+
+    /** A vanilla impulse at {@code fromMicros} that can carry it {@code blocks}: the bound opens for {@code ticks}. */
+    public void impulse(long fromMicros, double blocks, int ticks) {
+        bound.impulse(fromMicros, blocks, ticks);
+    }
+
+    /** The bound's figures for the poses it settled since the last call (the fight log's second). */
+    public MoveBound.Second takeMoveSecond() {
+        return bound.takeSecond();
+    }
+
+    /** At tick {@code n}'s start, after its machine ran: the staged poses are filed (the loop's). */
+    void filePoses(long n, Outbox out) {
+        bound.pass(n, poses, timeline.live().answers(), id, out);
+    }
+
+    /** An epoch: its poses start over. */
+    void clearPoses() {
+        poses.clear();
+        bound.clear();
     }
 
     public double halfWidth() {
@@ -136,16 +184,13 @@ public final class Fighter {
     }
 
     /**
-     * The farthest it can run or jump in a tick (blocks), from its movement speed (the mod sets it): a strike's
-     * involvement test grows its reach margin by this, or its Step's fastest tick if that's more, for every tick its
-     * newest pose is old, so a player whose poses arrive late isn't left out of a sweep it moved into.
+     * The farthest it can run or jump in a tick (blocks), by its bound: the window's blocks per tick times its newest
+     * pose's scale. A strike's involvement test grows its reach margin by this, or its Step's fastest tick if that's
+     * more, for every tick its newest pose is old, so a player whose poses arrive late isn't left out of a sweep it moved
+     * into.
      */
     public double moveBoundBlocksPerTick() {
-        return moveBoundBlocksPerTick;
-    }
-
-    public void moveBoundBlocksPerTick(double blocks) {
-        moveBoundBlocksPerTick = blocks;
+        return bound.blocksPerTick();
     }
 
     /** The stamp check's earliest press held for a stall's anchor ({@code StampCheck.earliestHeldJudged}). */

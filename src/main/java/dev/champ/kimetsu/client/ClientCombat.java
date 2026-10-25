@@ -9,6 +9,7 @@ import dev.champ.kimetsu.core.clock.TickRecord;
 import dev.champ.kimetsu.core.data.ClockRules;
 import dev.champ.kimetsu.core.data.DemonProfile;
 import dev.champ.kimetsu.core.data.FrameData;
+import dev.champ.kimetsu.core.data.Moveset;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.hit.Pose;
 import dev.champ.kimetsu.core.meter.Fixed;
@@ -34,6 +35,7 @@ import net.neoforged.neoforge.client.event.ClientPauseChangeEvent;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
+import net.neoforged.neoforge.client.event.MovementInputUpdateEvent;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import net.neoforged.neoforge.client.event.RenderFrameEvent;
 import net.neoforged.neoforge.client.network.ClientPacketDistributor;
@@ -77,6 +79,14 @@ public final class ClientCombat {
     @Nullable
     ClientClock clock() {
         return clock;
+    }
+
+    /** The Slayer's moveset in the server's data, or null before the data has come. */
+    @Nullable
+    Moveset moves() {
+        CombatData d = data;
+        SlayerProfile slayer = d != null ? d.slayers().get(CombatDataBuilder.SLAYER) : null;
+        return d != null && slayer != null ? d.moveset(slayer) : null;
     }
 
     ClientView view() {
@@ -299,6 +309,18 @@ public final class ClientCombat {
             long nanos = Util.getNanos();
             c.tickStart(nanos);
             c.input.tickStart(nanos);
+            var player = Minecraft.getInstance().player;
+            if (player != null) {
+                c.input.dashTick(player); // after its Step press went, before the player's tick moves it
+            }
+        }
+    }
+
+    @SuppressWarnings("ReferenceEquality") // the very player object: only the local player's input is the dash's
+    static void onMovementInput(MovementInputUpdateEvent event) {
+        ClientCombat c = current;
+        if (c != null && event.getEntity() == Minecraft.getInstance().player) {
+            c.input.movementInput(event);
         }
     }
 
@@ -363,6 +385,7 @@ public final class ClientCombat {
         if (c != null && event.getLevel().isClientSide()) {
             c.combatants.clear();
             c.view.leftLevel();
+            c.input.leftLevel();
         }
     }
 

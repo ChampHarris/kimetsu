@@ -22,6 +22,7 @@ import dev.champ.kimetsu.core.data.FrameData.Sweep;
 import dev.champ.kimetsu.core.data.HitRules;
 import dev.champ.kimetsu.core.data.HungerRules;
 import dev.champ.kimetsu.core.data.MachineRules;
+import dev.champ.kimetsu.core.data.MoveRules;
 import dev.champ.kimetsu.core.data.Phase;
 import dev.champ.kimetsu.core.data.PostureRules;
 import dev.champ.kimetsu.core.data.RhythmRules;
@@ -382,7 +383,8 @@ public final class CombatCodecs {
             int stumbleTicks,
             int techBeforeTicks,
             int techAfterTicks,
-            int techLockoutTicks) {
+            int techLockoutTicks,
+            int doubleTapTicks) {
         static final MapCodec<Inputs> CODEC = RecordCodecBuilder.mapCodec(i -> i.group(
                         Codec.INT.fieldOf("buffer_ticks").forGetter(Inputs::bufferTicks),
                         Codec.INT.fieldOf("radial_hold_ms").forGetter(Inputs::radialHoldMs),
@@ -393,7 +395,8 @@ public final class CombatCodecs {
                         Codec.INT.fieldOf("stumble_ticks").forGetter(Inputs::stumbleTicks),
                         Codec.INT.fieldOf("tech_before_ticks").forGetter(Inputs::techBeforeTicks),
                         Codec.INT.fieldOf("tech_after_ticks").forGetter(Inputs::techAfterTicks),
-                        Codec.INT.fieldOf("tech_lockout_ticks").forGetter(Inputs::techLockoutTicks))
+                        Codec.INT.fieldOf("tech_lockout_ticks").forGetter(Inputs::techLockoutTicks),
+                        Codec.INT.fieldOf("double_tap_ticks").forGetter(Inputs::doubleTapTicks))
                 .apply(i, Inputs::new));
     }
 
@@ -428,7 +431,8 @@ public final class CombatCodecs {
                             m.stumbleTicks(),
                             m.techBeforeTicks(),
                             m.techAfterTicks(),
-                            m.techLockoutTicks())),
+                            m.techLockoutTicks(),
+                            m.doubleTapTicks())),
                     States.CODEC.forGetter(m -> new States(
                             m.knockdownDownTicks(),
                             m.knockdownRiseTicks(),
@@ -456,12 +460,24 @@ public final class CombatCodecs {
                             st.juggleCutBreath(),
                             st.grabEscapeInputs(),
                             st.historyTicks(),
-                            st.inCombatTicks())));
+                            st.inCombatTicks(),
+                            in.doubleTapTicks())));
 
     static final Codec<FightRules> FIGHTS = RecordCodecBuilder.create(i -> i.group(
                     Codec.DOUBLE.fieldOf("engage_blocks").forGetter(FightRules::engageBlocks),
                     Codec.INT.fieldOf("end_ticks").forGetter(FightRules::endTicks))
             .apply(i, FightRules::new));
+
+    static final Codec<MoveRules> MOVE_RULES = RecordCodecBuilder.create(i -> i.group(
+                    Codec.INT.fieldOf("window_ticks").forGetter(MoveRules::windowTicks),
+                    Codec.DOUBLE.fieldOf("window_blocks").forGetter(MoveRules::windowBlocks),
+                    Codec.DOUBLE.fieldOf("rise_blocks").forGetter(MoveRules::riseBlocks),
+                    Codec.DOUBLE.fieldOf("free_dash_blocks").forGetter(MoveRules::freeDashBlocks),
+                    Codec.DOUBLE.fieldOf("free_dash_rise").forGetter(MoveRules::freeDashRise),
+                    Codec.DOUBLE.fieldOf("speed_gain").forGetter(MoveRules::speedGain),
+                    Codec.INT.fieldOf("impulse_grace_ticks").forGetter(MoveRules::impulseGraceTicks),
+                    Codec.DOUBLE.fieldOf("slippery_scale").forGetter(MoveRules::slipperyScale))
+            .apply(i, MoveRules::new));
 
     static final Codec<HitRules> HITS = RecordCodecBuilder.create(i -> i.group(
                     Codec.INT.fieldOf("sub_steps").forGetter(HitRules::subSteps),
@@ -689,7 +705,8 @@ public final class CombatCodecs {
                     HITS.fieldOf("hits").forGetter(CombatRules::hits),
                     STRIKES.fieldOf("strikes").forGetter(CombatRules::strikes),
                     RHYTHM_RULES.fieldOf("rhythm").forGetter(CombatRules::rhythm),
-                    FIGHTS.fieldOf("fights").forGetter(CombatRules::fights))
+                    FIGHTS.fieldOf("fights").forGetter(CombatRules::fights),
+                    MOVE_RULES.fieldOf("movement").forGetter(CombatRules::movement))
             .apply(i, CombatRules::new));
 
     // --------------------------------------------------------------------------------------------------- profiles

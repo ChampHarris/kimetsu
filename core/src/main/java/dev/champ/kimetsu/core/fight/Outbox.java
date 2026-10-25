@@ -157,6 +157,12 @@ public final class Outbox {
     public record Pushed(int mob, long tick, double dirX, double dirZ, double distance, int ticks, boolean splats)
             implements MobEvent {}
 
+    /**
+     * The movement bound ({@code MoveBound}, D-070) pulled player {@code fighter}'s pose at {@code tick} back: over its
+     * window it moved {@code rawBlocks} and was allowed {@code allowedBlocks} of that. Routed to nobody: the fight log's.
+     */
+    public record PoseClamped(int fighter, long tick, double rawBlocks, double allowedBlocks) implements Event {}
+
     private final List<Event> events = new ArrayList<>();
 
     void add(Event e) {

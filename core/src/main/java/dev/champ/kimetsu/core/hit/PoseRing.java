@@ -133,6 +133,14 @@ public final class PoseRing {
         head = 0;
     }
 
+    /** Forgets every pose at or after {@code timeMicros}, newest first: a bound filing them again. */
+    public void dropFrom(long timeMicros) {
+        while (count > 0 && time[newest()] >= timeMicros) {
+            head = newest();
+            count--;
+        }
+    }
+
     private int newest() {
         return Math.floorMod(head - 1, time.length);
     }

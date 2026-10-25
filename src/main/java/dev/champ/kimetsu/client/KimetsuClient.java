@@ -32,6 +32,7 @@ public final class KimetsuClient {
         game.addListener(ClientCombat::onTickStart);
         game.addListener(ClientCombat::onPause);
         game.addListener(ClientCombat::onTickEnd);
+        game.addListener(ClientCombat::onMovementInput);
         game.addListener(ClientCombat::onFrameStart);
         game.addListener(ClientCombat::onMouse);
         game.addListener(ClientCombat::onKey);

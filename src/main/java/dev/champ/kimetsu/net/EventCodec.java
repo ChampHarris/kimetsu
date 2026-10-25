@@ -166,6 +166,13 @@ final class EventCodec {
                 Wire.writeInt(buf, p.ticks());
                 buf.writeBoolean(p.splats());
             }
+            case Outbox.PoseClamped c -> { // routed to nobody today; a wire form keeps every event sendable
+                buf.writeByte(19);
+                Wire.writeInt(buf, c.fighter());
+                Wire.writeLong(buf, c.tick());
+                buf.writeDouble(c.rawBlocks());
+                buf.writeDouble(c.allowedBlocks());
+            }
         }
     }
 
@@ -272,6 +279,8 @@ final class EventCodec {
                         Wire.readInt(buf),
                         buf.readBoolean());
             case 18 -> new Outbox.MobLeft(Wire.readInt(buf), Wire.readLong(buf));
+            case 19 ->
+                new Outbox.PoseClamped(Wire.readInt(buf), Wire.readLong(buf), buf.readDouble(), buf.readDouble());
             default -> throw new DecoderException("unknown event " + type);
         };
     }

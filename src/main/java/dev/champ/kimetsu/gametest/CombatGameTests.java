@@ -13,7 +13,9 @@ import dev.champ.kimetsu.combat.PlayerSession;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.TickRecord;
 import dev.champ.kimetsu.core.data.FrameData;
+import dev.champ.kimetsu.core.data.MoveRules;
 import dev.champ.kimetsu.core.demon.Demon;
+import dev.champ.kimetsu.core.fight.Fighter;
 import dev.champ.kimetsu.core.fight.Fights;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.fight.PlayerIntake;
@@ -31,6 +33,7 @@ import dev.champ.kimetsu.entity.M1Demon;
 import dev.champ.kimetsu.entity.TestDummy;
 import dev.champ.kimetsu.item.KimetsuItems;
 import java.io.StringWriter;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -117,7 +120,14 @@ public final class CombatGameTests {
             FUNCTIONS.register("no_shortcuts_in_combat", () -> CombatGameTests::noShortcutsInCombat),
             FUNCTIONS.register("the_death_net_holds", () -> CombatGameTests::theDeathNetHolds),
             FUNCTIONS.register("the_fight_log_explains_a_fight", () -> CombatGameTests::theFightLogExplainsAFight),
-            FUNCTIONS.register("a_players_death_ends_its_fights", () -> CombatGameTests::aPlayersDeathEndsItsFights));
+            FUNCTIONS.register("a_players_death_ends_its_fights", () -> CombatGameTests::aPlayersDeathEndsItsFights),
+            FUNCTIONS.register("a_teleport_is_clamped", () -> CombatGameTests::aTeleportIsClamped),
+            FUNCTIONS.register("a_server_teleport_is_not_clamped", () -> CombatGameTests::aServerTeleportIsNotClamped),
+            FUNCTIONS.register("a_set_back_is_still_clamped", () -> CombatGameTests::aSetBackIsStillClamped),
+            FUNCTIONS.register(
+                    "a_claim_past_a_teleport_is_clamped", () -> CombatGameTests::aClaimPastATeleportIsClamped),
+            FUNCTIONS.register("a_claim_onto_ice_is_clamped", () -> CombatGameTests::aClaimOntoIceIsClamped),
+            FUNCTIONS.register("a_blink_off_ice_is_clamped", () -> CombatGameTests::aBlinkOffIceIsClamped));
 
     /** Tests that wait on chunks generating, with {@link #CHUNK_TICKS} to do it in. */
     private static final List<String> SLOW = List.of("an_unloaded_demon_leaves_alive");
@@ -1156,6 +1166,197 @@ public final class CombatGameTests {
                 h.assertValueEqual(hurt.get("source").getAsString(), "kimetsu:demon_claw", "the damage's source");
             }
         });
+    }
+
+    /** How long a session player stands before a test moves it: its fighter has joined and filed a second of poses. */
+    private static final int STAND_TICKS = 30;
+    /** How long after a move a test waits for the bound's verdict: every pose has settled (history + lead) by then. */
+    private static final int SETTLE_TICKS = 60;
+
+    /**
+     * The movement bound (D-070) through the test seam: a session player that moves 10 blocks in a tick with nothing
+     * of the server's behind it (a client claiming it) has its poses clamped, each clamp published once its pose has
+     * settled, with the window's raw and allowed displacement, and its engine pose walks after the claim at the
+     * bound's speed.
+     */
+    private static void aTeleportIsClamped(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        ServerPlayer p = player(h, arena, 4, 4);
+        List<Outbox.PoseClamped> clamps = new ArrayList<>();
+        arena.listen(e -> {
+            if (e instanceof Outbox.PoseClamped c && c.fighter() == p.getId()) {
+                clamps.add(c);
+            }
+        });
+        MoveRules rules = arena.data().rules().movement();
+        double window = rules.windowBlocks();
+        // a step the server runs with no pose filed (a held tick, a busy batch) leaves the window's start a tick older,
+        // and the bound widens in proportion (MoveBound): one such tick is allowed for
+        double widest = window * (rules.windowTicks() + 1) / rules.windowTicks();
+        h.runAfterDelay(STAND_TICKS, () -> {
+            h.assertTrue(clamps.isEmpty(), "standing still was clamped: " + clamps);
+            p.setPos(p.getX() + 10, p.getY(), p.getZ()); // what a movement packet would claim: no teleport counted
+        });
+        h.runAfterDelay(STAND_TICKS + SETTLE_TICKS, () -> {
+            h.assertFalse(clamps.isEmpty(), "a 10-block jump in a tick wasn't clamped");
+            Outbox.PoseClamped first = clamps.get(0);
+            h.assertTrue(Math.abs(first.rawBlocks() - 10) < 1e-6, "its window's raw displacement: " + first);
+            h.assertTrue(
+                    first.allowedBlocks() >= window - 1e-6 && first.allowedBlocks() <= widest + 1e-6,
+                    "the bound's allowance: " + first);
+            h.succeed();
+        });
+    }
+
+    /**
+     * A teleport the server made (here {@code /tp}, which fires {@code EntityTeleportEvent} as a pearl and chorus fruit
+     * do) makes the pose after it start the bound afresh: nothing is clamped and the engine's pose is where the player
+     * is.
+     */
+    private static void aServerTeleportIsNotClamped(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        ServerPlayer p = player(h, arena, 4, 4);
+        List<Outbox.PoseClamped> clamps = clampsOf(arena, p);
+        double[] to = new double[1];
+        h.runAfterDelay(STAND_TICKS, () -> {
+            to[0] = p.getX() + 10;
+            tp(h, p, to[0], p.getY(), p.getZ());
+            h.assertTrue(Math.abs(p.getX() - to[0]) < 1e-6, "/tp didn't move the player: at " + p.getX());
+        });
+        h.runAfterDelay(STAND_TICKS + SETTLE_TICKS, () -> {
+            h.assertTrue(clamps.isEmpty(), "a server teleport was clamped: " + clamps);
+            h.assertTrue(
+                    Math.abs(engineX(h, p) - to[0]) < 1e-6,
+                    "the engine's pose is at " + engineX(h, p) + ", not " + to[0]);
+            h.succeed();
+        });
+    }
+
+    /**
+     * A set-back is no teleport to the bound (netcode review): a client provokes one by sending a move vanilla rejects,
+     * and it lands where that client already claimed to be, so counting it would let a client reset its own bound.
+     * A 10-block claim, then vanilla's set-back to it ({@code connection.teleport} to where the player is, as "moved
+     * too quickly" and "moved wrongly" do), is still clamped.
+     */
+    private static void aSetBackIsStillClamped(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        ServerPlayer p = player(h, arena, 4, 4);
+        List<Outbox.PoseClamped> clamps = clampsOf(arena, p);
+        h.runAfterDelay(STAND_TICKS, () -> {
+            p.setPos(p.getX() + 10, p.getY(), p.getZ()); // the claim vanilla accepted
+            p.connection.teleport(p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot()); // and the set-back
+        });
+        h.runAfterDelay(STAND_TICKS + SETTLE_TICKS, () -> {
+            h.assertFalse(clamps.isEmpty(), "a set-back reset the bound: the 10-block claim wasn't clamped");
+            h.assertTrue(Math.abs(clamps.get(0).rawBlocks() - 10) < 1e-6, "its window's raw displacement: " + clamps);
+            h.succeed();
+        });
+    }
+
+    /**
+     * The first pose after a server teleport is a new reference only within a window's reach of its target: a client
+     * that took the teleport and then claimed 20 blocks past it is clamped.
+     */
+    private static void aClaimPastATeleportIsClamped(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        ServerPlayer p = player(h, arena, 4, 4);
+        List<Outbox.PoseClamped> clamps = clampsOf(arena, p);
+        h.runAfterDelay(STAND_TICKS, () -> {
+            double x = p.getX();
+            tp(h, p, x + 10, p.getY(), p.getZ());
+            p.setPos(x + 30, p.getY(), p.getZ()); // claimed before the next pose was staged
+        });
+        h.runAfterDelay(STAND_TICKS + SETTLE_TICKS, () -> {
+            h.assertFalse(clamps.isEmpty(), "a claim 20 blocks past a teleport wasn't clamped");
+            // bounded from the pose before the teleport, not from its target: no reference was made
+            h.assertTrue(Math.abs(clamps.get(0).rawBlocks() - 30) < 1e-6, "its window's raw displacement: " + clamps);
+            h.succeed();
+        });
+    }
+
+    /**
+     * Ice unbounds a player standing on it (D-071), but only from its second pose there (netcode review): an 8-block
+     * claim onto a lone block of blue ice is clamped, as the same claim onto stone would be.
+     */
+    private static void aClaimOntoIceIsClamped(GameTestHelper h) {
+        floor(h);
+        h.setBlock(FLOOR - 1, 0, 4, Blocks.BLUE_ICE);
+        Arena arena = arena(h);
+        ServerPlayer p = player(h, arena, 0.5, 4.5);
+        List<Outbox.PoseClamped> clamps = clampsOf(arena, p);
+        h.runAfterDelay(STAND_TICKS, () -> {
+            p.setPos(p.getX() + FLOOR - 1, p.getY(), p.getZ()); // onto the ice, on its top face
+            p.setOnGroundWithMovement(true, Vec3.ZERO); // as vanilla's move handler settles the claim's support
+        });
+        h.runAfterDelay(STAND_TICKS + SETTLE_TICKS, () -> {
+            h.assertFalse(clamps.isEmpty(), "a claim onto a lone ice block opened the bound for itself");
+            h.assertTrue(
+                    Math.abs(clamps.get(0).rawBlocks() - (FLOOR - 1)) < 1e-6,
+                    "its window's raw displacement: " + clamps);
+            h.succeed();
+        });
+    }
+
+    /**
+     * Standing on ice widens the bound by {@code slippery_scale}, no longer unbounded (Champ, D-073): a player that stood
+     * on blue ice and then claims 20 blocks away is clamped.
+     */
+    private static void aBlinkOffIceIsClamped(GameTestHelper h) {
+        floor(h);
+        h.setBlock(0, 0, 4, Blocks.BLUE_ICE);
+        Arena arena = arena(h);
+        ServerPlayer p = player(h, arena, 0.5, 4.5);
+        p.setOnGroundWithMovement(true, Vec3.ZERO); // on the ice, as vanilla's move handler settles it
+        List<Outbox.PoseClamped> clamps = clampsOf(arena, p);
+        h.runAfterDelay(STAND_TICKS, () -> p.setPos(p.getX() + 20, p.getY(), p.getZ()));
+        h.runAfterDelay(STAND_TICKS + SETTLE_TICKS, () -> {
+            h.assertFalse(clamps.isEmpty(), "a blink off the ice wasn't clamped: ice left the bound open");
+            h.assertTrue(Math.abs(clamps.get(0).rawBlocks() - 20) < 1e-6, "its window's raw displacement: " + clamps);
+            h.succeed();
+        });
+    }
+
+    /** The bound's clamps of player {@code p} in {@code arena}, as they're published. */
+    private static List<Outbox.PoseClamped> clampsOf(Arena arena, ServerPlayer p) {
+        List<Outbox.PoseClamped> clamps = new ArrayList<>();
+        arena.listen(e -> {
+            if (e instanceof Outbox.PoseClamped c && c.fighter() == p.getId()) {
+                clamps.add(c);
+            }
+        });
+        return clamps;
+    }
+
+    /**
+     * {@code /tp} from the server's console, as an operator would run it. Plain decimals: a test can sit 14 million
+     * blocks out, where {@code Double.toString} writes an exponent the command's parser stops at.
+     */
+    private static void tp(GameTestHelper h, ServerPlayer p, double x, double y, double z) {
+        MinecraftServer server = h.getLevel().getServer();
+        server.getCommands()
+                .performPrefixedCommand(
+                        server.createCommandSourceStack(),
+                        "tp " + p.getStringUUID() + " " + plain(x) + " " + plain(y) + " " + plain(z));
+    }
+
+    private static String plain(double v) {
+        return BigDecimal.valueOf(v).toPlainString();
+    }
+
+    /** Where the engine's newest pose of {@code p} is, along x. */
+    private static double engineX(GameTestHelper h, ServerPlayer p) {
+        PlayerSession s = combat(h).sessions().session(p.connection);
+        Fighter f = s != null ? s.fighter() : null;
+        if (f == null) {
+            throw h.assertionException("the player isn't fighting");
+        }
+        dev.champ.kimetsu.core.hit.Pose at = new dev.champ.kimetsu.core.hit.Pose(); // vanilla's Pose is imported
+        f.poses().at(f.poses().newestTime(), at);
+        return at.x();
     }
 
     /**

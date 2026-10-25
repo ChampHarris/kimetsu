@@ -21,6 +21,8 @@ package dev.champ.kimetsu.core.data;
  * @param grabEscapeInputs on-beat presses, one per beat, that break a grab
  * @param historyTicks ticks of state kept for late inputs and "what were you doing at the impact" (Rule 2.10)
  * @param inCombatTicks how long a combat effect keeps it in combat (Rule 13.1: 15 s, which sets Breath's regeneration)
+ * @param doubleTapTicks a second tap of left, back or right this many client ticks or fewer after the first is a Step
+ *     (Rule 9.1; the client's, counted in client ticks as vanilla's sprint window is)
  */
 public record MachineRules(
         int bufferTicks,
@@ -39,7 +41,8 @@ public record MachineRules(
         double juggleCutBreath,
         int grabEscapeInputs,
         int historyTicks,
-        int inCombatTicks) {
+        int inCombatTicks,
+        int doubleTapTicks) {
 
     public MachineRules {
         Check.atLeast("buffer_ticks", bufferTicks, 0);
@@ -59,5 +62,6 @@ public record MachineRules(
         Check.positive("grab_escape_inputs", grabEscapeInputs);
         Check.atLeast("history_ticks", historyTicks, 2);
         Check.positive("in_combat_ticks", inCombatTicks);
+        Check.positive("double_tap_ticks", doubleTapTicks);
     }
 }

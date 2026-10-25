@@ -4,6 +4,7 @@ import com.mojang.logging.LogUtils;
 import dev.champ.kimetsu.core.clock.TickRecord;
 import dev.champ.kimetsu.core.fight.Fighter;
 import dev.champ.kimetsu.core.fight.Fights;
+import dev.champ.kimetsu.core.fight.MoveBound;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.fight.PlayerIntake;
 import dev.champ.kimetsu.core.machine.Combatant;
@@ -229,8 +230,12 @@ public final class FightLog implements Fights.Listener {
         flush();
     }
 
-    /** Player {@code id}'s second: its link, and its fighter {@code f}'s meters now. */
-    void second(long n, int id, Fighter f, long rttMicros, long gapNanos, int merged) {
+    /**
+     * Player {@code id}'s second: its link, its fighter {@code f}'s meters now, and its movement bound's figures for
+     * the poses it settled in the second ({@code move}: the fastest window and its rise, the free dashes, the clamps
+     * and the poses the stage dropped).
+     */
+    void second(long n, int id, Fighter f, long rttMicros, long gapNanos, int merged, MoveBound.Second move) {
         if (off) {
             return;
         }
@@ -255,6 +260,11 @@ public final class FightLog implements Fights.Listener {
                 .num("rhythm", c.rhythm().points())
                 .num("tier", c.rhythm().tier())
                 .num("combatUntil", c.combatUntil())
+                .num("moveFastest", move.fastest())
+                .num("moveRise", move.rise())
+                .num("freeDashes", move.freeDashes())
+                .num("clamps", move.clamps())
+                .num("stageDropped", move.dropped())
                 .end());
     }
 

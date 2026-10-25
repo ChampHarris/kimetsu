@@ -55,7 +55,8 @@
     "juggle_cut_breath": 10.0,
     "grab_escape_inputs": 3,
     "history_ticks": 16,
-    "in_combat_ticks": 300
+    "in_combat_ticks": 300,
+    "double_tap_ticks": 7
   },
   "hits": {
     "sub_steps": 3,
@@ -116,6 +117,16 @@
   "fights": {
     "engage_blocks": 32.0,
     "end_ticks": 1200
+  },
+  "movement": {
+    "window_ticks": 6,
+    "window_blocks": 4.78,
+    "rise_blocks": 4.78,
+    "free_dash_blocks": 2.82,
+    "free_dash_rise": 1.5,
+    "speed_gain": 0.225,
+    "impulse_grace_ticks": 2,
+    "slippery_scale": 2.0
   },
   "meta": {
     "status": "PROPOSED",

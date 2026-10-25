@@ -18,6 +18,7 @@ import dev.champ.kimetsu.core.data.FrameData.Sweep;
 import dev.champ.kimetsu.core.data.HitRules;
 import dev.champ.kimetsu.core.data.HungerRules;
 import dev.champ.kimetsu.core.data.MachineRules;
+import dev.champ.kimetsu.core.data.MoveRules;
 import dev.champ.kimetsu.core.data.Moveset;
 import dev.champ.kimetsu.core.data.Phase;
 import dev.champ.kimetsu.core.data.PostureRules;
@@ -218,12 +219,25 @@ public final class Fixtures {
                 10, // Juggle cut: 10 Breath
                 3, // Grab: 3 on-beat inputs to escape
                 16, // State history: 16 ticks
-                300); // In combat: 15 s after the last combat effect (Rule 13.1)
+                300, // In combat: 15 s after the last combat effect (Rule 13.1)
+                7); // Step: a double-tap within 7 ticks (vanilla's sprint window)
     }
 
     public static FightRules fights() {
         // Input frames, D-055: a hostile combatant within 32 blocks engages; Rule 13.1: a fight ends after 60 s
         return new FightRules(32, 1200);
+    }
+
+    public static MoveRules movement() {
+        return new MoveRules(
+                6, // The movement bound's window: 6 ticks
+                4.78, // ... 4.78 blocks across it (1.2 × sprint-jumping up stairs: 3.98, the MCTest trace, D-072)
+                4.78, // ... and 4.78 up (1.2 × the same run's 3.99)
+                2.82, // A free dash: a window over 1.2 × open ground's honest 2.35 with no envelope (D-073)
+                1.5, // ... that climbed under 1.2 × open ground's honest 1.25 (stairs climb more)
+                0.225, // Swiftness II's +40% gains the honest maximum about 9%
+                2, // A vanilla impulse opens it for RTT/50 + 2 ticks
+                2.0); // Ice and slime: 2 × (vanilla's physics gives about 1.4; D-073)
     }
 
     public static HitRules hits() {

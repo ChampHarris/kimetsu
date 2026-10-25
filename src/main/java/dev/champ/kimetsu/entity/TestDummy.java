@@ -270,7 +270,7 @@ public final class TestDummy extends PathfinderMob implements ArenaMember {
             due.remove();
         }
         long t = Micros.ofTicks(n);
-        f.poses().put(t, getX(), getY(), getZ(), getYRot(), getXRot());
+        f.stagePose(t, getX(), getY(), getZ(), getYRot(), getXRot(), Double.NaN, 1); // unbounded: the server moves it
         f.horizon().frame(t, FRAME_MICROS, t);
     }
 

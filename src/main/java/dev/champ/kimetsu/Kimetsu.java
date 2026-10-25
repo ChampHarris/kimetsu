@@ -3,6 +3,7 @@ package dev.champ.kimetsu;
 import com.mojang.logging.LogUtils;
 import dev.champ.kimetsu.combat.CombatServer;
 import dev.champ.kimetsu.combat.DamagePath;
+import dev.champ.kimetsu.combat.Impulses;
 import dev.champ.kimetsu.command.KimetsuCommand;
 import dev.champ.kimetsu.data.CombatDataLoader;
 import dev.champ.kimetsu.entity.KimetsuAttachments;
@@ -48,12 +49,15 @@ public final class Kimetsu {
         game.addListener(DamagePath::onDamagePre);
         game.addListener(DamagePath::onDamagePost);
         game.addListener(DamagePath::onHeal);
+        game.addListener(EventPriority.LOWEST, Impulses::onKnockBack); // last: as it applies
+        game.addListener(EventPriority.LOWEST, Impulses::onExplosionKnockback);
         game.addListener(EventPriority.HIGHEST, DamagePath::onDeath); // first: nothing acts on a death it cancels
         game.addListener(M1Demon::onMount);
         game.addListener(CombatServer::onLogin);
         game.addListener(CombatServer::onLogout);
         game.addListener(CombatServer::onRespawn);
         game.addListener(CombatServer::onDimension);
+        game.addListener(EventPriority.LOWEST, CombatServer::onTeleport); // last: where it really goes
         game.addListener(EventPriority.LOWEST, CombatServer::onDeath); // last: a cancelled death never reaches it
         game.addListener(EventPriority.LOWEST, CombatServer::onGameModeChange);
         game.addListener(CombatServer::onStartTracking);

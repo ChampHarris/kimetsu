@@ -825,46 +825,86 @@ class FrameDataTest {
 
     @Test
     void machineRulesRejectBadValues() {
-        rejects(() -> new MachineRules(-1, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300), "buffer_ticks");
-        rejects(() -> new MachineRules(3, 0, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300), "radial_hold_ms");
         rejects(
-                () -> new MachineRules(3, 150, 0, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300),
+                () -> new MachineRules(-1, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
+                "buffer_ticks");
+        rejects(
+                () -> new MachineRules(3, 0, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
+                "radial_hold_ms");
+        rejects(
+                () -> new MachineRules(3, 150, 0, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
                 "radial_limit_beats");
         rejects(
-                () -> new MachineRules(3, 150, 2, -1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300),
+                () -> new MachineRules(3, 150, 2, -1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
                 "guard_hold_ticks");
-        rejects(() -> new MachineRules(3, 150, 2, 1, -1, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300), "feint_breath");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, -1, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300),
+                () -> new MachineRules(3, 150, 2, 1, -1, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
+                "feint_breath");
+        rejects(
+                () -> new MachineRules(3, 150, 2, 1, 10, -1, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
                 "feint_doubling_ticks");
-        rejects(() -> new MachineRules(3, 150, 2, 1, 10, 60, -1, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300), "stumble_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, -1, 1, 13, 20, 8, 40, 10, 3, 16, 300),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, -1, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
+                "stumble_ticks");
+        rejects(
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, -1, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
                 "tech_before_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, -1, 13, 20, 8, 40, 10, 3, 16, 300),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, -1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
                 "tech_after_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, -1, 20, 8, 40, 10, 3, 16, 300),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, -1, 20, 8, 40, 10, 3, 16, 300, 7),
                 "tech_lockout_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, -1, 8, 40, 10, 3, 16, 300),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, -1, 8, 40, 10, 3, 16, 300, 7),
                 "knockdown_down_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, -1, 40, 10, 3, 16, 300),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, -1, 40, 10, 3, 16, 300, 7),
                 "knockdown_rise_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 0, 10, 3, 16, 300),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 0, 10, 3, 16, 300, 7),
                 "knockdown_max_air_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, -1, 3, 16, 300),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, -1, 3, 16, 300, 7),
                 "juggle_cut_breath");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 0, 16, 300),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 0, 16, 300, 7),
                 "grab_escape_inputs");
-        rejects(() -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 1, 300), "history_ticks");
-        rejects(() -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 0), "in_combat_ticks");
+        rejects(
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 1, 300, 7),
+                "history_ticks");
+        rejects(
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 0, 7),
+                "in_combat_ticks");
+        rejects(
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 0),
+                "double_tap_ticks");
         rejects(() -> new FightRules(0.5, 1200), "engage_blocks");
         rejects(() -> new FightRules(32, 0), "end_ticks");
+        assertDoesNotThrow(Fixtures::movement);
+        rejects(() -> new MoveRules(0, 2.82, 1.5, 2.35, 1.5, 0.225, 2, 2.0), "window_ticks");
+        rejects(() -> new MoveRules(6, 0, 1.5, 2.35, 1.5, 0.225, 2, 2.0), "window_blocks");
+        rejects(() -> new MoveRules(6, Double.POSITIVE_INFINITY, 1.5, 2.35, 1.5, 0.225, 2, 2.0), "window_blocks");
+        rejects(() -> new MoveRules(6, 2.82, 0, 2.35, 1.5, 0.225, 2, 2.0), "rise_blocks");
+        rejects(() -> new MoveRules(6, 2.82, 1.5, 0, 1.5, 0.225, 2, 2.0), "free_dash_blocks");
+        rejects(() -> new MoveRules(6, 2.82, 1.5, 3, 1.5, 0.225, 2, 2.0), "free_dash_blocks");
+        rejects(() -> new MoveRules(6, 2.82, 1.5, 2.35, 0, 0.225, 2, 2.0), "free_dash_rise");
+        rejects(() -> new MoveRules(6, 2.82, 1.5, 2.35, 2, 0.225, 2, 2.0), "free_dash_rise");
+        rejects(() -> new MoveRules(6, 2.82, 1.5, 2.35, 1.5, -0.1, 2, 2.0), "speed_gain");
+        rejects(() -> new MoveRules(6, 2.82, 1.5, 2.35, 1.5, 1.5, 2, 2.0), "speed_gain");
+        rejects(() -> new MoveRules(6, 2.82, 1.5, 2.35, 1.5, 0.225, -1, 2.0), "impulse_grace_ticks");
+        rejects(() -> new MoveRules(6, 2.82, 1.5, 2.35, 1.5, 0.225, 2, 0.5), "slippery_scale");
+        rejects(() -> new MoveRules(6, 2.82, 1.5, 2.35, 1.5, 0.225, 2, Double.POSITIVE_INFINITY), "slippery_scale");
+        MoveRules m = Fixtures.movement();
+        assertEquals(1, m.scale(1, 0, 1, false), 1e-12);
+        assertEquals(1.09, m.scale(1, 0.4, 1, false), 1e-12); // Swiftness II
+        assertEquals(4.0 / 3, m.scale(4.0 / 3, 0, 1, false), 1e-12); // 15 TPS
+        assertEquals(4.0 / 3 * 1.09, m.scale(4.0 / 3, 0.4, 1, false), 1e-12);
+        assertEquals(
+                0.62 * 0.62 / (0.42 * 0.42), m.scale(1, 0.4, 0.62 / 0.42, false), 1e-12); // Jump Boost II outgrows it
+        assertEquals(1, m.scale(0.5, -0.15, 0.9, false), 1e-12); // catching up, Slowness: never tighter
+        assertEquals(1, m.scale(Double.NaN, 0, Double.NaN, false), 1e-12);
+        assertEquals(2, m.scale(1, 0, 1, true), 1e-12); // on ice: slippery_scale, no longer unbounded (D-073)
+        assertEquals(4.0 / 3 * 1.09 * 2, m.scale(4.0 / 3, 0.4, 1, true), 1e-12);
     }
 }

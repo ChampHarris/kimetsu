@@ -6,10 +6,12 @@ import dev.champ.kimetsu.core.clock.PulseSchedule;
 import dev.champ.kimetsu.core.clock.RecordPush;
 import dev.champ.kimetsu.core.clock.TickRecord;
 import dev.champ.kimetsu.core.data.FrameData;
+import dev.champ.kimetsu.core.data.MoveRules;
 import dev.champ.kimetsu.core.data.Moveset;
 import dev.champ.kimetsu.core.data.TimingRules;
 import dev.champ.kimetsu.core.fight.Fighter;
 import dev.champ.kimetsu.core.fight.FrameGate;
+import dev.champ.kimetsu.core.fight.MoveBound;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.fight.PlayerIntake;
 import dev.champ.kimetsu.core.judge.FrameMeter;
@@ -28,8 +30,15 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import net.minecraft.core.BlockPos;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Pose;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.level.block.Blocks;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -48,6 +57,9 @@ public final class PlayerSession implements ArenaMember {
     private static final double PINGS_PER_S = 4; // Netcode: pings limited to 4/s, answered on the network thread
     private static final long ECHO_NANOS = 1_000_000_000L; // ServerEcho every second
     private static final long ECHO_GIVE_UP_NANOS = 5_000_000_000L; // an echo held back this long is replaced
+    // vanilla's sprint, a transient movement-speed modifier (LivingEntity.SPEED_MODIFIER_SPRINTING): the bound's honest
+    // maximum is measured sprinting, so only a bonus on top of it scales the bound
+    private static final Identifier SPRINTING = Identifier.withDefaultNamespace("sprinting");
 
     private final Sessions sessions;
     private final @Nullable Consumer<NetMessage> testOut; // a test's session: what it sends goes here, not on the wire
@@ -76,6 +88,12 @@ public final class PlayerSession implements ArenaMember {
     private int epoch; // the last epoch crossed, and where its presses were cut off: a fresh intake needs them
     private long epochCutoff = Long.MAX_VALUE; // none: the stamp check's own default
     private long arrivalMicros = Long.MIN_VALUE; // the arrival of the frame the intake is judging, for the fight log
+    private @Nullable MoveRules moveRules; // the movement bound's, from the data its fighter joined with
+    private double teleportX =
+            Double.NaN; // a teleport the server is making: its target, until the next pose (NaN: none)
+    private double teleportY;
+    private double teleportZ;
+    private boolean wasSlippery; // the last pose staged stood on ice or slime
     private final PlayerIntake.Sink sink = new PlayerIntake.Sink() {
         @Override
         public void judged(Input in, PlayerIntake.Delta d, long frameTimeMicros, boolean held) {
@@ -330,21 +348,115 @@ public final class PlayerSession implements ArenaMember {
         }
     }
 
-    /** The player's position, look and eye height (crouching or swimming changes it) as of {@code atMicros}. */
+    /**
+     * The player's position, look and eye height (crouching or swimming changes it) as of {@code atMicros}, staged for
+     * the movement bound with its scale (D-070). The first pose after a teleport the server made ({@link #teleporting})
+     * starts the bound afresh if it's within a window's reach of the target: an honest client is there or a step past,
+     * while one that acknowledged the teleport and then claimed to be farther is bounded as ever (netcode review).
+     */
     private void putPose(Fighter f, long atMicros) {
-        if (player.getPose() == Pose.STANDING) {
-            f.poses().put(atMicros, player.getX(), player.getY(), player.getZ(), player.getYRot(), player.getXRot());
-        } else {
-            f.poses()
-                    .put(
-                            atMicros,
-                            player.getX(),
-                            player.getY(),
-                            player.getZ(),
-                            player.getYRot(),
-                            player.getXRot(),
-                            player.getEyeHeight());
+        double scale = moveScale();
+        if (!Double.isNaN(teleportX)) {
+            MoveRules r = moveRules;
+            double dx = player.getX() - teleportX;
+            double dz = player.getZ() - teleportZ;
+            if (r == null
+                    || (Math.sqrt(dx * dx + dz * dz) <= r.windowBlocks() * scale
+                            && player.getY() - teleportY <= r.riseBlocks() * scale)) {
+                f.teleported();
+            }
+            teleportX = Double.NaN;
         }
+        double eye = player.getPose() == Pose.STANDING ? Double.NaN : player.getEyeHeight();
+        f.stagePose(
+                atMicros, player.getX(), player.getY(), player.getZ(), player.getYRot(), player.getXRot(), eye, scale);
+    }
+
+    /**
+     * The server is about to teleport the player to ({@code x}, {@code y}, {@code z}): a command, a pearl, chorus fruit
+     * ({@code EntityTeleportEvent}, fired just before it moves the player). Vanilla's set-backs fire none and start
+     * nothing: a client can provoke one whenever it likes, and each lands where that client already claimed to be, so
+     * counting them (as {@code awaitingTeleport} would) let a client reset its own bound (netcode review).
+     */
+    void teleporting(double x, double y, double z) {
+        teleportX = x;
+        teleportY = y;
+        teleportZ = z;
+    }
+
+    /**
+     * The bound's scale for the player's next pose (D-070): infinite while nothing honest bounds its movement (riding,
+     * gliding, a riptide spin, flying); otherwise the client ticks a combat tick holds, times the larger of its speed's
+     * gain over sprinting and its jump's, times {@code slippery_scale} while it has stood on a block more slippery than
+     * vanilla's ordinary one since the last pose (D-073). The ice counts only from its second pose on it, so the pose
+     * that arrives there (a jump, or a claim, onto a lone slime block) is bounded as on stone (netcode review).
+     */
+    private double moveScale() {
+        MoveRules r = moveRules;
+        ServerPlayer p = player;
+        if (r == null) {
+            return 1;
+        }
+        boolean slick = slippery(p);
+        boolean stillSlick = slick && wasSlippery;
+        wasSlippery = slick;
+        if (p.isPassenger() || p.isFallFlying() || p.isAutoSpinAttack() || p.getAbilities().flying) {
+            return Double.POSITIVE_INFINITY;
+        }
+        TickRecord rec = sessions.server().published();
+        long nominal = p.level().getServer().tickRateManager().nanosecondsPerTick();
+        double clientTicks = rec != null && nominal > 0 ? rec.tickLengthNanos() / nominal : 1;
+        return r.scale(clientTicks, speedBonus(p), jumpRatio(p), stillSlick);
+    }
+
+    /**
+     * Whether {@code p} stands on a block that keeps more of its speed than vanilla's ordinary friction (ice, slime):
+     * on the ground, as {@code travelInAir} applies a block's friction only there, so ice half a block below doesn't
+     * count (netcode review).
+     */
+    private static boolean slippery(ServerPlayer p) {
+        if (!p.onGround()) {
+            return false;
+        }
+        ServerLevel level = p.level();
+        BlockPos below = p.getBlockPosBelowThatAffectsMyMovement();
+        double friction = level.getBlockState(below).getFriction(level, below, p);
+        double modified = 1 - (1 - friction) * p.getAttributeValue(Attributes.FRICTION_MODIFIER); // as travelInAir's
+        return modified > Blocks.STONE.getFriction();
+    }
+
+    /** Its movement-speed bonus over its base, sprinting aside: 0.4 for Swiftness II, negative when slowed. */
+    private static double speedBonus(ServerPlayer p) {
+        AttributeInstance speed = p.getAttribute(Attributes.MOVEMENT_SPEED);
+        if (speed == null || speed.getBaseValue() <= 0) {
+            return 0;
+        }
+        double value = speed.getValue();
+        AttributeModifier sprint = speed.getModifier(SPRINTING);
+        if (sprint != null && sprint.operation() == AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL) {
+            value /= 1 + sprint.amount();
+        }
+        return value / speed.getBaseValue() - 1;
+    }
+
+    /** Its jump's power over the default jump's: Jump Boost and the jump-strength attribute raise it. */
+    private static double jumpRatio(ServerPlayer p) {
+        double standard = Attributes.JUMP_STRENGTH.value().getDefaultValue();
+        return (p.getAttributeValue(Attributes.JUMP_STRENGTH) + p.getJumpBoostPower()) / standard;
+    }
+
+    /**
+     * A vanilla impulse moved the player (a knockback, an explosion) that can carry it {@code blocks}: the bound opens
+     * from its fighter's tick for RTT/50 plus the rules' grace (D-070).
+     */
+    void impulse(double blocks) {
+        Fighter f = fighter;
+        MoveRules r = moveRules;
+        if (f == null || r == null || !(blocks > 0)) {
+            return;
+        }
+        int ticks = (int) Math.ceil(intake.rttMicros() / (double) Micros.PER_TICK) + r.impulseGraceTicks();
+        f.impulse(Micros.ofTicks(f.timeline().current()), blocks, ticks);
     }
 
     /** The server's clock crossed epoch {@code epoch}: tell the client first, then the stamp check. */
@@ -521,6 +633,10 @@ public final class PlayerSession implements ArenaMember {
                         r.timing(),
                         intake.rttMicros(),
                         Micros.ofMillis(r.timing().toleranceMinMs())));
+        f.movement(r.movement(), moves.step(), r.machine().bufferTicks());
+        moveRules = r.movement();
+        teleportX = Double.NaN; // its first pose is its bound's first reference
+        wasSlippery = false;
         a.world().add(f);
         intake.join(f);
         arena = a;
@@ -604,7 +720,8 @@ public final class PlayerSession implements ArenaMember {
 
     /**
      * Once a second, from its arena's fight log: the link's measures since the last (the longest gap between its
-     * frames' arrivals, the frames merged), taken whether or not it fights; written, with its meters, while it does.
+     * frames' arrivals, the frames merged) and the bound's figures, taken whether or not it fights; written, with its
+     * meters, while it does.
      * Returns whether it wrote a line.
      */
     boolean second(FightLog log, long n, boolean inFight) {
@@ -615,10 +732,14 @@ public final class PlayerSession implements ArenaMember {
             merged = gate.takeMerged();
         }
         Fighter f = fighter;
-        if (f == null || !inFight) {
+        if (f == null) {
             return false;
         }
-        log.second(n, combatId(), f, intake.rttMicros(), gap, merged);
+        MoveBound.Second move = f.takeMoveSecond(); // taken either way, so a fight's first second starts clean
+        if (!inFight) {
+            return false;
+        }
+        log.second(n, combatId(), f, intake.rttMicros(), gap, merged, move);
         return true;
     }
 

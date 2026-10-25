@@ -338,6 +338,48 @@ class FightHotPathTest {
     }
 
     @Test
+    void filingBoundedPosesAllocatesNothing() {
+        // the movement bound (D-070): four sprinting players' poses staged each tick and filed through the window, the
+        // envelopes and the settling
+        for (Fighter f : fighters) {
+            f.movement(Fixtures.movement(), Fixtures.step(), Fixtures.machine().bufferTicks());
+        }
+        Runnable sprint = () -> {
+            long t = ++n;
+            for (int i = 0; i < fighters.length; i++) {
+                Fighter f = fighters[i];
+                long leg = t % 200; // there and back, 0.28 a tick: never over the bound, so no clamp is published
+                double z = 2 + 0.28 * (leg < 100 ? leg : 200 - leg);
+                f.stagePose(Micros.ofTicks(t), i, 64 + (t % 12) * 0.1, z, 180, 0, Double.NaN, 1);
+                f.horizon().frame(Micros.ofTicks(t), 16_667, Micros.ofTicks(t));
+            }
+            world.tick(t);
+            world.outbox().drain();
+        };
+        for (int i = 0; i < 50_000; i++) {
+            sprint.run();
+        }
+        com.sun.management.ThreadMXBean bean = (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
+        long[] windows = new long[10];
+        for (int w = 0; w < windows.length; w++) {
+            long before = bean.getCurrentThreadAllocatedBytes();
+            for (int i = 0; i < 20_000; i++) {
+                sprint.run();
+            }
+            windows[w] = bean.getCurrentThreadAllocatedBytes() - before;
+        }
+        System.out.println(
+                "ticks filing 4 bounded poses: bytes allocated per window of 20,000: " + Arrays.toString(windows));
+        int clean = 0;
+        for (long bytes : windows) {
+            clean += bytes == 0 ? 1 : 0;
+        }
+        assertTrue(
+                clean >= 6,
+                "filing allocated in " + (windows.length - clean) + " of 10 windows: " + Arrays.toString(windows));
+    }
+
+    @Test
     void anIdleTickAllocatesNothing() {
         for (int i = 0; i < 50_000; i++) {
             tick();

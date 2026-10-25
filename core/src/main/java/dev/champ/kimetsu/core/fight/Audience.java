@@ -6,8 +6,9 @@ package dev.champ.kimetsu.core.fight;
  * combatant it concerns (its subject: a mob, or a strike's attacker) and to the player it names (its party: the one
  * targeted, struck, held or swinging), and a strike's result, a hold and a clash also to the party's own trackers
  * ("trackers of either side", "both fighters' trackers"). A strike event that names only its strike (its lock, an
- * involvement, a cancel) goes to whoever got that strike's {@code AttackStarted}, which the router remembers. No event
- * carries a demon's Hunger. Every switch names every event, with no default, so a new event can't go out unrouted.
+ * involvement, a cancel) goes to whoever got that strike's {@code AttackStarted}, which the router remembers. A pose
+ * clamp names no subject, strike or party, so it reaches nobody: it's the fight log's. No event carries a demon's
+ * Hunger. Every switch names every event, with no default, so a new event can't go out unrouted.
  * Allocation-free, for the mod's per-tick routing pass; the bots route by it too.
  */
 public final class Audience {
@@ -41,6 +42,7 @@ public final class Audience {
             case Outbox.Targeting _ -> NOBODY;
             case Outbox.Clang _ -> NOBODY;
             case Outbox.Pushed _ -> NOBODY;
+            case Outbox.PoseClamped _ -> NOBODY;
         };
     }
 
@@ -69,6 +71,7 @@ public final class Audience {
             case Outbox.AttackCancelled _ -> NOBODY;
             case Outbox.PlayerEffect _ -> NOBODY;
             case Outbox.SwingDealt _ -> NOBODY;
+            case Outbox.PoseClamped _ -> NOBODY; // nobody tracks it: the log's alone
         };
     }
 
@@ -94,6 +97,7 @@ public final class Audience {
             case Outbox.Targeting _ -> NO_STRIKE;
             case Outbox.Clang _ -> NO_STRIKE;
             case Outbox.Pushed _ -> NO_STRIKE;
+            case Outbox.PoseClamped _ -> NO_STRIKE;
         };
     }
 
@@ -119,6 +123,7 @@ public final class Audience {
             case Outbox.MobState _ -> NOBODY;
             case Outbox.GuardYaw _ -> NOBODY;
             case Outbox.Pushed _ -> NOBODY;
+            case Outbox.PoseClamped _ -> NOBODY;
         };
     }
 
@@ -147,6 +152,7 @@ public final class Audience {
             case Outbox.Targeting _ -> false;
             case Outbox.Clang _ -> false;
             case Outbox.Pushed _ -> false;
+            case Outbox.PoseClamped _ -> false;
         };
     }
 

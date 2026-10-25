@@ -162,6 +162,13 @@ public final class Sessions {
         }
     }
 
+    void teleporting(ServerPlayer p, double x, double y, double z) {
+        PlayerSession s = byListener.get(p.connection);
+        if (s != null) {
+            s.teleporting(x, y, z);
+        }
+    }
+
     void startTracking(ServerPlayer p, Entity target) {
         if (target instanceof ArenaMember || target instanceof Player) {
             trackers.start(p.getId(), target.getId());

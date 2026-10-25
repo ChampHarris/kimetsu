@@ -49,6 +49,9 @@ class AudienceTest {
             new Outbox.Clang(MOB, 123, PLAYER, true),
             new Outbox.Pushed(MOB, 124, 1, 0, 2, 4, false));
 
+    /** The events the world logs and sends to nobody. */
+    private static final List<Outbox.Event> LOG_ONLY = List.of(new Outbox.PoseClamped(PLAYER, 125, 10, 2.82));
+
     private static Outbox.Event of(Class<? extends Outbox.Event> type) {
         for (Outbox.Event e : EVENTS) {
             if (type.isInstance(e)) {
@@ -124,9 +127,26 @@ class AudienceTest {
     }
 
     @Test
+    void aPoseClampReachesNobody_notEvenItsPlayer() {
+        for (Outbox.Event e : LOG_ONLY) {
+            assertEquals(Audience.NOBODY, Audience.privateTo(e), e.toString());
+            assertEquals(Audience.NOBODY, Audience.subject(e), e.toString());
+            assertEquals(Audience.NO_STRIKE, Audience.strike(e), e.toString());
+            assertEquals(Audience.NOBODY, Audience.party(e), e.toString());
+            assertFalse(Audience.partyTrackers(e), e.toString());
+            for (int viewer : new int[] {PLAYER, DEMON_TRACKER, PLAYER_TRACKER, AWAY}) {
+                assertFalse(Audience.reaches(e, viewer, false, false), viewer + " sees " + e);
+            }
+        }
+    }
+
+    @Test
     void everyEventTheWorldCanSendIsListedHere() {
         Set<Class<?>> listed = new HashSet<>();
         for (Outbox.Event e : EVENTS) {
+            listed.add(e.getClass());
+        }
+        for (Outbox.Event e : LOG_ONLY) {
             listed.add(e.getClass());
         }
         assertEquals(eventTypes(), listed, "a new outbox event needs its audience here and in Audience");

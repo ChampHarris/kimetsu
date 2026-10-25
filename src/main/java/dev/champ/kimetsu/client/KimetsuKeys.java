@@ -11,9 +11,10 @@ import net.neoforged.neoforge.client.settings.KeyConflictContext;
 import org.jspecify.annotations.Nullable;
 
 /**
- * The combat keys (the spec's key table; Step, lock-on and the radial's flick come in 5c and 5d): Attack on left
- * mouse, Guard on right mouse (vanilla's use moves to Sneak + right mouse), Breathe on Left Alt, a separate Inhale
- * (unbound) and Pommel Strike on R, plus the debug overlay's toggle (unbound). All rebindable, in their own category.
+ * The combat keys (the spec's key table; lock-on and the radial's flick come in 5d): Attack on left mouse, Guard on
+ * right mouse (vanilla's use moves to Sneak + right mouse), Breathe on Left Alt, a separate Inhale (unbound), Pommel
+ * Strike on R and Step on Mouse 5 (a double-tap of vanilla's left, back or right steps too, {@link StepInput}), plus
+ * the debug overlay's toggle (unbound). All rebindable, in their own category.
  */
 public final class KimetsuKeys {
     /**
@@ -45,15 +46,17 @@ public final class KimetsuKeys {
     static final KeyMapping BREATHE = key("breathe", keyboard(InputConstants.KEY_LALT), Combat.INSTANCE);
     static final KeyMapping INHALE = key("inhale", InputConstants.UNKNOWN, Combat.INSTANCE);
     static final KeyMapping POMMEL = key("pommel", keyboard(InputConstants.KEY_R), Combat.INSTANCE);
+    static final KeyMapping STEP = key("step", mouse(InputConstants.MOUSE_BUTTON_5), Combat.INSTANCE); // SDL's 5
     static final KeyMapping DEBUG_OVERLAY = key("debug_overlay", InputConstants.UNKNOWN, KeyConflictContext.IN_GAME);
 
-    private static final KeyMapping[] COMBAT = {ATTACK, GUARD, BREATHE, INHALE, POMMEL};
+    private static final KeyMapping[] COMBAT = {ATTACK, GUARD, BREATHE, INHALE, POMMEL, STEP};
     private static final PlayerIntake.Key[] WIRE = {
         PlayerIntake.Key.ATTACK,
         PlayerIntake.Key.GUARD,
         PlayerIntake.Key.BREATHE,
         PlayerIntake.Key.INHALE,
-        PlayerIntake.Key.POMMEL
+        PlayerIntake.Key.POMMEL,
+        PlayerIntake.Key.STEP
     };
 
     private KimetsuKeys() {}

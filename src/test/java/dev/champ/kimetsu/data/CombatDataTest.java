@@ -120,6 +120,7 @@ class CombatDataTest {
         assertEquals(Fixtures.strikes(), r.strikes());
         assertEquals(Fixtures.rhythm(), r.rhythm());
         assertEquals(Fixtures.fights(), r.fights());
+        assertEquals(Fixtures.movement(), r.movement());
     }
 
     @Test

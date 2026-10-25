@@ -50,7 +50,8 @@ import org.jspecify.annotations.Nullable;
  *
  * <ol>
  *   <li>players' presses arrive and their machines advance ({@code Timeline.beginTick}: steps 1 and 3); cancels,
- *       landings and the mod's own effects queued between ticks reach their machines; mobs report where they stand;
+ *       landings and the mod's own effects queued between ticks reach their machines; the poses staged since the last
+ *       tick are filed, each within the movement bound ({@link MoveBound}); mobs report where they stand;
  *   <li>mobs' brains commit strings ({@link #commit}): each is scheduled onto its target's beat and told to it;
  *   <li>cues that fire lock their strike's direction and its path (Rule 7.13: from then the attacker moves only by
  *       the strike's own displacement, {@link #strikePose}), and players within reach of where its sweep will be at
@@ -479,6 +480,11 @@ public final class CombatWorld {
             }
         }
         applied.clear();
+        // every machine has run, cancels and landings included: the poses staged since are filed now, bounded by the
+        // Steps the machines accepted, before anything reads them
+        for (int i = 0; i < fighters.size(); i++) {
+            fighters.get(i).filePoses(n, outbox);
+        }
         for (int i = 0; i < mobs.size(); i++) {
             Mob m = mobs.get(i);
             m.body.beginTick(n);
@@ -568,7 +574,7 @@ public final class CombatWorld {
             Fighter f = fighters.get(i);
             f.timeline().onEpoch(cutoffMicros);
             f.horizon().reset();
-            f.poses().clear(); // filed on the old timeline, ahead of every new pose: every put would throw
+            f.clearPoses(); // filed on the old timeline, ahead of every new pose: every put would throw
         }
     }
 

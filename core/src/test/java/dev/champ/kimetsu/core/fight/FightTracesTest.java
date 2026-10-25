@@ -122,6 +122,13 @@ class FightTracesTest {
             case Outbox.ClashEnded c -> "CLASH ENDS @" + c.tick() + ": " + c.outcome();
             case Outbox.Clang c -> "CLANG on demon " + c.mob() + (c.recoils() ? ", it recoils" : "");
             case Outbox.Pushed p -> "demon " + p.mob() + " pushed " + p.distance();
+            case Outbox.PoseClamped c ->
+                String.format(
+                        Locale.ROOT,
+                        "%d's pose clamped: %.2f of %.2f blocks",
+                        c.fighter(),
+                        c.allowedBlocks(),
+                        c.rawBlocks());
             case AttackCancelled c -> "strike " + c.strike() + " cancelled (" + c.why() + ")";
             case PlayerEffect pe ->
                 "→" + pe.fighter() + (pe.tick() == n ? "" : " @" + pe.tick()) + " "

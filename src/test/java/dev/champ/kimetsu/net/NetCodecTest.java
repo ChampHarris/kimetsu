@@ -47,7 +47,7 @@ class NetCodecTest {
     @Test
     void everyEventRoundTrips() throws ReflectiveOperationException {
         List<Class<?>> types = records(Outbox.Event.class);
-        assertEquals(19, types.size(), "the outbox's events");
+        assertEquals(20, types.size(), "the outbox's events"); // PoseClamped joined (D-070)
         for (int seed = 0; seed < 3; seed++) {
             for (Class<?> t : types) {
                 Outbox.Event e = (Outbox.Event) sample(t, seed);
