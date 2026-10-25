@@ -132,6 +132,8 @@ public final class CombatGameTests {
             FUNCTIONS.register("a_claim_onto_ice_is_clamped", () -> CombatGameTests::aClaimOntoIceIsClamped),
             FUNCTIONS.register("a_blink_off_ice_is_clamped", () -> CombatGameTests::aBlinkOffIceIsClamped),
             FUNCTIONS.register("a_push_into_a_wall_splats", () -> CombatGameTests::aPushIntoAWallSplats),
+            FUNCTIONS.register(
+                    "a_glancing_push_slides_along_a_wall", () -> CombatGameTests::aGlancingPushSlidesAlongAWall),
             FUNCTIONS.register("a_landing_is_the_servers", () -> CombatGameTests::aLandingIsTheServers),
             FUNCTIONS.register(
                     "the_falling_form_needs_two_blocks", () -> CombatGameTests::theFallingFormNeedsTwoBlocks),
@@ -1626,6 +1628,54 @@ public final class CombatGameTests {
             double z = h.relativeVec(splatted.position()).z;
             double back = 6 - splatted.getBbWidth() / 2; // its box against the wall's face
             h.assertTrue(Math.abs(z - back) < 0.01, "the wall stopped it at " + z + ", not " + back);
+        });
+    }
+
+    /**
+     * D-086 in the level: the dummy stands a hair off a wall on its +x side, 0.6 off the demon's line, so the heavy
+     * pushes it about 15° into the wall, as the dev client's heavies were. Vanilla's move slides it along the wall, and
+     * the server's check finds that the face it touches leaves the push most of its move along its heading: no wall
+     * met, no splat, only the heavy's 2.5.
+     */
+    private static void aGlancingPushSlidesAlongAWall(GameTestHelper h) {
+        floor(h);
+        for (int z = 0; z < FLOOR; z++) {
+            h.setBlock(3, 1, z, Blocks.STONE); // the wall's face at x = 3
+            h.setBlock(3, 2, z, Blocks.STONE);
+        }
+        Arena arena = arena(h);
+        FrameData heavy = attack(h, arena.data(), "heavy");
+        double startZ = 4.2;
+        TestDummy pushed = dummy(h, arena, 2.699, startZ, 180); // its box 1 mm off the wall's face
+        long start = arena.nextTick();
+        demon(h, arena, 2.1, 2, 0, b -> new ScriptedBrain(b, pushed::getId).at(start + 20, heavy));
+        Effect.Push[] push = {null};
+        Outbox.WallSplat[] splat = {null};
+        List<Effect.Contact> contacts = new ArrayList<>();
+        arena.listen(e -> {
+            if (e instanceof Outbox.PlayerEffect pe && pe.fighter() == pushed.getId()) {
+                if (pe.effect() instanceof Effect.Push p) {
+                    push[0] = p;
+                } else if (pe.effect() instanceof Effect.Contact c) {
+                    contacts.add(c);
+                }
+            } else if (e instanceof Outbox.WallSplat w && w.fighter() == pushed.getId()) {
+                splat[0] = w;
+            }
+        });
+        h.succeedWhen(() -> {
+            Effect.Push p = push[0];
+            h.assertTrue(p != null, "the heavy didn't push the dummy");
+            if (p != null) {
+                h.assertTrue( // between 6° and 37° into the wall: a graze, well short of 45°
+                        p.dirX() > 0.1 && p.dirX() < 0.6 && p.splats(), "not a splatting graze into the wall: " + p);
+                h.assertTrue(arena.nextTick() > p.splatUntil() + 5, "its splat window hasn't long closed");
+            }
+            h.assertTrue(splat[0] == null, "a glancing push splatted: " + splat[0]);
+            h.assertTrue(contacts.isEmpty(), "it met a wall: " + contacts);
+            double slid = h.relativeVec(pushed.position()).z - startZ;
+            h.assertTrue(slid > 1.0, "it didn't slide along the wall: " + slid);
+            h.assertValueEqual(pushed.getHealth(), pushed.getMaxHealth() - 2.5f, "only the heavy's 2.5");
         });
     }
 

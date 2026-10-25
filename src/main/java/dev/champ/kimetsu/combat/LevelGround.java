@@ -1,7 +1,7 @@
 package dev.champ.kimetsu.combat;
 
 import dev.champ.kimetsu.core.hit.Ground;
-import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.CollisionGetter;
 import net.minecraft.world.phys.AABB;
 
 /**
@@ -12,9 +12,11 @@ import net.minecraft.world.phys.AABB;
  * across, the box sits a hair above the feet, so the floor it stands on doesn't count; moving down, it starts at the
  * feet, so standing on a floor is 0 below. No step-up: a slab stops a lunge. Collision tests don't load chunks. Asked
  * once per strike, when its cue locks it; for a pushed or knocked-down player, a sixteenth of a block for each pose
- * filed in its window; once per attack press while falling; once per tick of a mob's push.
+ * filed in its window (along the push, and along each of its axes where that touches: D-086); once per attack press
+ * while falling; once per tick of a mob's push. The client asks its own level the same of its pose on a push's stop
+ * tick ({@code PushWall}), so both judge that pose by one rule.
  */
-final class LevelGround implements Ground {
+public final class LevelGround implements Ground {
     /** The longest step tested whole, in blocks: thinner than any block's collision shape that matters. */
     private static final double STEP = 0.25;
 
@@ -24,9 +26,9 @@ final class LevelGround implements Ground {
     /** How far above its feet the box starts, so standing on a floor isn't touching it. */
     private static final double LIFT = 1e-3;
 
-    private final ServerLevel level;
+    private final CollisionGetter level;
 
-    LevelGround(ServerLevel level) {
+    public LevelGround(CollisionGetter level) {
         this.level = level;
     }
 

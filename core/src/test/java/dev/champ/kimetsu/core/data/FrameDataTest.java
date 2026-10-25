@@ -691,53 +691,57 @@ class FrameDataTest {
         assertDoesNotThrow(() -> rules.check(quick(8)), "exactly the minimum lead is enough");
         assertDoesNotThrow(() -> rules.check(Fixtures.water().chain(0))); // a player's attack has no cue to hold
         rejects(
-                () -> new StrikeRules(0, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, Fixtures.clash()),
+                () -> new StrikeRules(0, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, 0.5, Fixtures.clash()),
                 "strikes_per_target_per_beat");
         rejects(
-                () -> new StrikeRules(2, 0, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, Fixtures.clash()),
+                () -> new StrikeRules(2, 0, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, 0.5, Fixtures.clash()),
                 "min_cue_lead_ticks");
         rejects(
-                () -> new StrikeRules(2, 8, -1, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, Fixtures.clash()),
+                () -> new StrikeRules(
+                        2, 8, -1, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, 0.5, Fixtures.clash()),
                 "commit_margin_ticks");
         rejects(
-                () -> new StrikeRules(2, 8, 2, 400, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, Fixtures.clash()),
+                () -> new StrikeRules(2, 8, 2, 400, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, 0.5, Fixtures.clash()),
                 "guard_arc_deg");
         rejects(
-                () -> new StrikeRules(2, 8, 2, 240, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, Fixtures.clash()),
+                () -> new StrikeRules(2, 8, 2, 240, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, 0.5, Fixtures.clash()),
                 "guard_arc_deg"); // past what Facing tests
         rejects(
-                () -> new StrikeRules(2, 8, 2, 120, -4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, Fixtures.clash()),
+                () -> new StrikeRules(
+                        2, 8, 2, 120, -4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, 0.5, Fixtures.clash()),
                 "deflect_defender_posture");
         rejects(
                 () -> new StrikeRules(
-                        2, 8, 2, 120, 4, Double.NaN, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, Fixtures.clash()),
+                        2, 8, 2, 120, 4, Double.NaN, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, 0.5, Fixtures.clash()),
                 "deflect_attacker_posture");
         rejects(
-                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 1.5, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, Fixtures.clash()),
+                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 1.5, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, 0.5, Fixtures.clash()),
                 "perfect_attacker_share");
         rejects(
-                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, -1, 10, 6, 1.0, 4, 0.42, 10, 2.0, Fixtures.clash()),
+                () -> new StrikeRules(
+                        2, 8, 2, 120, 4, 8, 0.07, -1, 10, 6, 1.0, 4, 0.42, 10, 2.0, 0.5, Fixtures.clash()),
                 "perfect_recovery_ticks");
         rejects(
-                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, -1, 6, 1.0, 4, 0.42, 10, 2.0, Fixtures.clash()),
+                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, -1, 6, 1.0, 4, 0.42, 10, 2.0, 0.5, Fixtures.clash()),
                 "pommel_stun_ticks");
         rejects(
-                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 0, 1.0, 4, 0.42, 10, 2.0, Fixtures.clash()),
+                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 0, 1.0, 4, 0.42, 10, 2.0, 0.5, Fixtures.clash()),
                 "grab_hold_beats");
         rejects(
-                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, -1, 4, 0.42, 10, 2.0, Fixtures.clash()),
+                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, -1, 4, 0.42, 10, 2.0, 0.5, Fixtures.clash()),
                 "throw_damage");
         rejects(() -> new ClashRules(0, 50, 700, 100, 15, 300, 0.2, 1.5), "clash.flash_half_beats");
         rejects(() -> new ClashRules(3, 50, 700, 700, 15, 300, 0.2, 1.5), "clash.false_start_ms");
         rejects(() -> new ClashRules(3, 50, 700, 100, 15, 300, 1.5, 1.5), "clash.win_posture_share");
         rejects(
-                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 0, 0.42, 10, 2.0, Fixtures.clash()),
+                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 0, 0.42, 10, 2.0, 0.5, Fixtures.clash()),
                 "knockback_ticks");
         rejects(
-                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 201, 0.42, 10, 2.0, Fixtures.clash()),
+                () -> new StrikeRules(
+                        2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 201, 0.42, 10, 2.0, 0.5, Fixtures.clash()),
                 "knockback_ticks"); // past the wire's bound on a push
         rejects(
-                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0, 10, 2.0, Fixtures.clash()),
+                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0, 10, 2.0, 0.5, Fixtures.clash()),
                 "launch_up");
         rejects(
                 () -> new StrikeRules(
@@ -756,15 +760,29 @@ class FrameDataTest {
                         Double.POSITIVE_INFINITY,
                         10,
                         2.0,
+                        0.5,
                         Fixtures.clash()),
                 "launch_up");
         rejects(
-                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 0, 2.0, Fixtures.clash()),
+                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 0, 2.0, 0.5, Fixtures.clash()),
                 "splat_window_ticks");
         rejects(
                 () -> new StrikeRules(
-                        2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, Double.NaN, Fixtures.clash()),
+                        2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, Double.NaN, 0.5, Fixtures.clash()),
                 "splat_damage");
+        rejects(
+                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, 0, Fixtures.clash()),
+                "wall_keep_share"); // no wall would ever count
+        rejects(
+                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, 1.5, Fixtures.clash()),
+                "wall_keep_share");
+        rejects(
+                () -> new StrikeRules(
+                        2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, Double.NaN, Fixtures.clash()),
+                "wall_keep_share");
+        assertDoesNotThrow(
+                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0.42, 10, 2.0, 1.0, Fixtures.clash()),
+                "a share of 1: any loss counts");
         rejects(() -> new ClashRules(3, 50, 700, 100, 15, 300, 0.5, 0), "clash.tie_push_blocks");
         rejects(() -> new ClashRules(3, 50, 700, 100, 15, 300, 0.5, Double.NaN), "clash.tie_push_blocks");
     }

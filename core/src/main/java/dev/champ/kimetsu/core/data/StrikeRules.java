@@ -25,6 +25,9 @@ package dev.champ.kimetsu.core.data;
  *     vanilla's jump, PROPOSED)
  * @param splatWindowTicks how long after its push starts a wall the pushed player meets splats it (Rule 9.4: 10)
  * @param splatDamage a wall splat's damage (Rule 9.4: 2.0)
+ * @param wallKeepShare a wall the pushed player touches counts as met only when it leaves the push less than this share
+ *     of a tick's move along its heading (D-086: 0.5, PROPOSED): vanilla slides a body along what it grazes, so at a
+ *     flat wall a push within 45° of head-on meets it and a shallower one slides on; above 0 and at most 1 (any loss)
  * @param clash the micro-clash (Rule 10)
  */
 public record StrikeRules(
@@ -43,6 +46,7 @@ public record StrikeRules(
         double launchUp,
         int splatWindowTicks,
         double splatDamage,
+        double wallKeepShare,
         ClashRules clash) {
 
     /** The longest a push on a player runs (10 s): a sanity bound the wire also holds a push to, not a tuning number. */
@@ -67,6 +71,9 @@ public record StrikeRules(
         Check.that(
                 splatDamage > 0 && Double.isFinite(splatDamage),
                 "splat_damage must be positive and finite, was " + splatDamage);
+        Check.that(
+                wallKeepShare > 0 && wallKeepShare <= 1,
+                "wall_keep_share must be above 0 and at most 1, was " + wallKeepShare);
     }
 
     /**

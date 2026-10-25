@@ -190,6 +190,7 @@ class DemonClashTest {
                 s.launchUp(),
                 s.splatWindowTicks(),
                 s.splatDamage(),
+                s.wallKeepShare(),
                 new ClashRules(
                         c.flashHalfBeats(),
                         c.flashMarginMs(),

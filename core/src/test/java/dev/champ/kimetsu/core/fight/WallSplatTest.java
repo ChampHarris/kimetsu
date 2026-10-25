@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import dev.champ.kimetsu.core.Fixtures;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.PulseSchedule;
+import dev.champ.kimetsu.core.data.StrikeRules;
 import dev.champ.kimetsu.core.fight.Outbox.PlayerEffect;
 import dev.champ.kimetsu.core.fight.Outbox.WallSplat;
 import dev.champ.kimetsu.core.hit.Ground;
@@ -318,5 +319,86 @@ class WallSplatTest {
                 List.of(new Effect.Contact(Effect.Surface.FLOOR, Micros.ofTicks(from + 4))),
                 effects(a, Effect.Contact.class));
         assertEquals(from + 4 + 28, p.now().stateUntil()); // 20 down and 8 to rise from its landing
+    }
+
+    /** A wall along z on the player's +x side, its face at x = 0.9: flush with a player standing at x = 0.6. */
+    private static final Ground SIDE = new Ground() {
+        @Override
+        public double clear(
+                double x,
+                double y,
+                double z,
+                double halfWidth,
+                double height,
+                double dirX,
+                double dirZ,
+                double distance) {
+            if (dirX <= 0) {
+                return distance;
+            }
+            return Math.max(0, Math.min(distance, (0.9 - (x + halfWidth)) / dirX));
+        }
+
+        @Override
+        public double below(double x, double y, double z, double halfWidth, double height, double distance) {
+            return Math.max(0, Math.min(distance, y - 64));
+        }
+    };
+
+    /**
+     * D-086, as the dev client found it: standing 0.6 off the demon's line, flush against a wall on that side, the
+     * player is pushed about 31° into the wall (the heavy's lunge brings the demon within about a block by its impact),
+     * and its client slides along it, keeping cos² of that (0.73) of each tick's move along the push. It meets no wall
+     * and isn't splatted; on rules whose share counts any loss ({@code wall_keep_share} 1), the same push splats on its
+     * first tick, so the world reads the share from its data.
+     */
+    @Test
+    void aHeavyGrazingAWallThePlayerIsFlushAgainstSlidesAlongIt_unsplatted() {
+        for (double keep : new double[] {Fixtures.strikes().wallKeepShare(), 1.0}) {
+            Arena a = new Arena(Sight.OPEN, SIDE, keeping(keep));
+            Arena.Player p = a.player(1);
+            p.stand(Long.MIN_VALUE, 0.6, 64, 2, 180);
+            a.demon(10, new Arena.Script().at(100, 1, Fixtures.heavy()));
+            a.through(IMPACT + 1);
+            Effect.Push push = (Effect.Push) effects(a, Effect.Push.class).get(0);
+            assertTrue(push.dirX() > 0.45 && push.dirX() < 0.55, "about 31 degrees into the wall: " + push.dirX());
+            long from = push.fromTick();
+            double along = 0.5 * push.dirZ(); // vanilla keeps the move along the wall
+            for (int k = 0; k < 4; k++) {
+                p.stand(from + k, 0.6, 64, 2 + (k + 1) * along, 180);
+            }
+            a.through(from + 14);
+            if (keep < 1) {
+                assertTrue(effects(a, Effect.Contact.class).isEmpty(), "share " + keep);
+                assertTrue(a.all(WallSplat.class).isEmpty(), "share " + keep);
+                assertTrue(p.now().state() != State.KNOCKDOWN);
+            } else {
+                assertEquals(
+                        List.of(new WallSplat(1, 10, from, false, 0, Long.MIN_VALUE, 2.0)), a.all(WallSplat.class));
+            }
+        }
+    }
+
+    /** The fixtures' strike rules with {@code wall_keep_share} {@code keep}. */
+    private static StrikeRules keeping(double keep) {
+        StrikeRules s = Fixtures.strikes();
+        return new StrikeRules(
+                s.strikesPerTargetPerBeat(),
+                s.minCueLeadTicks(),
+                s.commitMarginTicks(),
+                s.guardArcDeg(),
+                s.deflectDefenderPosture(),
+                s.deflectAttackerPosture(),
+                s.perfectAttackerShare(),
+                s.perfectRecoveryTicks(),
+                s.pommelStunTicks(),
+                s.grabHoldBeats(),
+                s.throwDamage(),
+                s.knockbackTicks(),
+                s.launchUp(),
+                s.splatWindowTicks(),
+                s.splatDamage(),
+                keep,
+                s.clash());
     }
 }

@@ -4,6 +4,7 @@ import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.hit.Ground;
 import dev.champ.kimetsu.core.hit.Pose;
 import dev.champ.kimetsu.core.hit.PoseRing;
+import dev.champ.kimetsu.core.hit.PushWall;
 import dev.champ.kimetsu.core.machine.Combatant;
 import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.State;
@@ -15,9 +16,11 @@ import dev.champ.kimetsu.core.machine.State;
  *
  * <ul>
  *   <li><b>WALL:</b> while a push's window is open (from its first tick to the later of its splat window's end and its
- *       own end plus the impulse grace), the first filed pose whose box can't move {@link #TOUCH} along the push: once
- *       per push. A push with no distance (a launch's lift alone) looks for none, and one away from a wall or along it
- *       finds none.
+ *       own end plus the impulse grace), the first filed pose that meets a wall along the push ({@link PushWall}: its
+ *       box can't move {@link #TOUCH} along it, and what it touches leaves the push under {@code wall_keep_share} of
+ *       its move along its heading; D-086, vanilla slides a body along a wall it grazes, so a glancing push slides on):
+ *       once per push. A push with no distance (a launch's lift alone) looks for none, and one away from a wall or
+ *       along it finds none.
  *   <li><b>FLOOR:</b> while the live machine is in an airborne KNOCKDOWN, the first filed pose whose box can't drop
  *       {@link #TOUCH}: once per knockdown. After a launch (a push with lift, logged at the knockdown's tick) only once
  *       a pose has left the floor since the push's first tick (D-049's minimum air time); after a throw or a splat,
@@ -25,13 +28,14 @@ import dev.champ.kimetsu.core.machine.State;
  * </ul>
  *
  * <p>A contact's time is its pose's. A touch, not a step ahead: a body stepping up a slab during a push doesn't meet
- * the slab along the push before it climbs it. Outside every window it asks the level nothing; inside one, at most two
- * questions a newly filed pose, each a sixteenth of a block long. Poses the bound files again (a Step's envelope) aren't
- * looked at twice. Allocation-free.
+ * the slab along the push before it climbs it. Outside every window it asks the level nothing; inside one, at most four
+ * questions a newly filed pose (along the push, then along each of its axes when that touches; the floor), each a
+ * sixteenth of a block long; the client asks the same of its pose on a push's stop tick. Poses the bound files again
+ * (a Step's envelope) aren't looked at twice. Allocation-free.
  */
 final class ContactCheck {
-    /** How near a block counts as touching it, in blocks: a geometric tolerance, as the level's own lift is. */
-    static final double TOUCH = 1.0 / 16;
+    /** How near a block counts as touching it, in blocks: {@link PushWall}'s, for the floor too. */
+    static final double TOUCH = PushWall.TOUCH;
 
     static final long NONE = Long.MIN_VALUE;
 
@@ -85,10 +89,11 @@ final class ContactCheck {
     }
 
     /**
-     * The time of the first newly filed pose in the push's window that touches a wall along it, or {@link #NONE}: each
-     * pose is looked at once, and a push meets one wall at most.
+     * The time of the first newly filed pose in the push's window that meets a wall along it, what it touches leaving
+     * the push less than {@code keepShare} of its move along its heading ({@link PushWall#meets}), or {@link #NONE}:
+     * each pose is looked at once, and a push meets one wall at most.
      */
-    long wall(PoseRing poses, Ground ground, double halfWidth, double height) {
+    long wall(PoseRing poses, Ground ground, double halfWidth, double height, double keepShare) {
         if (!wallOpen) {
             return NONE;
         }
@@ -100,7 +105,7 @@ final class ContactCheck {
                 return NONE;
             }
             wallSeen = t;
-            if (ground.clear(pose.x(), pose.y(), pose.z(), halfWidth, height, dirX, dirZ, TOUCH) < TOUCH) {
+            if (PushWall.meets(ground, pose.x(), pose.y(), pose.z(), halfWidth, height, dirX, dirZ, keepShare)) {
                 wallOpen = false;
                 return t;
             }

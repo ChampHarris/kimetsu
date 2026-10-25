@@ -11,6 +11,7 @@ import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.HungerRules;
 import dev.champ.kimetsu.core.demon.Demon;
 import dev.champ.kimetsu.core.demon.DemonBrain;
+import dev.champ.kimetsu.core.hit.Ground;
 import dev.champ.kimetsu.core.hit.Sight;
 import dev.champ.kimetsu.core.judge.InputHorizon;
 import dev.champ.kimetsu.core.machine.Effect;
@@ -31,8 +32,34 @@ import org.junit.jupiter.api.Test;
  */
 @Tag("hot-path")
 class FightHotPathTest {
+    /** A wall every body touches on its +x side, counting what it's asked; only a push's contacts ask it here. */
+    private static final class WallEast implements Ground {
+        long asked;
+
+        @Override
+        public double clear(
+                double x,
+                double y,
+                double z,
+                double halfWidth,
+                double height,
+                double dirX,
+                double dirZ,
+                double distance) {
+            asked++;
+            return dirX > 0 ? 0 : distance;
+        }
+    }
+
+    private final WallEast wallEast = new WallEast();
     private final CombatWorld world = new CombatWorld(
-            Fixtures.hits(), Fixtures.strikes(), Fixtures.timing(), Fixtures.rhythm(), Arena.WATER, Sight.OPEN);
+            Fixtures.hits(),
+            Fixtures.strikes(),
+            Fixtures.timing(),
+            Fixtures.rhythm(),
+            Arena.WATER,
+            Sight.OPEN,
+            wallEast);
     private final Fighter[] fighters = new Fighter[4];
     private long n;
 
@@ -383,8 +410,10 @@ class FightHotPathTest {
     @Test
     void lookingForAPushsWallAllocatesNothing() {
         // every player inside a push's window that never closes, each newly filed pose asked whether it meets a wall
-        // along the push (Rule 9.2's contact, ContactCheck); the quiet ticks above look for none, asking nothing
-        Effect.Push open = new Effect.Push(1, 0, 2.0, 4, 0, 0, 1L << 40, -20_000);
+        // along the push (Rule 9.2's contact, ContactCheck); the quiet ticks above look for none, asking nothing. The
+        // push grazes a wall every player touches on its +x side, so each pose is also asked what each axis keeps of
+        // the push, and none counts (D-086)
+        Effect.Push open = new Effect.Push(Math.sin(0.3), Math.cos(0.3), 2.0, 4, 0, 0, 1L << 40, -20_000);
         for (Fighter f : fighters) {
             f.contacts.push(open, 10, 0, 2);
         }
@@ -393,6 +422,7 @@ class FightHotPathTest {
         }
         com.sun.management.ThreadMXBean bean = (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
         long[] windows = new long[10];
+        long asked = wallEast.asked;
         for (int w = 0; w < windows.length; w++) {
             long before = bean.getCurrentThreadAllocatedBytes();
             for (int i = 0; i < 20_000; i++) {
@@ -402,6 +432,10 @@ class FightHotPathTest {
         }
         System.out.println(
                 "ticks looking for 4 pushes' walls: bytes allocated per window of 20,000: " + Arrays.toString(windows));
+        // a graze that counted as a wall would close the window, and a check that asks nothing allocates nothing
+        assertTrue(
+                wallEast.asked - asked >= 3L * fighters.length * 20_000 * windows.length,
+                "each pose wasn't asked along the push and both axes: " + (wallEast.asked - asked));
         int clean = 0;
         for (long bytes : windows) {
             clean += bytes == 0 ? 1 : 0;

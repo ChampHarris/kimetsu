@@ -1,5 +1,7 @@
 package dev.champ.kimetsu.client;
 
+import dev.champ.kimetsu.core.hit.Ground;
+import dev.champ.kimetsu.core.hit.PushWall;
 import dev.champ.kimetsu.core.machine.State;
 import java.util.Arrays;
 import org.jspecify.annotations.Nullable;
@@ -48,7 +50,7 @@ final class ForcedMotion {
     private long startTick = NONE; // a dash pressed and waiting to start
     private boolean moving;
     private boolean pushTick; // the last tick moved a push, or stopped one whose last tick met a wall
-    private boolean blocked; // the player's last move was cut short (vanilla's horizontalCollision)
+    private boolean blocked; // the player's pose met a wall along the push, as the server counts it (D-086)
     private boolean pushing; // the running table is a push's, along (pushX, pushZ)
     private double pushX;
     private double pushZ;
@@ -183,11 +185,35 @@ final class ForcedMotion {
     }
 
     /**
-     * Before {@link #tick}: whether the player's last move was cut short by a wall (vanilla's horizontal collision). On
+     * Before {@link #tick}: whether the player's last move was cut short by a wall as the server counts it (D-086: its
+     * pose meets one along the push, {@code PushWall}), not vanilla's horizontal collision, which a graze sets too. On
      * a push's last tick that's its splat's contact, whose floor is read from the pose a tick later (its stop tick).
+     * Read only when the tick stops a push ({@link #stopsPush}).
      */
     void lastMoveBlocked(boolean b) {
         blocked = b;
+    }
+
+    /**
+     * Before {@link #tick}: whether it stops a push, whose last tick has moved the player, the one tick that reads
+     * {@link #lastMoveBlocked}. Also true on a tick a waiting push or a buffered dash takes over instead, when the answer
+     * goes unread.
+     */
+    boolean stopsPush() {
+        return pushing && index >= table.length;
+    }
+
+    /**
+     * Before {@link #tick}: whether the player, its box {@code halfWidth} each side and {@code height} tall with its feet
+     * at {@code (x, y, z)}, meets a wall in {@code ground} along the push this tick stops, as the server counts it
+     * (D-086, {@link PushWall#meets} on {@code keepShare}): {@link #lastMoveBlocked}'s answer, asked only on a push's
+     * stop tick. A push with no distance (a launch's lift alone) meets none, as the server looks for none.
+     */
+    boolean metWall(Ground ground, double x, double y, double z, double halfWidth, double height, double keepShare) {
+        return stopsPush()
+                && table.length > 0
+                && table[0] > 0
+                && PushWall.meets(ground, x, y, z, halfWidth, height, pushX, pushZ, keepShare);
     }
 
     /**

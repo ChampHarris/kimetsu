@@ -271,6 +271,7 @@ public final class Fixtures {
                 0.42, // Launch: 0.42 blocks a tick up, vanilla's jump
                 10, // Wall splat: within 10 ticks of the push
                 2.0, // ... for 2.0 damage
+                0.5, // A wall counts when it leaves the push under half its move along its heading (D-086)
                 clash());
     }
 

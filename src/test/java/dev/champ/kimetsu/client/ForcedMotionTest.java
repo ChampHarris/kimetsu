@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.champ.kimetsu.core.hit.Ground;
 import dev.champ.kimetsu.core.machine.State;
 import org.junit.jupiter.api.Test;
 
@@ -272,6 +273,55 @@ class ForcedMotionTest {
         earlier.lastMoveBlocked(false);
         assertEquals(ForcedMotion.Phase.STOP, earlier.tick(34, 34, 0));
         assertFalse(earlier.holdsJump(State.HITSTUN, true));
+    }
+
+    /** A wall whose face is at x = 2: flush with a player standing at x = 1.7 (its box 0.3 each side). */
+    private static final Ground FLUSH = (x, y, z, halfWidth, height, dirX, dirZ, distance) ->
+            dirX > 0 ? Math.max(0, Math.min(distance, (2.0 - (x + halfWidth)) / dirX)) : distance;
+
+    /** A push of {@code perTick} blocks a tick for 4 ticks along {@code (dirX, dirZ)}, run to its stop tick. */
+    private static ForcedMotion runToStopTick(double dirX, double dirZ, double perTick) {
+        ForcedMotion m = new ForcedMotion();
+        m.push(dirX, dirZ, perTick, 4, perTick > 0 ? 0 : 0.42, 30, 31, WAIT);
+        m.tick(30, 30, 0);
+        for (int i = 0; i < 4; i++) {
+            assertFalse(m.stopsPush(), "before push tick " + i);
+            assertFalse(m.metWall(FLUSH, 1.7, 64, 0, 0.3, 1.8, 0.5), "before push tick " + i);
+            assertEquals(ForcedMotion.Phase.MOVE, m.tick(31 + i, 31 + i, 0));
+        }
+        assertTrue(m.stopsPush(), "its last tick has moved it");
+        return m;
+    }
+
+    /**
+     * D-086: the client asks whether its pose met a wall as the server counts it only on a push's stop tick, the one
+     * tick that answer is read, along the push's own heading on the rules' share: a graze along a flush wall meets none,
+     * though vanilla's horizontal collision is set; a push within 45° of head-on meets it; one with no distance (a
+     * launch's lift alone) meets none, as the server looks for none. Never during a dash.
+     */
+    @Test
+    void theWallIsAskedOnlyOnAPushsStopTick_asTheServerCountsIt() {
+        double r = Math.toRadians(17);
+        ForcedMotion graze = runToStopTick(Math.sin(r), Math.cos(r), 0.5);
+        assertFalse(graze.metWall(FLUSH, 1.7, 64, 0, 0.3, 1.8, 0.5), "17 degrees into the wall: it slid on");
+        assertTrue(graze.metWall(FLUSH, 1.7, 64, 0, 0.3, 1.8, 1.0), "on rules where any loss counts");
+        assertEquals(ForcedMotion.Phase.STOP, graze.tick(35, 35, 0));
+        assertFalse(graze.stopsPush(), "stopped");
+        assertFalse(graze.metWall(FLUSH, 1.7, 64, 0, 0.3, 1.8, 1.0), "stopped");
+
+        ForcedMotion steep = runToStopTick(Math.cos(r), Math.sin(r), 0.5);
+        assertTrue(steep.metWall(FLUSH, 1.7, 64, 0, 0.3, 1.8, 0.5), "73 degrees into it");
+        assertFalse(steep.metWall(FLUSH, 1.5, 64, 0, 0.3, 1.8, 0.5), "0.2 short of it");
+
+        ForcedMotion lift = runToStopTick(1, 0, 0);
+        assertFalse(lift.metWall(FLUSH, 1.7, 64, 0, 0.3, 1.8, 0.5), "a lift alone, flush and head-on");
+
+        ForcedMotion dash = new ForcedMotion();
+        dash.press(STEP, StepInput.Direction.FORWARD, 0, 0, BUFFER);
+        for (int i = 0; i <= STEP.length; i++) {
+            assertFalse(dash.stopsPush(), "a dash's tick " + i);
+            dash.tick(i, i, 0);
+        }
     }
 
     /**

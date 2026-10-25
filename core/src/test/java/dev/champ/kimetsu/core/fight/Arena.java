@@ -160,7 +160,8 @@ final class Arena {
         this(Sight.OPEN, Ground.OPEN, strikes);
     }
 
-    private Arena(Sight sight, Ground ground, StrikeRules strikes) {
+    /** On strike rules {@code strikes}, in {@code ground}. */
+    Arena(Sight sight, Ground ground, StrikeRules strikes) {
         world = new CombatWorld(Fixtures.hits(), strikes, Fixtures.timing(), Fixtures.rhythm(), WATER, sight, ground);
     }
 

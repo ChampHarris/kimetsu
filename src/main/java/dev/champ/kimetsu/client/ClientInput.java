@@ -1,6 +1,7 @@
 package dev.champ.kimetsu.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import dev.champ.kimetsu.combat.LevelGround;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.MachineRules;
@@ -11,6 +12,8 @@ import dev.champ.kimetsu.core.judge.InputHorizon;
 import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.meter.Fixed;
 import dev.champ.kimetsu.data.CombatData;
+import dev.champ.kimetsu.data.CombatDataBuilder;
+import dev.champ.kimetsu.data.SlayerProfile;
 import dev.champ.kimetsu.item.NichirinItem;
 import dev.champ.kimetsu.net.NetCodec;
 import dev.champ.kimetsu.net.NetMessage;
@@ -410,14 +413,15 @@ final class ClientInput {
      * The client tick's start, after its presses went: the dash's or the push's motion for this tick
      * ({@link ForcedMotion}), set before the player's own tick moves it; the vertical only for a launch's lift. Its
      * combat tick is the one this tick's pose frame will carry ({@link #tickEnd}). Whether the last tick's move met a
-     * wall decides whether a push's stop tick holds the jump ({@link ForcedMotion#lastMoveBlocked}).
+     * wall as the server counts it ({@link #metWall}) decides whether a push's stop tick holds the jump
+     * ({@link ForcedMotion#lastMoveBlocked}).
      */
     void dashTick(LocalPlayer p) {
         ClientClock clock = combat.clock();
         long tick = clock != null && clock.inputOpen()
                 ? poseTick(clock)
                 : Long.MAX_VALUE; // no pose frame carries a tick to wait for
-        dash.lastMoveBlocked(p.horizontalCollision);
+        dash.lastMoveBlocked(metWall(p));
         ForcedMotion.Phase ph = dash.tick(clientTick, tick, p.getYRot());
         if (ph == ForcedMotion.Phase.IDLE) {
             return;
@@ -428,6 +432,28 @@ final class ClientInput {
         } else {
             p.setDeltaMovement(0, v.y, 0);
         }
+    }
+
+    /**
+     * Whether the player's pose meets a wall along the running push as the server counts it (D-086, {@code PushWall}):
+     * the Slayer's box the server judges, swept through this client's own level, on the push's heading and the rules'
+     * {@code wall_keep_share} ({@link ForcedMotion#metWall}). A graze, which sets vanilla's horizontal collision too,
+     * doesn't. Asked on a push's stop tick only; with no data the server has sent no push.
+     */
+    private boolean metWall(LocalPlayer p) {
+        CombatData d = combat.data();
+        SlayerProfile slayer = d != null ? d.slayers().get(CombatDataBuilder.SLAYER) : null;
+        if (!dash.stopsPush() || d == null || slayer == null) {
+            return false;
+        }
+        return dash.metWall(
+                new LevelGround(p.level()),
+                p.getX(),
+                p.getY(),
+                p.getZ(),
+                slayer.body().halfWidth(),
+                slayer.body().height(),
+                d.rules().strikes().wallKeepShare());
     }
 
     /**

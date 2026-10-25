@@ -505,24 +505,86 @@ public final class CombatCodecs {
                     Codec.DOUBLE.fieldOf("tie_push_blocks").forGetter(ClashRules::tiePushBlocks))
             .apply(i, ClashRules::new));
 
+    /** {@code strikes}' schedule and answers (the first group of its fields). */
+    private record Answers(
+            int strikesPerTargetPerBeat,
+            int minCueLeadTicks,
+            int commitMarginTicks,
+            double guardArcDeg,
+            double deflectDefenderPosture,
+            double deflectAttackerPosture,
+            double perfectAttackerShare,
+            int perfectRecoveryTicks,
+            int pommelStunTicks,
+            int grabHoldBeats,
+            double throwDamage) {
+        static final MapCodec<Answers> CODEC = RecordCodecBuilder.mapCodec(i -> i.group(
+                        Codec.INT.fieldOf("strikes_per_target_per_beat").forGetter(Answers::strikesPerTargetPerBeat),
+                        Codec.INT.fieldOf("min_cue_lead_ticks").forGetter(Answers::minCueLeadTicks),
+                        Codec.INT.fieldOf("commit_margin_ticks").forGetter(Answers::commitMarginTicks),
+                        Codec.DOUBLE.fieldOf("guard_arc_deg").forGetter(Answers::guardArcDeg),
+                        Codec.DOUBLE.fieldOf("deflect_defender_posture").forGetter(Answers::deflectDefenderPosture),
+                        Codec.DOUBLE.fieldOf("deflect_attacker_posture").forGetter(Answers::deflectAttackerPosture),
+                        Codec.DOUBLE.fieldOf("perfect_attacker_share").forGetter(Answers::perfectAttackerShare),
+                        Codec.INT.fieldOf("perfect_recovery_ticks").forGetter(Answers::perfectRecoveryTicks),
+                        Codec.INT.fieldOf("pommel_stun_ticks").forGetter(Answers::pommelStunTicks),
+                        Codec.INT.fieldOf("grab_hold_beats").forGetter(Answers::grabHoldBeats),
+                        Codec.DOUBLE.fieldOf("throw_damage").forGetter(Answers::throwDamage))
+                .apply(i, Answers::new));
+    }
+
+    /** {@code strikes}' pushes and wall splats (the second group). */
+    private record Pushes(
+            int knockbackTicks, double launchUp, int splatWindowTicks, double splatDamage, double wallKeepShare) {
+        static final MapCodec<Pushes> CODEC = RecordCodecBuilder.mapCodec(i -> i.group(
+                        Codec.INT.fieldOf("knockback_ticks").forGetter(Pushes::knockbackTicks),
+                        Codec.DOUBLE.fieldOf("launch_up").forGetter(Pushes::launchUp),
+                        Codec.INT.fieldOf("splat_window_ticks").forGetter(Pushes::splatWindowTicks),
+                        Codec.DOUBLE.fieldOf("splat_damage").forGetter(Pushes::splatDamage),
+                        Codec.DOUBLE.fieldOf("wall_keep_share").forGetter(Pushes::wallKeepShare))
+                .apply(i, Pushes::new));
+    }
+
     static final Codec<StrikeRules> STRIKES = RecordCodecBuilder.create(i -> i.group(
-                    Codec.INT.fieldOf("strikes_per_target_per_beat").forGetter(StrikeRules::strikesPerTargetPerBeat),
-                    Codec.INT.fieldOf("min_cue_lead_ticks").forGetter(StrikeRules::minCueLeadTicks),
-                    Codec.INT.fieldOf("commit_margin_ticks").forGetter(StrikeRules::commitMarginTicks),
-                    Codec.DOUBLE.fieldOf("guard_arc_deg").forGetter(StrikeRules::guardArcDeg),
-                    Codec.DOUBLE.fieldOf("deflect_defender_posture").forGetter(StrikeRules::deflectDefenderPosture),
-                    Codec.DOUBLE.fieldOf("deflect_attacker_posture").forGetter(StrikeRules::deflectAttackerPosture),
-                    Codec.DOUBLE.fieldOf("perfect_attacker_share").forGetter(StrikeRules::perfectAttackerShare),
-                    Codec.INT.fieldOf("perfect_recovery_ticks").forGetter(StrikeRules::perfectRecoveryTicks),
-                    Codec.INT.fieldOf("pommel_stun_ticks").forGetter(StrikeRules::pommelStunTicks),
-                    Codec.INT.fieldOf("grab_hold_beats").forGetter(StrikeRules::grabHoldBeats),
-                    Codec.DOUBLE.fieldOf("throw_damage").forGetter(StrikeRules::throwDamage),
-                    Codec.INT.fieldOf("knockback_ticks").forGetter(StrikeRules::knockbackTicks),
-                    Codec.DOUBLE.fieldOf("launch_up").forGetter(StrikeRules::launchUp),
-                    Codec.INT.fieldOf("splat_window_ticks").forGetter(StrikeRules::splatWindowTicks),
-                    Codec.DOUBLE.fieldOf("splat_damage").forGetter(StrikeRules::splatDamage),
+                    Answers.CODEC.forGetter(s -> new Answers(
+                            s.strikesPerTargetPerBeat(),
+                            s.minCueLeadTicks(),
+                            s.commitMarginTicks(),
+                            s.guardArcDeg(),
+                            s.deflectDefenderPosture(),
+                            s.deflectAttackerPosture(),
+                            s.perfectAttackerShare(),
+                            s.perfectRecoveryTicks(),
+                            s.pommelStunTicks(),
+                            s.grabHoldBeats(),
+                            s.throwDamage())),
+                    Pushes.CODEC.forGetter(s -> new Pushes(
+                            s.knockbackTicks(),
+                            s.launchUp(),
+                            s.splatWindowTicks(),
+                            s.splatDamage(),
+                            s.wallKeepShare())),
                     CLASH.fieldOf("clash").forGetter(StrikeRules::clash))
-            .apply(i, StrikeRules::new));
+            .apply(
+                    i,
+                    (a, p, c) -> new StrikeRules(
+                            a.strikesPerTargetPerBeat(),
+                            a.minCueLeadTicks(),
+                            a.commitMarginTicks(),
+                            a.guardArcDeg(),
+                            a.deflectDefenderPosture(),
+                            a.deflectAttackerPosture(),
+                            a.perfectAttackerShare(),
+                            a.perfectRecoveryTicks(),
+                            a.pommelStunTicks(),
+                            a.grabHoldBeats(),
+                            a.throwDamage(),
+                            p.knockbackTicks(),
+                            p.launchUp(),
+                            p.splatWindowTicks(),
+                            p.splatDamage(),
+                            p.wallKeepShare(),
+                            c)));
 
     /** {@code timing}'s judging windows (the first group of its fields). */
     private record Windows(

@@ -529,7 +529,7 @@ public final class CombatWorld {
      * effect still can be. A wall inside a splatting push's window waits to be settled ({@link #splats}).
      */
     private void levelContacts(Fighter f, long n) {
-        long wall = f.contacts.wall(f.poses(), ground, f.halfWidth(), f.height());
+        long wall = f.contacts.wall(f.poses(), ground, f.halfWidth(), f.height(), strikes.wallKeepShare());
         if (wall != ContactCheck.NONE) {
             long tick = contact(f, Effect.Surface.WALL, wall, n);
             if (f.contacts.splats()) {

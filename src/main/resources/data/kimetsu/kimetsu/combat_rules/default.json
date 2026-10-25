@@ -88,6 +88,7 @@
     "launch_up": 0.42,
     "splat_window_ticks": 10,
     "splat_damage": 2.0,
+    "wall_keep_share": 0.5,
     "clash": {
       "flash_half_beats": 3,
       "flash_margin_ms": 50,
