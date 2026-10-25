@@ -3,6 +3,8 @@ package dev.champ.kimetsu.gametest;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 import dev.champ.kimetsu.Kimetsu;
+import dev.champ.kimetsu.scope.StripItemsModifier;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import java.io.IOException;
 import java.io.Reader;
 import java.util.ArrayList;
@@ -10,7 +12,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.gametest.framework.FunctionGameTestInstance;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -19,6 +23,7 @@ import net.minecraft.gametest.framework.TestEnvironmentDefinition;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.tags.TagKey;
@@ -26,12 +31,23 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.alchemy.Potion;
+import net.minecraft.world.item.alchemy.PotionContents;
 import net.minecraft.world.item.alchemy.Potions;
 import net.minecraft.world.item.crafting.RecipeManager;
+import net.minecraft.world.level.storage.loot.BuiltInLootTables;
+import net.minecraft.world.level.storage.loot.LootContext;
+import net.minecraft.world.level.storage.loot.LootParams;
+import net.minecraft.world.level.storage.loot.LootTable;
+import net.minecraft.world.level.storage.loot.parameters.LootContextParamSets;
+import net.minecraft.world.level.storage.loot.parameters.LootContextParams;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.common.loot.IGlobalLootModifier;
+import net.neoforged.neoforge.common.loot.LootModifierManager;
 import net.neoforged.neoforge.event.RegisterGameTestsEvent;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
+import net.neoforged.neoforge.resource.NeoForgeReloadListeners;
 
 /**
  * Build 0 GameTests: the generated vanilla-scope pack ({@code src/generated/scope}, R7-01) loads and really applies.
@@ -51,6 +67,9 @@ public final class ScopeGameTests {
     private static final DeferredHolder<Consumer<GameTestHelper>, Consumer<GameTestHelper>>
             REMOVED_ADVANCEMENTS_ARE_DISABLED = FUNCTIONS.register(
                     "removed_advancements_are_disabled", () -> ScopeGameTests::removedAdvancementsAreDisabled);
+    private static final DeferredHolder<Consumer<GameTestHelper>, Consumer<GameTestHelper>>
+            STRIP_ITEMS_REMOVES_REMOVED_DROPS = FUNCTIONS.register(
+                    "strip_items_removes_removed_drops", () -> ScopeGameTests::stripItemsRemovesRemovedDrops);
 
     private static final TagKey<Item> REMOVED_ITEMS = TagKey.create(Registries.ITEM, id(Kimetsu.MOD_ID, "removed"));
     private static final TagKey<Potion> REMOVED_POTIONS =
@@ -66,6 +85,8 @@ public final class ScopeGameTests {
 
     private static final int MAX_TICKS = 20;
     private static final int LISTED = 12;
+    /** Buried-treasure rolls: its iron sword, iron spear and water-breathing potions each come up in most runs of these. */
+    private static final int ROLLS = 200;
 
     private ScopeGameTests() {}
 
@@ -76,8 +97,11 @@ public final class ScopeGameTests {
 
     private static void registerTests(RegisterGameTestsEvent event) {
         Holder<TestEnvironmentDefinition<?>> environment = event.registerEnvironment(id(Kimetsu.MOD_ID, "scope"));
-        for (var function :
-                List.of(REMOVED_CONTENT_IS_TAGGED, REMOVED_RECIPES_ARE_DISABLED, REMOVED_ADVANCEMENTS_ARE_DISABLED)) {
+        for (var function : List.of(
+                REMOVED_CONTENT_IS_TAGGED,
+                REMOVED_RECIPES_ARE_DISABLED,
+                REMOVED_ADVANCEMENTS_ARE_DISABLED,
+                STRIP_ITEMS_REMOVES_REMOVED_DROPS)) {
             event.registerTest(
                     function.getId(),
                     new FunctionGameTestInstance(
@@ -97,6 +121,57 @@ public final class ScopeGameTests {
                 "netherite ingot is not in #c:hidden_from_recipe_viewers, so JEI would show it");
         helper.assertFalse(
                 new ItemStack(Items.TORCH).is(REMOVED_ITEMS), "torches are menial vanilla but are in #kimetsu:removed");
+        helper.succeed();
+    }
+
+    /**
+     * The strip modifier (R7-01; slice 5c-4a) loads, and loot loses whatever is in {@code #kimetsu:removed}: the item
+     * tag, and the potion tag for a potion item whose contents are in it (a water-breathing {@code minecraft:potion}
+     * isn't in the item tag). A GameTest can't read its own log, so the loot-modifier manager is asked for it. Buried
+     * treasure, rolled as a chest rolls it ({@code RandomizableContainer}), would drop the removed iron sword, iron spear
+     * and water-breathing potions; kept items still drop. Mob equipment drops bypass loot modifiers (gotchas), not
+     * tested here.
+     */
+    private static void stripItemsRemovesRemovedDrops(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        MinecraftServer server = level.getServer();
+        LootModifierManager manager =
+                server.getServerResources().managers().getListener(NeoForgeReloadListeners.LOOT_MODIFIERS_KEY);
+        IGlobalLootModifier strip = manager.getModifier(id(Kimetsu.MOD_ID, "strip_removed_items"));
+        helper.assertTrue(
+                strip instanceof StripItemsModifier,
+                "the loot-modifier manager holds no strip_removed_items: " + strip);
+        LootParams params = new LootParams.Builder(level)
+                .withParameter(LootContextParams.ORIGIN, Vec3.atCenterOf(helper.absolutePos(BlockPos.ZERO)))
+                .create(LootContextParamSets.CHEST);
+        if (strip != null) { // the modifier on its own: what it takes and what it leaves
+            ItemStack waterBreathing = PotionContents.createItemStack(Items.POTION, Potions.WATER_BREATHING);
+            ItemStack water = PotionContents.createItemStack(Items.POTION, Potions.WATER);
+            ObjectArrayList<ItemStack> loot = new ObjectArrayList<>(
+                    List.of(new ItemStack(Items.IRON_SWORD), waterBreathing, new ItemStack(Items.TORCH), water));
+            ObjectArrayList<ItemStack> left =
+                    strip.apply(loot, new LootContext.Builder(params).create(Optional.empty()));
+            helper.assertTrue(
+                    left.size() == 2
+                            && left.get(0).is(Items.TORCH)
+                            && ItemStack.isSameItemSameComponents(left.get(1), water),
+                    "the strip left " + left + " of a sword, water breathing, a torch and water");
+        }
+        LootTable table = server.reloadableRegistries().getLootTable(BuiltInLootTables.BURIED_TREASURE);
+        int kept = 0;
+        for (long seed = 1; seed <= ROLLS; seed++) {
+            for (ItemStack s : table.getRandomItems(params, seed)) {
+                helper.assertFalse(s.is(REMOVED_ITEMS), "buried treasure (seed " + seed + ") dropped " + s);
+                helper.assertFalse(
+                        s.getOrDefault(DataComponents.POTION_CONTENTS, PotionContents.EMPTY)
+                                .potion()
+                                .map(p -> p.is(REMOVED_POTIONS))
+                                .orElse(false),
+                        "buried treasure (seed " + seed + ") dropped the removed potion " + s);
+                kept++;
+            }
+        }
+        helper.assertTrue(kept >= ROLLS, "buried treasure dropped only " + kept + " stacks in " + ROLLS + " rolls");
         helper.succeed();
     }
 

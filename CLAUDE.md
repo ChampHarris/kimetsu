@@ -60,6 +60,7 @@ python tools/sims/duel_sim.py         # M1 fight Monte Carlo (v0 numbers in tool
 python tools/sims/pulse_sim.py        # Pulse and deflect timing model
 python tools/sims/clock_sim.py        # client combat clock designs against a real tick schedule
 python tools/sims/night_sim.py --nights 300   # night Director: demons per party size (the R7-03 table)
+python tools/fight_report.py run/kimetsu/fights/*.jsonl   # what the fight logs say: guard timing, flags, link, budget (--json)
 python tools/refsrc.py                # Minecraft + NeoForge sources into ref-src/ (--assets, --data, --mcmeta 26.3)
 ```
 On Windows use `gradlew.bat` in cmd or PowerShell, or `./gradlew` in Git Bash; use `py -3` if `python` isn't on PATH.

@@ -44,8 +44,10 @@ import java.util.List;
  *   <li>Anything else lands: a grab for a grab, a launch for a launching window, else a hit.
  * </ol>
  *
- * <p>Also the Pommel Strike's timed answer (Rule 5.2), {@link #pommelInterrupt}, and the effects a verdict logs,
- * {@link #effects}. Judging allocates nothing; the effects are a decision's records.
+ * <p>Against a white strike the verdict also carries the guard's record for the fight log (D-089): each gate above and
+ * the defender's {@link DeflectJudge.Attempt}. Also the Pommel Strike's timed answer (Rule 5.2), {@link
+ * #pommelInterrupt}, and the effects a verdict logs, {@link #effects}. Judging allocates nothing; the effects are a
+ * decision's records.
  */
 public final class Verdicts {
     /** {@link #pommelInterrupt}'s answer when no Pommel Strike interrupts. */
@@ -92,7 +94,11 @@ public final class Verdicts {
         double px = pose.x();
         double pz = pose.z();
         Cue.Type cue = f.cue().type();
-        if (!inside(pose, halfWidth, height, sight)) {
+        boolean in = inside(pose, halfWidth, height, sight);
+        if (cue == Cue.Type.WHITE) {
+            guardRecord(s, d, lookYaw, px, pz, in, out);
+        }
+        if (!in) {
             if ((cue == Cue.Type.RED || cue == Cue.Type.PURPLE)
                     && dodged(s, d, pose, poses, halfWidth, height, sight)) {
                 out.kind = Verdict.Kind.CLEARED;
@@ -101,10 +107,10 @@ public final class Verdicts {
             return out.kind;
         }
         HitWindow w = f.hits().get(0);
-        if (cue == Cue.Type.WHITE && Facing.inArc(lookYaw, strikes.guardArcDeg() / 2, s.x() - px, s.z() - pz)) {
+        if (cue == Cue.Type.WHITE && out.inArc) {
             int assist = d.assistLevel();
             double scale = assist >= 3 ? hits.autoRhythmScale() : 1;
-            long claim = canGuard(d) ? d.deflects().claimOf(s.id()) : DeflectJudge.UNCLAIMED;
+            long claim = out.stateOk ? d.deflects().claimOf(s.id()) : DeflectJudge.UNCLAIMED;
             switch (DeflectJudge.answer(claim, s.impactMicros(), timing, assist)) {
                 case PERFECT -> {
                     out.kind = Verdict.Kind.PERFECT;
@@ -254,6 +260,21 @@ public final class Verdicts {
             }
             case MISS -> {}
         }
+    }
+
+    /**
+     * White strike {@code s}'s guard record on {@code d} into {@code out}: in the sweep ({@code in}), the attacker inside
+     * the front arc of a defender at {@code (px, pz)} looking along {@code lookYaw}, able to guard, and its attempt.
+     */
+    private void guardRecord(StrikeView s, Combatant d, double lookYaw, double px, double pz, boolean in, Verdict out) {
+        DeflectJudge j = d.deflects();
+        out.guardJudged = true;
+        out.inSweep = in;
+        out.inArc = Facing.inArc(lookYaw, strikes.guardArcDeg() / 2, s.x() - px, s.z() - pz);
+        out.stateOk = canGuard(d);
+        out.attempt = j.attemptOf(s.id());
+        out.pressMicros = j.attemptAt(s.id());
+        out.assist = d.assistLevel();
     }
 
     /** Whether the body at {@code p} lies inside the placed sweep, in sight. */

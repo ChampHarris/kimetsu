@@ -61,7 +61,7 @@ class FightLogJsonTest {
     @Test
     void everyEventIsALineWithItsTypeStepAndEveryField() throws ReflectiveOperationException {
         List<Class<?>> types = records(Outbox.Event.class);
-        assertEquals(21, types.size(), "the outbox's events"); // WallSplat joined (5c-3b)
+        assertEquals(22, types.size(), "the outbox's events"); // GuardJudged joined (5c-4a)
         for (int seed = 0; seed < 3; seed++) {
             for (Class<?> t : types) {
                 Outbox.Event e = (Outbox.Event) sample(t, seed);

@@ -28,6 +28,7 @@ import dev.champ.kimetsu.core.hit.Sweeper;
 import dev.champ.kimetsu.core.hit.SwingTrack;
 import dev.champ.kimetsu.core.hit.Targets;
 import dev.champ.kimetsu.core.hit.Trig;
+import dev.champ.kimetsu.core.judge.DeflectJudge;
 import dev.champ.kimetsu.core.machine.Combatant;
 import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.State;
@@ -1563,7 +1564,8 @@ public final class CombatWorld {
 
     /**
      * Strike {@code s}'s verdict on its {@code j}th player, as of its impact: its effects logged there, its Timeline
-     * released, then its held ticks swept late (D-034).
+     * released, then its held ticks swept late (D-034). A white strike's result is followed by its guard's record, for
+     * the fight log (D-089).
      */
     private void decideFor(PendingStrike s, int j, Fighter f) {
         // slice 4b: a clash with the defender's own heavy attack or form is found here, before the verdict
@@ -1583,6 +1585,21 @@ public final class CombatWorld {
         s.answer(verdict.kind(), verdict.attackerPosture(), verdict.attackerRecoveryTicks());
         s.decideFor(j);
         outbox.add(new Outbox.StrikeResult(s.id(), s.attacker(), f.id(), verdict.kind(), damage));
+        if (verdict.guardJudged()) {
+            long press = verdict.pressMicros();
+            outbox.add(new Outbox.GuardJudged(
+                    s.id(),
+                    f.id(),
+                    tick,
+                    verdict.attempt(),
+                    press,
+                    press == DeflectJudge.NO_PRESS ? DeflectJudge.NO_PRESS : press - s.impactMicros(),
+                    verdict.inSweep(),
+                    verdict.inArc(),
+                    verdict.stateOk(),
+                    verdict.assist(),
+                    verdict.kind()));
+        }
         if (verdict.kind() == Verdict.Kind.GRAB) {
             hold(s, f, tick);
         }

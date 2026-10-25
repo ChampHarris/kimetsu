@@ -70,6 +70,14 @@ public final class StampCheck {
         this.frameEpoch = epoch;
     }
 
+    /**
+     * The mean of its frames' (arrival − stamp) over the jitter window, in µs ({@link JitterWindow#meanMicros}); NaN
+     * while the window is empty (no frame yet, or none since an epoch).
+     */
+    public double meanLagMicros() {
+        return jitter.count() == 0 ? Double.NaN : jitter.meanMicros();
+    }
+
     /** clamp(multiple × jitter, min, max), in microseconds. */
     public static long tolerance(TimingRules rules, double jitterSdMicros) {
         long t = Math.round(rules.toleranceJitterMultiple() * jitterSdMicros);

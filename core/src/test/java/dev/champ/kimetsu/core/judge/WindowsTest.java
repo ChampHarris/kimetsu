@@ -31,6 +31,23 @@ class WindowsTest {
     }
 
     @Test
+    void theMeanLagOverTheLastFrames_forTheClocksErrorInDebug() {
+        JitterWindow w = new JitterWindow(4);
+        assertEquals(0, w.meanMicros(), "no frames yet");
+        w.add(1_075_000, 1_000_000);
+        w.add(1_135_000, 1_050_000); // lags 75 and 85 ms
+        assertEquals(80_000, w.meanMicros(), 1e-9);
+        for (int k = 0; k < 4; k++) { // the window holds 4: the first two roll out
+            w.add(2_000_000 + k * 50_000L + 40_000, 2_000_000 + k * 50_000L);
+        }
+        assertEquals(40_000, w.meanMicros(), 1e-9);
+        JitterWindow ahead = new JitterWindow(40); // a client clock running ahead stamps after the arrival
+        ahead.add(1_000_000, 1_010_000);
+        ahead.add(1_050_000, 1_059_999);
+        assertEquals(-9_999.5, ahead.meanMicros(), 1e-9);
+    }
+
+    @Test
     void aConstantDelayIsNoJitterHoweverLong() {
         JitterWindow w = new JitterWindow(40);
         for (int k = 0; k < 40; k++) {

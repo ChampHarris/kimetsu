@@ -165,7 +165,8 @@ public final class Fights {
             }
             case Outbox.MobDied d -> defeated(d.mob(), step);
             // not triggers: what a mob shows (a target alone isn't one, Rule 13.1), a lock, a swing's damage (its
-            // landing is), what the machine logged, a mob leaving alive (its foes' fights wait out their time), a clamp
+            // landing is), what the machine logged, a mob leaving alive (its foes' fights wait out their time), a
+            // clamp, a guard's record (its result is the trigger)
             case Outbox.StrikeLocked _,
                     Outbox.PlayerEffect _,
                     Outbox.SwingDealt _,
@@ -176,7 +177,8 @@ public final class Fights {
                     Outbox.Targeting _,
                     Outbox.Clang _,
                     Outbox.Pushed _,
-                    Outbox.PoseClamped _ -> {}
+                    Outbox.PoseClamped _,
+                    Outbox.GuardJudged _ -> {}
         }
     }
 

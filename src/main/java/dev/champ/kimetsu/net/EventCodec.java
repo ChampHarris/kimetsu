@@ -183,6 +183,20 @@ final class EventCodec {
                 buf.writeDouble(c.rawBlocks());
                 buf.writeDouble(c.allowedBlocks());
             }
+            case Outbox.GuardJudged g -> { // routed to nobody today, as a clamp is
+                buf.writeByte(21);
+                Wire.writeLong(buf, g.strike());
+                Wire.writeInt(buf, g.fighter());
+                Wire.writeLong(buf, g.tick());
+                Wire.writeEnum(buf, Wire.ATTEMPTS, g.attempt());
+                Wire.writeLong(buf, g.pressMicros());
+                Wire.writeLong(buf, g.errorMicros());
+                buf.writeBoolean(g.inSweep());
+                buf.writeBoolean(g.inArc());
+                buf.writeBoolean(g.stateOk());
+                Wire.writeInt(buf, g.assist());
+                Wire.writeEnum(buf, Wire.VERDICTS, g.kind());
+            }
         }
     }
 
@@ -300,6 +314,19 @@ final class EventCodec {
                         Wire.readInt(buf),
                         Wire.readLong(buf),
                         buf.readDouble());
+            case 21 ->
+                new Outbox.GuardJudged(
+                        Wire.readLong(buf),
+                        Wire.readInt(buf),
+                        Wire.readLong(buf),
+                        Wire.readEnum(buf, Wire.ATTEMPTS),
+                        Wire.readLong(buf),
+                        Wire.readLong(buf),
+                        buf.readBoolean(),
+                        buf.readBoolean(),
+                        buf.readBoolean(),
+                        Wire.readInt(buf),
+                        Wire.readEnum(buf, Wire.VERDICTS));
             default -> throw new DecoderException("unknown event " + type);
         };
     }

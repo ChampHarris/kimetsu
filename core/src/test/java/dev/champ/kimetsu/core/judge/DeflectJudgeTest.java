@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import dev.champ.kimetsu.core.Fixtures;
 import dev.champ.kimetsu.core.data.TimingRules;
 import dev.champ.kimetsu.core.judge.DeflectJudge.Answer;
+import dev.champ.kimetsu.core.judge.DeflectJudge.Attempt;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -148,5 +150,95 @@ class DeflectJudgeTest {
         }
         copy.copyFrom(a);
         assertTrue(copy.sameAs(a));
+    }
+
+    // ---- each white strike's attempt (the fight log's deflect record, D-089)
+
+    @Test
+    void aPressTheGuardCantRiseFor_claimsNothingAndStartsNoLockout_butIsKeptAsTheStrikesAttempt() {
+        DeflectJudge judge = new DeflectJudge(T);
+        judge.commit(1, I, true);
+        judge.commit(2, I + 50_000, false); // red: only white strikes can be deflected, so none is kept
+        assertEquals(Attempt.NONE, judge.attemptOf(1), "no press yet");
+        assertEquals(DeflectJudge.NO_PRESS, judge.attemptAt(1));
+        assertFalse(judge.press(I - 100_000, 0, false)); // mid-swing, mid-Step, stunned or held
+        assertEquals(DeflectJudge.UNCLAIMED, judge.claimOf(1));
+        assertFalse(judge.lockedOut(I - 100_000 + 1), "no lockout, as before (Combatant.guardCanRise)");
+        assertEquals(Attempt.NO_RISE, judge.attemptOf(1));
+        assertEquals(I - 100_000, judge.attemptAt(1));
+        assertEquals(Attempt.NONE, judge.attemptOf(2));
+        assertFalse(judge.press(I - 90_000, 0, false));
+        assertEquals(I - 100_000, judge.attemptAt(1), "the first press inside the window stands");
+        assertTrue(judge.press(I - 30_000, 0)); // standing again
+        assertEquals(Attempt.CLAIMED, judge.attemptOf(1), "a claim is the attempt");
+        assertEquals(I - 30_000, judge.attemptAt(1));
+        assertEquals(Attempt.NONE, judge.attemptOf(99), "a strike it doesn't hold");
+        assertEquals(DeflectJudge.NO_PRESS, judge.attemptAt(99));
+    }
+
+    @Test
+    void onlyAPressInsideTheWindowIsKept() {
+        DeflectJudge judge = new DeflectJudge(T);
+        judge.commit(1, I, true);
+        assertFalse(judge.press(I - 150_001, 0, false));
+        assertFalse(judge.press(I + 1, 0, false));
+        assertEquals(Attempt.NONE, judge.attemptOf(1));
+        assertFalse(judge.press(I - 225_000, 2, false)); // assist widens the window to 225 ms
+        assertEquals(Attempt.NO_RISE, judge.attemptOf(1));
+    }
+
+    @Test
+    void aPressInALockoutIsKeptAsTheStrikesAttempt() {
+        DeflectJudge judge = new DeflectJudge(T);
+        judge.commit(1, I, true);
+        assertFalse(judge.press(I - 300_000, 0)); // a whiff before the window: locked out to I − 50 ms, kept nowhere
+        assertEquals(Attempt.NONE, judge.attemptOf(1));
+        assertFalse(judge.press(I - 100_000, 0)); // inside the lockout: it extends it, and claims nothing
+        assertEquals(Attempt.LOCKED_OUT, judge.attemptOf(1));
+        assertEquals(I - 100_000, judge.attemptAt(1));
+        assertTrue(judge.lockedOut(I + 149_999));
+    }
+
+    @Test
+    void theAttemptIsState_copiedCountedInSameAs_carriedByARemoval_andAMovedImpactStartsItOver() {
+        DeflectJudge a = new DeflectJudge(T);
+        a.commit(1, I, true);
+        a.commit(2, I + 50_000, true);
+        DeflectJudge b = new DeflectJudge(T);
+        b.copyFrom(a);
+        a.press(I - 50_000, 0, false); // inside both windows
+        assertFalse(a.sameAs(b), "the attempt is state");
+        b.copyFrom(a);
+        assertTrue(b.sameAs(a));
+        assertEquals(Attempt.NO_RISE, b.attemptOf(2));
+        assertEquals(I - 50_000, b.attemptAt(2));
+        a.commit(3, I + 650_000, true);
+        a.remove(1); // strike 3 takes its place
+        assertEquals(Attempt.NONE, a.attemptOf(3));
+        assertEquals(DeflectJudge.NO_PRESS, a.attemptAt(3));
+        assertEquals(Attempt.NO_RISE, a.attemptOf(2));
+        a.commit(2, I + 50_000, true); // told again: it stands
+        assertEquals(Attempt.NO_RISE, a.attemptOf(2));
+        a.commit(2, I + 700_000, true); // moved a beat: a different strike now
+        assertEquals(Attempt.NONE, a.attemptOf(2));
+        assertEquals(DeflectJudge.NO_PRESS, a.attemptAt(2));
+    }
+
+    @Test
+    void twoJudgesWhoseFirstPressFailedForDifferentReasons_differ() {
+        // the same strike, presses, stamps and lockout; only why the first press inside the window claimed nothing
+        DeflectJudge rose = new DeflectJudge(T);
+        DeflectJudge couldnt = new DeflectJudge(T);
+        for (DeflectJudge j : List.of(rose, couldnt)) {
+            j.commit(1, I, true);
+            j.press(I - 300_000, 0); // a whiff: locked out to I − 50 ms
+        }
+        rose.press(I - 100_000, 0); // locked out, extending it to I + 150 ms
+        rose.press(I - 100_000, 0, false);
+        couldnt.press(I - 100_000, 0, false);
+        couldnt.press(I - 100_000, 0); // the same extension
+        assertEquals(Attempt.LOCKED_OUT, rose.attemptOf(1));
+        assertEquals(Attempt.NO_RISE, couldnt.attemptOf(1));
+        assertFalse(rose.sameAs(couldnt));
     }
 }

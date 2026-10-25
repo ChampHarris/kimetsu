@@ -288,6 +288,15 @@ public final class PlayerIntake {
         return rtt.minMicros(now);
     }
 
+    /**
+     * How far behind the server's clock its client's stamps read, in µs (negative: ahead): the mean of its frames'
+     * (arrival − stamp) over the jitter window less half the RTT; NaN with no frame in the window. For {@code /kimetsu
+     * debug}.
+     */
+    public double clockLagMicros() {
+        return check.meanLagMicros() - rttMicros() / 2.0;
+    }
+
     /** The sequence number of the last frame taken, or −1. */
     public long lastSeq() {
         return lastSeq;

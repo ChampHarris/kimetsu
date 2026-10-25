@@ -16,6 +16,11 @@ import java.util.Arrays;
  * the server and on the predicting client alike. At the impact the claim becomes a Perfect (s ≥ I − Perfect window) or
  * a deflect ({@link #answer}), if the strike reached the defender with its attacker in front (the strike resolver's
  * part). Assist levels 2 and 3 scale both windows; level 3 makes every deflect a Perfect.
+ *
+ * <p>For the fight log it also keeps each white strike's {@link Attempt} (D-089): the press that claimed it, or else
+ * the first press inside its window and why it claimed nothing. A press the guard can't come up for (mid-swing,
+ * mid-Step, stunned or held) claims nothing and starts no lockout, and one during a lockout only extends it, so without
+ * this a strike left unclaimed would show no press at all.
  */
 public final class DeflectJudge {
     public enum Answer {
@@ -24,14 +29,31 @@ public final class DeflectJudge {
         NONE
     }
 
+    /** What became of a white strike's guard ({@link #attemptOf}). */
+    public enum Attempt {
+        /** No press inside its window. */
+        NONE,
+        /** A press claimed it. */
+        CLAIMED,
+        /** The first press inside its window came while the guard couldn't come up. */
+        NO_RISE,
+        /** The first press inside its window fell inside a whiff's lockout. */
+        LOCKED_OUT
+    }
+
     /** {@link #claimOf} for a strike no press claimed, or one this defender doesn't hold. */
     public static final long UNCLAIMED = Long.MIN_VALUE;
+
+    /** {@link #attemptAt} for a strike with no press inside its window, or one this defender doesn't hold. */
+    public static final long NO_PRESS = Long.MIN_VALUE;
 
     private final TimingRules rules;
     private long[] id = new long[8]; // three demons' strings can hold nine; it grows, never throws
     private long[] impact = new long[8];
     private boolean[] white = new boolean[8];
     private long[] claimedAt = new long[8];
+    private long[] missedAt = new long[8]; // the first press inside its window that claimed nothing
+    private Attempt[] missed = new Attempt[8]; // and why
     private int count;
     private long lockoutUntil = Long.MIN_VALUE;
 
@@ -55,16 +77,31 @@ public final class DeflectJudge {
         impact[i] = impactMicros;
         white[i] = isWhite;
         claimedAt[i] = UNCLAIMED;
+        missedAt[i] = NO_PRESS;
+        missed[i] = Attempt.NONE;
     }
 
-    /** A guard press at judged time {@code s}. Returns false for a whiff. */
+    /** A guard press at judged time {@code s}, the guard able to come up at it. Returns false for a whiff. */
     public boolean press(long s, int assistLevel) {
+        return press(s, assistLevel, true);
+    }
+
+    /**
+     * A guard press at judged time {@code s}; {@code canRise} if the guard could come up at it. One that couldn't
+     * claims nothing and starts no lockout: it is only kept as an attempt. Returns false unless it claimed a strike.
+     */
+    public boolean press(long s, int assistLevel, boolean canRise) {
+        long window = windowMicros(rules, assistLevel);
+        if (!canRise) {
+            missed(s, window, Attempt.NO_RISE);
+            return false;
+        }
         long lockout = Micros.ofTicks(rules.whiffLockoutTicks());
         if (s < lockoutUntil) {
             lockoutUntil = Math.max(lockoutUntil, s + lockout);
+            missed(s, window, Attempt.LOCKED_OUT);
             return false;
         }
-        long window = windowMicros(rules, assistLevel);
         boolean claimed = false;
         for (int i = 0; i < count; i++) {
             if (white[i] && claimedAt[i] == UNCLAIMED && s >= impact[i] - window && s <= impact[i]) {
@@ -87,6 +124,28 @@ public final class DeflectJudge {
     public long claimOf(long strikeId) {
         int i = indexOf(strikeId);
         return i < 0 ? UNCLAIMED : claimedAt[i];
+    }
+
+    /**
+     * What became of strike {@code strikeId}'s guard: {@link Attempt#CLAIMED} once a press claimed it, else why the
+     * first press inside its window claimed nothing, or {@link Attempt#NONE} for no such press (and for a strike it
+     * doesn't hold).
+     */
+    public Attempt attemptOf(long strikeId) {
+        int i = indexOf(strikeId);
+        if (i < 0) {
+            return Attempt.NONE;
+        }
+        return claimedAt[i] != UNCLAIMED ? Attempt.CLAIMED : missed[i];
+    }
+
+    /** The judged time of {@link #attemptOf}'s press: the claim, or the first that claimed nothing; or {@link #NO_PRESS}. */
+    public long attemptAt(long strikeId) {
+        int i = indexOf(strikeId);
+        if (i < 0) {
+            return NO_PRESS;
+        }
+        return claimedAt[i] != UNCLAIMED ? claimedAt[i] : missedAt[i];
     }
 
     public boolean holds(long strikeId) {
@@ -134,6 +193,8 @@ public final class DeflectJudge {
         impact[i] = impact[count];
         white[i] = white[count];
         claimedAt[i] = claimedAt[count];
+        missedAt[i] = missedAt[count];
+        missed[i] = missed[count];
         return s;
     }
 
@@ -154,18 +215,25 @@ public final class DeflectJudge {
         System.arraycopy(o.impact, 0, impact, 0, o.count);
         System.arraycopy(o.white, 0, white, 0, o.count);
         System.arraycopy(o.claimedAt, 0, claimedAt, 0, o.count);
+        System.arraycopy(o.missedAt, 0, missedAt, 0, o.count);
+        System.arraycopy(o.missed, 0, missed, 0, o.count);
         count = o.count;
         lockoutUntil = o.lockoutUntil;
     }
 
-    /** The same strikes, claims and lockout, in whatever order they were committed. */
+    /** The same strikes, claims, attempts and lockout, in whatever order they were committed. */
     public boolean sameAs(DeflectJudge o) {
         if (count != o.count || lockoutUntil != o.lockoutUntil) {
             return false;
         }
         for (int i = 0; i < count; i++) {
             int j = o.indexOf(id[i]);
-            if (j < 0 || impact[i] != o.impact[j] || white[i] != o.white[j] || claimedAt[i] != o.claimedAt[j]) {
+            if (j < 0
+                    || impact[i] != o.impact[j]
+                    || white[i] != o.white[j]
+                    || claimedAt[i] != o.claimedAt[j]
+                    || missedAt[i] != o.missedAt[j]
+                    || missed[i] != o.missed[j]) {
                 return false;
             }
         }
@@ -206,6 +274,25 @@ public final class DeflectJudge {
         impact = Arrays.copyOf(impact, size);
         white = Arrays.copyOf(white, size);
         claimedAt = Arrays.copyOf(claimedAt, size);
+        missedAt = Arrays.copyOf(missedAt, size);
+        missed = Arrays.copyOf(missed, size);
+    }
+
+    /**
+     * Press {@code s} claimed nothing, {@code why}: kept for each unclaimed white strike whose window ({@code window}
+     * before its impact) holds it and that has no such press yet.
+     */
+    private void missed(long s, long window, Attempt why) {
+        for (int i = 0; i < count; i++) {
+            if (white[i]
+                    && claimedAt[i] == UNCLAIMED
+                    && missed[i] == Attempt.NONE
+                    && s >= impact[i] - window
+                    && s <= impact[i]) {
+                missedAt[i] = s;
+                missed[i] = why;
+            }
+        }
     }
 
     private int indexOf(long strikeId) {

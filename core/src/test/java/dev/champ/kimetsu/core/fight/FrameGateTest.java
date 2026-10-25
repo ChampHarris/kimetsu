@@ -51,7 +51,13 @@ class FrameGateTest {
     /** Offers {@code f} converted by a record of epoch {@code record} while the server has announced {@code announced}. */
     private static List<FrameGate.Pass> offer(
             FrameGate g, PlayerIntake.Frame f, long arrival, int record, int announced) {
-        return g.frame(f, arrival, false, LEAD, TICK, arrival * 1000, record, announced);
+        return g.frame(f, arrival, false, false, LEAD, TICK, arrival * 1000, record, announced);
+    }
+
+    /** Offers {@code f} at epoch 0, arriving at {@code arrival} and {@code wallNanos}, frozen or sprinting as given. */
+    private static List<FrameGate.Pass> offer(
+            FrameGate g, PlayerIntake.Frame f, long arrival, boolean frozen, boolean sprinting, long wallNanos) {
+        return g.frame(f, arrival, frozen, sprinting, LEAD, TICK, wallNanos, 0, 0);
     }
 
     /**
@@ -140,16 +146,22 @@ class FrameGateTest {
     }
 
     @Test
-    void itCountsTheFramesItMergesAndTheLongestGapBetweenArrivals_eachSinceTheLastTake() {
+    void itCountsTheFramesItMergesTheLongestGapAndTheLongestSilence_eachSinceTheLastTake() {
         FrameGate g = gate();
         long t = 1_000_000;
         offer(g, frame(0, t, 0, 0), t);
         offer(g, frame(1, t + 50_000, 0, 0), t + 50_000);
         offer(g, frame(2, t + 100_000, 0, 0), t + 400_000); // a 350 ms stall: TCP delivers the burst together
         offer(g, frame(3, t + 120_000, 0, 0), t + 400_000);
-        assertEquals(350_000_000, g.takeLongestGapNanos()); // arrivals in combat µs × 1000
-        assertEquals(0, g.takeLongestGapNanos(), "taken");
+        // 350 ms between the arrivals, 50 of them the client's own spacing: the network held the frame 300 ms longer
+        // than the one before it (D-089; the gap was the 350 between arrivals until then)
+        assertEquals(300_000, g.takeLongestGapMicros());
+        assertEquals(50_000, g.takeLongestSilenceMicros(), "the client's longest spacing");
+        assertEquals(0, g.takeLongestGapMicros(), "taken");
+        assertEquals(0, g.takeLongestSilenceMicros(), "taken");
         assertEquals(0, g.takeMerged(), "nothing over the limit yet");
+        assertEquals(4, g.framesArrived());
+        assertEquals(0, g.framesMerged());
 
         FrameGate h = gate();
         long seq = drain(h, t);
@@ -158,6 +170,96 @@ class FrameGateTest {
         assertTrue(offer(h, frame(seq, t, 0, 0), t).isEmpty());
         assertEquals(2, h.takeMerged());
         assertEquals(0, h.takeMerged(), "taken");
+        assertEquals(BURST + 2, h.framesArrived(), "for its lifetime: the takes don't reset it");
+        assertEquals(2, h.framesMerged(), "for its lifetime: the takes don't reset it");
+    }
+
+    @Test
+    void aBurstsFollowersAddNoGap_onlyItsFirstFrameCameLate() {
+        FrameGate g = gate();
+        long t = 1_000_000;
+        for (int seq = 0; seq < 5; seq++) { // 20 ms on the way
+            offer(g, frame(seq, t + seq * 50_000L, 0, 0), t + seq * 50_000L + 20_000);
+        }
+        // a 1 s stall: the next 20 frames, sent 50 ms apart, arrive together with the last of them
+        long together = t + 24 * 50_000L + 20_000;
+        offer(g, frame(5, t + 5 * 50_000L, 0, 0), together);
+        assertEquals(950_000, g.takeLongestGapMicros(), "the burst's first frame, 950 ms later on the way");
+        assertEquals(50_000, g.takeLongestSilenceMicros());
+        for (int seq = 6; seq < 25; seq++) {
+            offer(g, frame(seq, t + seq * 50_000L, 0, 0), together);
+        }
+        assertEquals(0, g.takeLongestGapMicros(), "each follower came sooner on the way than the frame before it");
+        assertEquals(50_000, g.takeLongestSilenceMicros());
+    }
+
+    @Test
+    void aQuietSpellIsSilence_notAGap() {
+        // out of a fight and away from hostiles the client sends nothing (ClientInput.flowing); a minute later it
+        // starts again, its frames as long on the way as before
+        FrameGate g = gate();
+        long t = 1_000_000;
+        offer(g, frame(0, t, 0, 0), t + 30_000);
+        offer(g, frame(1, t + 60_000_000, 0, 0), t + 60_030_000);
+        offer(g, frame(2, t + 60_050_000, 0, 0), t + 60_085_000); // 5 ms longer on the way: jitter
+        assertEquals(5_000, g.takeLongestGapMicros());
+        assertEquals(60_000_000, g.takeLongestSilenceMicros());
+    }
+
+    @Test
+    void aFreezeAddsToNeither_howeverLongItLasts() {
+        // ticking freezes at P for 10 s of wall time. Arrivals pin to P, and so do the client's stamps once the frozen
+        // record reaches it; a frame it stamped before then arrives frozen, its stamp past P. Ticking resumes from P,
+        // and the client sends again once the record reaches it
+        FrameGate g = gate();
+        long p = 10_000_000;
+        long wall = p * 1000; // wall ns run with combat µs until the freeze
+        offer(g, frame(0, p - 100_000, 0, 0), p - 80_000, false, false, wall - 80_000_000);
+        offer(g, frame(1, p - 50_000, 0, 0), p - 30_000, false, false, wall - 30_000_000);
+        offer(g, frame(2, p + 20_000, 0, 0), p, true, false, wall + 40_000_000);
+        offer(g, frame(3, p, 0, 0), p, true, false, wall + 5_000_000_000L);
+        offer(g, frame(4, p + 30_000, 0, 0), p + 50_000, false, false, wall + 10_050_000_000L);
+        offer(g, frame(5, p + 80_000, 0, 0), p + 100_000, false, false, wall + 10_100_000_000L);
+        // a pinned arrival isn't when the frame arrived, so a pair from one counts no gap: frame 2 to 3 would count
+        // 20 ms, and 3 to 4 another 20
+        assertEquals(0, g.takeLongestGapMicros());
+        assertEquals(70_000, g.takeLongestSilenceMicros(), "frame 2, stamped 20 ms past P: the 10 s add nothing");
+    }
+
+    @Test
+    void aPairAcrossTheClientsEpochCountsForNeither_andOneAcrossTheRecordsOnlyForSilence() {
+        // a backlog drop steps the timeline back 30 s (Rule 1.8). The client's ClockEpoch comes before the record that
+        // converts arrivals on the new timeline, so frame 1 is stamped on the new one and arrives on the old
+        FrameGate g = gate();
+        long t = 40_000_000;
+        long back = 30_000_000;
+        offer(g, frame(0, t, 0, 0), t + 20_000, 0, 0);
+        offer(g, frame(1, t + 50_000 - back, 1, 0), t + 70_000, 0, 1); // would count a 30 s gap
+        offer(g, frame(2, t + 100_000 - back, 1, 0), t + 120_000 - back, 1, 1);
+        assertEquals(0, g.takeLongestGapMicros());
+        assertEquals(50_000, g.takeLongestSilenceMicros(), "frame 1 to 2, both stamped on the new timeline");
+        // the gate doesn't know which way a timeline steps: epoch 2's is 30 s ahead of epoch 1's, record first
+        long two = t - back + 30_000_000;
+        offer(g, frame(3, t + 150_000 - back, 1, 0), two + 170_000, 2, 2); // would count a 30 s gap
+        offer(g, frame(4, two + 200_000, 2, 0), two + 220_000, 2, 2); // would count 30 s of silence
+        offer(g, frame(5, two + 250_000, 2, 0), two + 270_000, 2, 2);
+        assertEquals(0, g.takeLongestGapMicros());
+        assertEquals(50_000, g.takeLongestSilenceMicros(), "frame 2 to 3 and 4 to 5");
+    }
+
+    @Test
+    void underTickSprintNeitherCounts() {
+        // /tick sprint runs ticks back to back: arrivals advance at the game's pace, here 5× wall time, while the
+        // client's clock keeps wall pace (ClockEstimator)
+        FrameGate g = gate();
+        long t = 1_000_000;
+        offer(g, frame(0, t, 0, 0), t + 20_000, false, false, 0);
+        offer(g, frame(1, t + 50_000, 0, 0), t + 270_000, false, true, 0); // would count a 200 ms gap
+        offer(g, frame(2, t + 1_100_000, 0, 0), t + 520_000, false, true, 0); // a second's quiet at wall pace
+        offer(g, frame(3, t + 1_150_000, 0, 0), t + 1_170_000, false, false, 0); // would count a 600 ms gap
+        offer(g, frame(4, t + 1_200_000, 0, 0), t + 1_220_000, false, false, 0);
+        assertEquals(0, g.takeLongestGapMicros());
+        assertEquals(50_000, g.takeLongestSilenceMicros(), "frame 3 to 4 only");
     }
 
     @Test
@@ -323,7 +425,15 @@ class FrameGateTest {
             PlayerIntake.Delta press = PlayerIntake.Delta.press(PlayerIntake.Key.ATTACK, stamp);
             sent.add(press);
             queue.addAll(g.frame(
-                    frame(seq, stamp, claim, 0, press), arrival, frozen, LEAD, TICK, wall * 1000, record, announced));
+                    frame(seq, stamp, claim, 0, press),
+                    arrival,
+                    frozen,
+                    false,
+                    LEAD,
+                    TICK,
+                    wall * 1000,
+                    record,
+                    announced));
             assertNull(g.abuse(), "frame " + seq);
         }
         while (!queue.isEmpty()) {
@@ -483,7 +593,7 @@ class FrameGateTest {
             }
             sent.addAll(deltas);
             last = new PlayerIntake.Frame(seq, t, 16_000, t - 10_000, 0, rng.nextInt(4), deltas);
-            queue.addAll(g.frame(last, t + 50_000, false, LEAD, TICK, (t + 50_000) * 1000, 0, 0));
+            queue.addAll(g.frame(last, t + 50_000, false, false, LEAD, TICK, (t + 50_000) * 1000, 0, 0));
         }
         while (!queue.isEmpty()) {
             g.ran();

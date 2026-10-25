@@ -306,7 +306,7 @@ public final class Combatant {
                 && f != null
                 && gc != null
                 && phaseAt(f, Math.max(attackStart, tick - 1)) == Phase.RECOVERY;
-        boolean claimed = guardCanRise(f, tick - 1, feints) && deflects.press(in.stampMicros(), assistLevel);
+        boolean claimed = deflects.press(in.stampMicros(), assistLevel, guardCanRise(f, tick - 1, feints));
         if (feints) {
             feint(in, tick, claimed);
         } else if (cancelsRecovery && gc != null) {
@@ -319,7 +319,8 @@ public final class Combatant {
     /**
      * Whether the guard can come up at a press judged against tick {@code lived}: standing, guarding, from the radial, a
      * Feint, or Water's guard-cancel in a recovery. Mid-swing, mid-Step, stunned or held, it can't: the press claims no
-     * strike and starts no lockout, though a held guard still rises when it can.
+     * strike and starts no lockout (its judge keeps it only as the strike's attempt), though a held guard still rises
+     * when it can.
      */
     private boolean guardCanRise(@Nullable FrameData f, long lived, boolean feints) {
         return switch (state) {

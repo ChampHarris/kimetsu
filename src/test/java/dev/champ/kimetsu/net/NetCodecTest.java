@@ -48,7 +48,7 @@ class NetCodecTest {
     @Test
     void everyEventRoundTrips() throws ReflectiveOperationException {
         List<Class<?>> types = records(Outbox.Event.class);
-        assertEquals(21, types.size(), "the outbox's events"); // WallSplat joined (5c-3b)
+        assertEquals(22, types.size(), "the outbox's events"); // GuardJudged joined (5c-4a)
         for (int seed = 0; seed < 3; seed++) {
             for (Class<?> t : types) {
                 Outbox.Event e = (Outbox.Event) sample(t, seed);
@@ -90,6 +90,7 @@ class NetCodecTest {
         complete(State.class, Wire.STATES);
         complete(dev.champ.kimetsu.core.data.AttackClass.class, Wire.ATTACK_CLASSES);
         complete(Effect.Surface.class, Wire.SURFACES);
+        complete(dev.champ.kimetsu.core.judge.DeflectJudge.Attempt.class, Wire.ATTEMPTS);
     }
 
     private static final TickRecord RECORD = new TickRecord(1234, 9.87654321e11, 5.01e7, false, true, false, 3);

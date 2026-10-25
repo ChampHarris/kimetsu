@@ -10,6 +10,7 @@ import dev.champ.kimetsu.data.CombatDataBuilder;
 import dev.champ.kimetsu.data.CombatRules;
 import dev.champ.kimetsu.data.SlayerProfile;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Util;
@@ -39,6 +40,7 @@ public final class Arena {
     private final ServerLevel level;
     private final LevelGround ground;
     private final List<ArenaMember> members = new ArrayList<>(); // in id order
+    private final List<ArenaMember> membersView = Collections.unmodifiableList(members);
     private final List<Listener> listeners = new ArrayList<>();
     private @Nullable ArenaMember[] snapshot = new ArenaMember[8]; // the members a dispatch walks: no allocation
     private CombatData data;
@@ -49,6 +51,7 @@ public final class Arena {
     private boolean sprinting;
     private long stepNanos;
     private int steps;
+    private final SecondTimer second = new SecondTimer(); // its steps, a second at a time
     private long lastStep; // the step last begun (before the first, the one before it)
 
     Arena(CombatServer server, ServerLevel level, CombatData data) {
@@ -229,6 +232,21 @@ public final class Arena {
         return steps;
     }
 
+    /** Its last second's mean step, in µs, with the log's lines while it's on (0 before a second has passed). */
+    public double stepMeanMicros() {
+        return second.meanMicros();
+    }
+
+    /** Its last second's longest step, in µs. */
+    public double stepMaxMicros() {
+        return second.maxMicros();
+    }
+
+    /** Its members, in id order, as they stand. Read only. */
+    public List<ArenaMember> members() {
+        return membersView;
+    }
+
     /** Rule 1.8, between ticks: vanilla dropped its backlog. */
     void onEpoch(long cutoffMicros) {
         world.onEpoch(cutoffMicros);
@@ -325,9 +343,11 @@ public final class Arena {
         if (l != null) {
             l.endStep(this, n, members);
         }
-        stepNanos +=
-                Util.getNanos() - began; // with the log's lines while it's on (dev runs; GameTest arenas have none)
+        long took = Util.getNanos() - began; // with the log's lines while it's on (dev runs; GameTest arenas have none)
+        stepNanos += took;
         steps++;
+        second.add(took);
+        second.tick(n);
     }
 
     /** Copies the members into the snapshot; returns how many. */

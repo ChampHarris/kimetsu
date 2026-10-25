@@ -27,8 +27,24 @@ import org.jspecify.annotations.Nullable;
  * the meter allows. An honest client's frame debt stays shallow: a tick start hands over at most one merge, which the
  * refill outpaces while its stamps keep more than half the server's pace.
  *
- * <p>For the fight log it counts the frames it holds back into a merge and the longest gap between two frames'
- * arrivals (the stall lengths the stamp check's bracket is sized for), each since the last time they were taken.
+ * <p>For the fight log it keeps three figures, each since the last time they were taken (D-089). Of two frames in a
+ * row, A is the time between their arrivals and S the time between the client's own stamps on them, both in combat
+ * time:
+ *
+ * <ul>
+ *   <li>the longest gap, A − S: how much longer the second frame was on its way than the first, the stall lengths the
+ *       stamp check's bracket is sized for. A frame that arrives with a burst after a stall counts nothing, since it
+ *       was no longer on its way than the frame before it. A pair across either epoch, or whose first frame arrived
+ *       frozen (its arrival pinned, not when it came), counts no gap;
+ *   <li>the longest silence, S: how long the client itself sent nothing, out of a fight or in a hitch. The client's
+ *       stamps compare among themselves, so only a pair across the client's epoch counts no silence;
+ *   <li>the frames it held back into a merge.
+ * </ul>
+ *
+ * Arrivals and the client's stamps both pin while ticking is frozen or paused, so a freeze, however long, adds to
+ * neither; under {@code /tick sprint} arrivals run at the game's pace and the client's clock at wall pace, so a pair
+ * with either frame arriving then counts for neither. A client's stamps are its own claim, so a cheat skews only its
+ * own figures. It also counts the frames that arrived and that it merged over its lifetime.
  *
  * <p>Not thread-safe: the caller guards it, on the network thread where frames arrive and on the main thread where
  * they run, and tells it when each frame it let through starts to run there ({@link #ran}), since a merge mustn't
@@ -57,9 +73,18 @@ public final class FrameGate {
     private @Nullable Pass held;
     private int queued; // frames let through that haven't started on the main thread
     private @Nullable Abuse abuse;
-    private long lastArrivalNanos = Long.MIN_VALUE;
-    private long longestGapNanos; // since the last take
+    private boolean any; // a frame has arrived: the last* fields hold it
+    private long lastStampMicros;
+    private long lastArrivalMicros;
+    private int lastClaim; // its client's epoch
+    private int lastRecordEpoch;
+    private boolean lastFrozen;
+    private boolean lastSprinting;
+    private long longestGapMicros; // since the last take
+    private long longestSilenceMicros; // since the last take
     private int heldBack; // frames held back into a merge since the last take
+    private long arrivedFrames; // for its lifetime
+    private long mergedFrames; // for its lifetime
 
     public FrameGate(FrameMeter.Limits limits) {
         this.meter = new FrameMeter(limits);
@@ -76,27 +101,27 @@ public final class FrameGate {
 
     /**
      * Frame {@code f} arrived at {@code arrivalMicros} in combat time and {@code arrivalNanos} on the server's clock;
-     * {@code frozen} if ticking was frozen or paused; {@code leadMicros} is the stamp check's tolerance ceiling,
-     * {@code tickLengthNanos} the server's tick length (T̄), {@code recordEpoch} the epoch of the record its arrival was
-     * converted by and {@code announcedEpoch} the latest the server has announced (no earlier). Returns the frames to
-     * pass on now, in order: none while it merges, and a merge of an older epoch first, by itself.
+     * {@code frozen} if ticking was frozen or paused, {@code sprinting} if it was sprinting; {@code leadMicros} is the
+     * stamp check's tolerance ceiling, {@code tickLengthNanos} the server's tick length (T̄), {@code recordEpoch} the
+     * epoch of the record its arrival was converted by and {@code announcedEpoch} the latest the server has announced
+     * (no earlier). Returns the frames to pass on now, in order: none while it merges, and a merge of an older epoch
+     * first, by itself.
      */
     public List<Pass> frame(
             PlayerIntake.Frame f,
             long arrivalMicros,
             boolean frozen,
+            boolean sprinting,
             long leadMicros,
             double tickLengthNanos,
             long arrivalNanos,
             int recordEpoch,
             int announcedEpoch) {
+        arrivedFrames++;
         if (abuse != null) {
             return List.of();
         }
-        if (lastArrivalNanos != Long.MIN_VALUE) {
-            longestGapNanos = Math.max(longestGapNanos, arrivalNanos - lastArrivalNanos);
-        }
-        lastArrivalNanos = arrivalNanos;
+        spacing(f, arrivalMicros, frozen, sprinting, recordEpoch);
         meter.credit(
                 f.sendStampMicros(),
                 arrivalMicros,
@@ -126,6 +151,7 @@ public final class FrameGate {
         } else {
             held = new Pass(merged, arrivalMicros, frozen);
             heldBack++;
+            mergedFrames++;
             if (count > PlayerIntake.MAX_PENDING) {
                 abuse = Abuse.MERGE_OVERFLOW;
             }
@@ -169,11 +195,24 @@ public final class FrameGate {
         return abuse;
     }
 
-    /** The longest gap between two frames' arrivals since the last take, in ns (0 for none); counting starts again. */
-    public long takeLongestGapNanos() {
-        long g = longestGapNanos;
-        longestGapNanos = 0;
+    /**
+     * The longest gap since the last take, in combat µs (0 for none): how much longer a frame was on its way than the
+     * one before it. Counting starts again.
+     */
+    public long takeLongestGapMicros() {
+        long g = longestGapMicros;
+        longestGapMicros = 0;
         return g;
+    }
+
+    /**
+     * The longest silence since the last take, in combat µs (0 for none): the longest the client's own stamps on two
+     * frames in a row lie apart. Counting starts again.
+     */
+    public long takeLongestSilenceMicros() {
+        long s = longestSilenceMicros;
+        longestSilenceMicros = 0;
+        return s;
     }
 
     /** How many frames it held back into a merge since the last take; counting starts again. */
@@ -181,6 +220,34 @@ public final class FrameGate {
         int m = heldBack;
         heldBack = 0;
         return m;
+    }
+
+    /** How many frames have arrived over its lifetime. */
+    public long framesArrived() {
+        return arrivedFrames;
+    }
+
+    /** How many frames it has held back into a merge over its lifetime. */
+    public long framesMerged() {
+        return mergedFrames;
+    }
+
+    /** The gap and the silence between the last frame and {@code f}, which then becomes the last. */
+    private void spacing(PlayerIntake.Frame f, long arrivalMicros, boolean frozen, boolean sprinting, int recordEpoch) {
+        if (any && !sprinting && !lastSprinting && f.epoch() == lastClaim) {
+            long s = f.sendStampMicros() - lastStampMicros;
+            longestSilenceMicros = Math.max(longestSilenceMicros, s);
+            if (recordEpoch == lastRecordEpoch && !lastFrozen) {
+                longestGapMicros = Math.max(longestGapMicros, arrivalMicros - lastArrivalMicros - s);
+            }
+        }
+        any = true;
+        lastStampMicros = f.sendStampMicros();
+        lastArrivalMicros = arrivalMicros;
+        lastClaim = f.epoch();
+        lastRecordEpoch = recordEpoch;
+        lastFrozen = frozen;
+        lastSprinting = sprinting;
     }
 
     /** {@code m} goes by itself, whatever the meter holds: charged for it, and without a pose. */

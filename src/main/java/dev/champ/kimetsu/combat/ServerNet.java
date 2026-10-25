@@ -65,10 +65,9 @@ public final class ServerNet {
                 if (r != null) {
                     long at = r.arrivalMicros(now);
                     boolean frozen = r.frozen() || r.paused(); // pinned at 50·G: no RTT against it
-                    // the epoch moves before ClockEpoch announces it and before the record carrying it is published
-                    int announced = Math.max(r.epoch(), c.epoch());
-                    List<FrameGate.Pass> go =
-                            s.gate(f.frame(), at, frozen, r.tickLengthNanos(), now, r.epoch(), announced);
+                    int announced = announced(r, c.epoch());
+                    List<FrameGate.Pass> go = s.gate(
+                            f.frame(), at, frozen, r.sprinting(), r.tickLengthNanos(), now, r.epoch(), announced);
                     for (int i = 0; i < go.size(); i++) {
                         FrameGate.Pass p = go.get(i);
                         main(ctx, () -> s.run(p));
@@ -77,6 +76,15 @@ public final class ServerNet {
                 }
             }
         }
+    }
+
+    /**
+     * The epoch the server has announced, for the frame gate's flush (D-065): {@code serverEpoch}
+     * ({@code CombatServer.epoch}) moves before {@code ClockEpoch} announces it and before the record carrying it,
+     * {@code published}, is published, so the later of the two.
+     */
+    static int announced(TickRecord published, int serverEpoch) {
+        return Math.max(published.epoch(), serverEpoch);
     }
 
     /** If the gate cut the client off, its one disconnect. */

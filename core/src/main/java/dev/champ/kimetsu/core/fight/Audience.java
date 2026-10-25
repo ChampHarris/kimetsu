@@ -7,7 +7,8 @@ package dev.champ.kimetsu.core.fight;
  * targeted, struck, held or swinging), and a strike's result, a hold and a clash also to the party's own trackers
  * ("trackers of either side", "both fighters' trackers"). A strike event that names only its strike (its lock, an
  * involvement, a cancel) goes to whoever got that strike's {@code AttackStarted}, which the router remembers. A pose
- * clamp names no subject, strike or party, so it reaches nobody: it's the fight log's. No event carries a demon's
+ * clamp and a guard's record name no subject, strike or party here (the record carries a strike and a player, but
+ * names neither for routing), so they reach nobody: they're the fight log's. No event carries a demon's
  * Hunger. Every switch names every event, with no default, so a new event can't go out unrouted.
  * Allocation-free, for the mod's per-tick routing pass; the bots route by it too.
  */
@@ -44,6 +45,7 @@ public final class Audience {
             case Outbox.Clang _ -> NOBODY;
             case Outbox.Pushed _ -> NOBODY;
             case Outbox.PoseClamped _ -> NOBODY;
+            case Outbox.GuardJudged _ -> NOBODY;
         };
     }
 
@@ -74,6 +76,7 @@ public final class Audience {
             case Outbox.SwingDealt _ -> NOBODY;
             case Outbox.WallSplat _ -> NOBODY;
             case Outbox.PoseClamped _ -> NOBODY; // nobody tracks it: the log's alone
+            case Outbox.GuardJudged _ -> NOBODY; // its strike's viewers mustn't get it: the log's alone
         };
     }
 
@@ -101,6 +104,7 @@ public final class Audience {
             case Outbox.Pushed _ -> NO_STRIKE;
             case Outbox.WallSplat _ -> NO_STRIKE;
             case Outbox.PoseClamped _ -> NO_STRIKE;
+            case Outbox.GuardJudged _ -> NO_STRIKE;
         };
     }
 
@@ -128,6 +132,7 @@ public final class Audience {
             case Outbox.Pushed _ -> NOBODY;
             case Outbox.WallSplat _ -> NOBODY;
             case Outbox.PoseClamped _ -> NOBODY;
+            case Outbox.GuardJudged _ -> NOBODY;
         };
     }
 
@@ -158,6 +163,7 @@ public final class Audience {
             case Outbox.Pushed _ -> false;
             case Outbox.WallSplat _ -> false;
             case Outbox.PoseClamped _ -> false;
+            case Outbox.GuardJudged _ -> false;
         };
     }
 

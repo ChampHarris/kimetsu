@@ -35,15 +35,18 @@ import dev.champ.kimetsu.entity.KimetsuEntities;
 import dev.champ.kimetsu.entity.M1Demon;
 import dev.champ.kimetsu.entity.TestDummy;
 import dev.champ.kimetsu.item.KimetsuItems;
+import dev.champ.kimetsu.net.NetMessage;
 import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.DoubleConsumer;
 import java.util.function.Function;
+import net.minecraft.commands.CommandSource;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
@@ -55,6 +58,7 @@ import net.minecraft.gametest.framework.GameTestListener;
 import net.minecraft.gametest.framework.GameTestRunner;
 import net.minecraft.gametest.framework.TestData;
 import net.minecraft.gametest.framework.TestEnvironmentDefinition;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
@@ -124,6 +128,7 @@ public final class CombatGameTests {
             FUNCTIONS.register("no_shortcuts_in_combat", () -> CombatGameTests::noShortcutsInCombat),
             FUNCTIONS.register("the_death_net_holds", () -> CombatGameTests::theDeathNetHolds),
             FUNCTIONS.register("the_fight_log_explains_a_fight", () -> CombatGameTests::theFightLogExplainsAFight),
+            FUNCTIONS.register("kimetsu_debug_prints_the_fight", () -> CombatGameTests::kimetsuDebugPrintsTheFight),
             FUNCTIONS.register("a_players_death_ends_its_fights", () -> CombatGameTests::aPlayersDeathEndsItsFights),
             FUNCTIONS.register("a_teleport_is_clamped", () -> CombatGameTests::aTeleportIsClamped),
             FUNCTIONS.register("a_server_teleport_is_not_clamped", () -> CombatGameTests::aServerTeleportIsNotClamped),
@@ -149,7 +154,10 @@ public final class CombatGameTests {
     /** Tests that rebuild every arena the server runs: each batch of its own, so no other test's fight is rebuilt. */
     private static final List<DeferredHolder<Consumer<GameTestHelper>, Consumer<GameTestHelper>>> ALONE = List.of(
             FUNCTIONS.register("a_reload_keeps_the_demons_wounds", () -> CombatGameTests::aReloadKeepsTheDemonsWounds),
-            FUNCTIONS.register("a_reanchor_keeps_open_fights", () -> CombatGameTests::aReanchorKeepsOpenFights));
+            FUNCTIONS.register("a_reanchor_keeps_open_fights", () -> CombatGameTests::aReanchorKeepsOpenFights),
+            FUNCTIONS.register(
+                    "the_clock_epoch_goes_before_the_cancels",
+                    () -> CombatGameTests::theClockEpochGoesBeforeTheCancels));
 
     private static final Logger LOGGER = LogUtils.getLogger();
     /**
@@ -692,6 +700,72 @@ public final class CombatGameTests {
     }
 
     /**
+     * A re-anchor's {@code ClockEpoch} reaches a player before the rebuild's cancels (D-061, D-065: the 5c-1 review read
+     * the order as right; tested through the seam in 5c-4a): a session player whose demon's strike is still coming when
+     * game time jumps gets the new epoch, then, in a later message, that strike's cancel, so its client never judges the
+     * cancel on the old timeline.
+     */
+    private static void theClockEpochGoesBeforeTheCancels(GameTestHelper h) {
+        CombatServer c = combat(h);
+        floor(h);
+        Arena arena = arena(h);
+        List<NetMessage> got = new ArrayList<>();
+        ServerPlayer p = player(h, arena, 4, 6.5, got::add);
+        FrameData swipe = attack(h, arena.data(), "swipe");
+        long start = arena.nextTick();
+        demon(h, arena, 4, 4, 0, b -> new ScriptedBrain(b, p::getId).at(start + 20, swipe));
+        long jump = 2L * arena.data().rules().fights().endTicks();
+        long[] strike = {Long.MIN_VALUE};
+        int[] jumped = {-1}; // how many messages it had got when game time jumped
+        int[] epoch = {Integer.MIN_VALUE};
+        h.onEachTick(() -> {
+            if (jumped[0] >= 0) {
+                return;
+            }
+            for (NetMessage m : got) {
+                if (m instanceof NetMessage.Tick t) {
+                    for (Outbox.Event e : t.events()) {
+                        if (e instanceof Outbox.AttackStarted a && a.target() == p.getId()) {
+                            strike[0] = a.strike();
+                        }
+                    }
+                }
+            }
+            if (strike[0] == Long.MIN_VALUE) {
+                return; // the strike hasn't reached the player yet
+            }
+            if (!(h.getLevel().getServer().overworld().getLevelData() instanceof ServerLevelData d)) {
+                throw h.assertionException("the overworld's level data can't move game time");
+            }
+            jumped[0] = got.size();
+            epoch[0] = c.epoch();
+            d.setGameTime(d.getGameTime() + jump); // the arenas see it at this tick's end, the strike still coming
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(jumped[0] >= 0, "the strike never reached the player");
+            int epochAt = -1;
+            int cancelAt = -1;
+            for (int i = jumped[0]; i < got.size(); i++) {
+                NetMessage m = got.get(i);
+                if (epochAt < 0 && m instanceof NetMessage.ClockEpoch e && e.epoch() != epoch[0]) {
+                    epochAt = i;
+                }
+                if (cancelAt < 0 && m instanceof NetMessage.Tick t) {
+                    for (Outbox.Event e : t.events()) {
+                        if (e instanceof Outbox.AttackCancelled x && x.strike() == strike[0]) {
+                            cancelAt = i;
+                        }
+                    }
+                }
+            }
+            h.assertTrue(cancelAt >= 0, "no cancel of strike " + strike[0] + " since game time jumped");
+            h.assertTrue(
+                    epochAt >= 0 && epochAt < cancelAt,
+                    "the new ClockEpoch came at message " + epochAt + ", the strike's cancel at " + cancelAt);
+        });
+    }
+
+    /**
      * Its chunk going out of tracking takes the demon out of the fight alive (slice 5c-1): {@code MobLeft}, never
      * {@code MobDied}. It's unloaded with its chunk, saved first (B-001), so the object that left stays gone; with its
      * chunk back, it comes back from its save (slice 5c-2, D-063; spec Tests, "Saving"): a new object with the same UUID,
@@ -1161,7 +1235,32 @@ public final class CombatGameTests {
             h.assertTrue(has(lines, "fight_start", "id", p.getId()), "no fight started for the player");
             h.assertTrue(has(lines, "fight_start", "id", demon.getId()), "no fight started for the demon");
             h.assertTrue(has(lines, "MobDied", "mob", demon.getId()), "no MobDied line");
-            h.assertTrue(has(lines, "second", "id", p.getId()), "no second of the player's");
+            JsonObject second = first(lines, "second", "id", p.getId());
+            h.assertTrue(second != null, "no second of the player's");
+            if (second != null) { // the frames here skip the gate, so both are 0: only their keys are checked
+                h.assertTrue(second.has("gapMax") && second.has("silence"), "the link's gap and silence: " + second);
+            }
+            JsonObject clock = first(lines, "clock");
+            h.assertTrue(
+                    clock != null
+                            && clock.has("stepMicros")
+                            && clock.has("stepMaxMicros")
+                            && clock.has("tickMicros")
+                            && clock.has("framesMicros")
+                            && clock.get("fights").getAsInt() == 1,
+                    "the clock line's budget figures, one player fighting: " + clock);
+            int timed = 0; // the server's tick work holds the arena's steps, a second at a time (D-091)
+            for (JsonObject l : lines) {
+                if (l.get("t").getAsString().equals("clock")
+                        && l.get("stepMicros").getAsDouble() > 0) {
+                    timed++;
+                    h.assertTrue(
+                            l.get("tickMicros").getAsDouble()
+                                    >= l.get("stepMicros").getAsDouble(),
+                            "the tick work under the steps it holds: " + l);
+                }
+            }
+            h.assertTrue(timed > 0, "no clock line after a second of steps had passed");
             h.assertValueEqual(results.get(0).kind(), Verdict.Kind.PERFECT, "the answered strike");
             h.assertValueEqual(results.get(1).kind(), Verdict.Kind.HIT, "the strike left alone");
             JsonObject press = first(lines, "press", "kind", "GUARD_DOWN");
@@ -1185,6 +1284,74 @@ public final class CombatGameTests {
                 h.assertValueEqual(hurt.get("source").getAsString(), "kimetsu:demon_claw", "the damage's source");
             }
         });
+    }
+
+    /**
+     * {@code /kimetsu debug} (slice 5c-4a) through the server's own dispatcher, as the player itself (a UUID isn't a
+     * player selector in 26.3, and parallel tests' mock players share a name), its output kept by the source:
+     * a seam player fighting a demon gets its session (the seam's 50 ms RTT), its fighter's state, the arena's step
+     * figures and the demon's HP.
+     */
+    private static void kimetsuDebugPrintsTheFight(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        ServerPlayer p = player(h, arena, 4, 6.5);
+        p.connection.markClientLoaded();
+        FrameData swipe = attack(h, arena.data(), "swipe");
+        long start = arena.nextTick();
+        M1Demon demon = demon(h, arena, 4, 4, 0, b -> new ScriptedBrain(b, p::getId).at(start + 20, swipe));
+        List<String> told = new ArrayList<>();
+        CommandSource keep = new CommandSource() {
+            @Override
+            public void sendSystemMessage(Component message) {
+                told.add(message.getString());
+            }
+
+            @Override
+            public boolean acceptsSuccess() {
+                return true;
+            }
+
+            @Override
+            public boolean acceptsFailure() {
+                return true;
+            }
+
+            @Override
+            public boolean shouldInformAdmins() {
+                return false;
+            }
+        };
+        h.runAfterDelay(
+                60,
+                () -> { // a second past the strike's impact: the fight is open, and a second has closed
+                    MinecraftServer server = h.getLevel().getServer();
+                    PlayerSession s = combat(h).sessions().session(p.connection);
+                    Fighter f = s == null ? null : s.fighter();
+                    if (f == null) {
+                        throw h.assertionException("the seam player has no fighter");
+                    }
+                    State state = f.timeline().live().state();
+                    server.getCommands()
+                            .performPrefixedCommand(
+                                    server.createCommandSourceStack()
+                                            .withSource(keep)
+                                            .withEntity(p),
+                                    "kimetsu debug");
+                    String all = String.join(" | ", told);
+                    h.assertTrue(all.contains("Kimetsu debug: " + p.getScoreboardName()), "the player's name: " + all);
+                    h.assertTrue(all.contains("RTT 50.0 ms"), "the seam's RTT: " + all);
+                    h.assertTrue(all.contains("Fighter: " + state + ";"), "the fighter's state " + state + ": " + all);
+                    h.assertTrue(all.contains("in a fight since step"), "the open fight: " + all);
+                    h.assertTrue(
+                            all.contains("steps ") && all.contains("1 players in a fight"),
+                            "the arena's figures: " + all);
+                    String hp = String.format(Locale.ROOT, "HP %.1f of %.1f", demon.getHealth(), demon.getMaxHealth());
+                    h.assertTrue(
+                            all.contains("demon " + demon.getId() + ": ") && all.contains(hp),
+                            "the demon's " + hp + ": " + all);
+                    h.succeed();
+                });
     }
 
     /** How long a session player stands before a test moves it: its fighter has joined and filed a second of poses. */
@@ -2083,13 +2250,18 @@ public final class CombatGameTests {
      * {@code arena} (its messages are dropped), joining at the next tick end; it leaves the player list when the test
      * ends, which ends its session.
      */
-    @SuppressWarnings("removal") // the only helper that logs a player in; vanilla's own tests still use it
     private static ServerPlayer player(GameTestHelper h, Arena arena, double x, double z) {
+        return player(h, arena, x, z, m -> {});
+    }
+
+    /** {@link #player}, its session's messages going to {@code out}. */
+    @SuppressWarnings("removal") // the only helper that logs a player in; vanilla's own tests still use it
+    private static ServerPlayer player(GameTestHelper h, Arena arena, double x, double z, Consumer<NetMessage> out) {
         ServerPlayer p = h.makeMockServerPlayerInLevel();
         Vec3 at = h.absoluteVec(new Vec3(x, 1, z));
         p.snapTo(at.x, at.y, at.z, 180, 0);
         p.setGameMode(GameType.SURVIVAL); // a mock player is creative, where the blade can't break blocks
-        combat(h).sessions().openForTest(p, arena, m -> {}, Micros.ofMillis(50));
+        combat(h).sessions().openForTest(p, arena, out, Micros.ofMillis(50));
         h.testInfo.addListener(new GameTestListener() {
             @Override
             public void testStructureLoaded(GameTestInfo info) {}

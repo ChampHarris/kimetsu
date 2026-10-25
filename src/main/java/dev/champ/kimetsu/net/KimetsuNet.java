@@ -12,7 +12,7 @@ import net.neoforged.neoforge.network.registration.HandlerThread;
  */
 public final class KimetsuNet {
     /** Bumped whenever a message's wire form changes: a mismatched client is refused at login. */
-    public static final String VERSION = "6";
+    public static final String VERSION = "7";
 
     private KimetsuNet() {}
 

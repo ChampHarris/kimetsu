@@ -20,6 +20,8 @@ Python 3.10+ (stdlib) plus Pillow for image tools (`pip install pillow`) and ffm
 | `sims/pulse_sim.py` | Perfect Deflect odds, on-beat duty cycle, masher Rhythm gain | `python tools/sims/pulse_sim.py --rtt 100` |
 | `sims/duel_sim.py` | Monte Carlo of the M1 fight with the v0 numbers (`sims/m1_v0.json`) | `python tools/sims/duel_sim.py --set m1_demon.hp=120` |
 | `sims/night_sim.py` | The R7-03 Night Director: kills, time engaged, hits taken and demons alive for 1 to 6 players; `--set 'director.waves="fixed"'` is the starved baseline | `python tools/sims/night_sim.py --nights 300 --moon quarter` |
+| `fight_report.py` | What the fight logs (`run/kimetsu/fights/*.jsonl`, D-069) say, per session: fights and time to kill against the sims, the guard from the engine's own deflect record (`GuardJudged`: verdicts, timing error and calibration, every guard inside its window that failed and the gate it failed), dodges, clashes, splats and mashing, holds, movement clamps, the link (`gapMax`, `silence`, RTT, decision delay), the budget's step figures, and the cheat flags (Perfect share, clash reaction runs; thresholds from the options); `--player`, `--json`; exits 1 on a malformed line | `python tools/fight_report.py run/kimetsu/fights/*.jsonl` · `--json` |
 | `tests/test_vanilla_scope.py` | Unit tests for `vanilla_scope.py` on synthetic data | `python tools/tests/test_vanilla_scope.py` |
+| `tests/test_fight_report.py` | Unit tests for `fight_report.py` on synthetic lines, and a smoke run on trimmed real logs (`tests/data/fight_sample.jsonl`) | `python tools/tests/test_fight_report.py` |
 
 Planned (listed in `.claude/hooks/validators.json`, written once the M1 spec fixes the schemas): `validate_frame_data.py`, `validate_arcs.py`.

@@ -4,6 +4,7 @@ import dev.champ.kimetsu.core.data.AttackClass;
 import dev.champ.kimetsu.core.fight.HitResult;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.fight.Release;
+import dev.champ.kimetsu.core.judge.DeflectJudge;
 import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.State;
 import dev.champ.kimetsu.core.strike.Verdict;
@@ -59,6 +60,12 @@ final class Wire {
         AttackClass.LIGHT, AttackClass.HEAVY, AttackClass.GRAB, AttackClass.POMMEL, AttackClass.STEP
     };
     static final Effect.Surface[] SURFACES = {Effect.Surface.FLOOR, Effect.Surface.WALL};
+    static final DeflectJudge.Attempt[] ATTEMPTS = {
+        DeflectJudge.Attempt.NONE,
+        DeflectJudge.Attempt.CLAIMED,
+        DeflectJudge.Attempt.NO_RISE,
+        DeflectJudge.Attempt.LOCKED_OUT
+    };
 
     private Wire() {}
 

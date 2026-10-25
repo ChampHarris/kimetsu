@@ -2,7 +2,8 @@ package dev.champ.kimetsu.core.judge;
 
 /**
  * One client's jitter (Rule 2.1): the standard deviation of (arrival − stamp) over its last frames. A one-way delay
- * that's merely long has no deviation; only its variation widens the stamp tolerance.
+ * that's merely long has no deviation; only its variation widens the stamp tolerance. Its mean, set against half the
+ * RTT, is how far the client's clock reads from the server's ({@code /kimetsu debug}).
  */
 public final class JitterWindow {
     private final long[] lag;
@@ -39,6 +40,18 @@ public final class JitterWindow {
             sq += x * x;
         }
         return Math.sqrt(sq / (count - 1));
+    }
+
+    /** The mean of (arrival − stamp) in microseconds; 0 until a frame has arrived. */
+    public double meanMicros() {
+        if (count == 0) {
+            return 0;
+        }
+        double sum = 0; // a stamp far ahead makes its lag hugely negative: a long sum could wrap
+        for (int i = 0; i < count; i++) {
+            sum += lag[i];
+        }
+        return sum / count;
     }
 
     public int count() {

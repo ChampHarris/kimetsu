@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.champ.kimetsu.core.judge.DeflectJudge;
 import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.State;
 import dev.champ.kimetsu.core.strike.Verdict;
@@ -51,7 +52,21 @@ class AudienceTest {
             new Outbox.WallSplat(PLAYER, MOB, 126, false, 2, Long.MIN_VALUE, 2.0));
 
     /** The events the world logs and sends to nobody. */
-    private static final List<Outbox.Event> LOG_ONLY = List.of(new Outbox.PoseClamped(PLAYER, 125, 10, 2.82));
+    private static final List<Outbox.Event> LOG_ONLY = List.of(
+            new Outbox.PoseClamped(PLAYER, 125, 10, 2.82),
+            // it carries a strike and a player, and still names neither for routing (D-089)
+            new Outbox.GuardJudged(
+                    STRIKE,
+                    PLAYER,
+                    110,
+                    DeflectJudge.Attempt.NO_RISE,
+                    5_400_000,
+                    -100_000,
+                    true,
+                    true,
+                    false,
+                    0,
+                    Verdict.Kind.HIT));
 
     private static Outbox.Event of(Class<? extends Outbox.Event> type) {
         for (Outbox.Event e : EVENTS) {

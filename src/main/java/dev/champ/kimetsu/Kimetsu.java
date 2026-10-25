@@ -15,6 +15,7 @@ import dev.champ.kimetsu.gametest.DevGameTests;
 import dev.champ.kimetsu.gametest.ScopeGameTests;
 import dev.champ.kimetsu.item.KimetsuItems;
 import dev.champ.kimetsu.net.KimetsuNet;
+import dev.champ.kimetsu.scope.KimetsuLootModifiers;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
@@ -36,6 +37,7 @@ public final class Kimetsu {
         KimetsuEntities.register(modBus);
         KimetsuAttachments.register(modBus);
         KimetsuItems.register(modBus);
+        KimetsuLootModifiers.register(modBus);
         ScopeGameTests.register(modBus);
         CombatGameTests.register(modBus);
         DevGameTests.register(modBus);

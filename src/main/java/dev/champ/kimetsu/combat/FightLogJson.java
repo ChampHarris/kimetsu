@@ -207,6 +207,18 @@ final class FightLogJson {
                         .num("tick", c.tick())
                         .num("rawBlocks", c.rawBlocks())
                         .num("allowedBlocks", c.allowedBlocks());
+            case Outbox.GuardJudged g ->
+                num("strike", g.strike())
+                        .num("fighter", g.fighter())
+                        .num("tick", g.tick())
+                        .name("attempt", g.attempt())
+                        .num("pressMicros", g.pressMicros())
+                        .num("errorMicros", g.errorMicros())
+                        .bool("inSweep", g.inSweep())
+                        .bool("inArc", g.inArc())
+                        .bool("stateOk", g.stateOk())
+                        .num("assist", g.assist())
+                        .name("kind", g.kind());
         }
         return end();
     }

@@ -1,5 +1,7 @@
 package dev.champ.kimetsu.core.strike;
 
+import dev.champ.kimetsu.core.judge.DeflectJudge;
+
 /**
  * One strike's verdict on one defender (Rules 2.6, 6.1–6.3; D-039) and what it costs each side. Mutable and reused.
  *
@@ -10,6 +12,9 @@ package dev.champ.kimetsu.core.strike;
  *   <li>{@code BLOCK}: held guard from the front, against a white strike: the strike's block value in Posture.
  *   <li>{@code HIT}, {@code GRAB}, {@code LAUNCH}: it lands (the hit's −4 Rhythm is the machine's own, on its hit).
  * </ul>
+ *
+ * <p>Against a white strike it also holds the guard's record for the fight log (D-089): the gates the verdict passed
+ * through and the press that decided it, so a guard that came back as a block or a hit says why.
  */
 public final class Verdict {
     public enum Kind {
@@ -28,6 +33,13 @@ public final class Verdict {
     double defenderPosture;
     double attackerPosture;
     int attackerRecoveryTicks;
+    boolean guardJudged;
+    boolean inSweep;
+    boolean inArc;
+    boolean stateOk;
+    DeflectJudge.Attempt attempt = DeflectJudge.Attempt.NONE;
+    long pressMicros = DeflectJudge.NO_PRESS;
+    int assist;
 
     void reset() {
         kind = Kind.MISS;
@@ -35,6 +47,13 @@ public final class Verdict {
         defenderPosture = 0;
         attackerPosture = 0;
         attackerRecoveryTicks = 0;
+        guardJudged = false;
+        inSweep = false;
+        inArc = false;
+        stateOk = false;
+        attempt = DeflectJudge.Attempt.NONE;
+        pressMicros = DeflectJudge.NO_PRESS;
+        assist = 0;
     }
 
     public Kind kind() {
@@ -69,5 +88,40 @@ public final class Verdict {
     /** It reached the defender's body: a hit, a grab or a launch. */
     public boolean landed() {
         return kind == Kind.HIT || kind == Kind.GRAB || kind == Kind.LAUNCH;
+    }
+
+    /** Whether it judged a guard (a white strike on a living defender): the record below is filled. */
+    public boolean guardJudged() {
+        return guardJudged;
+    }
+
+    /** The defender's body was inside the strike's sweep, in sight, at the impact. */
+    public boolean inSweep() {
+        return inSweep;
+    }
+
+    /** The attacker was inside the defender's front guard arc at the impact. */
+    public boolean inArc() {
+        return inArc;
+    }
+
+    /** The defender could still guard at the impact: standing, guarding or in the radial. */
+    public boolean stateOk() {
+        return stateOk;
+    }
+
+    /** What became of its guard ({@link DeflectJudge#attemptOf}). */
+    public DeflectJudge.Attempt attempt() {
+        return attempt;
+    }
+
+    /** That attempt's press, judged time, or {@link DeflectJudge#NO_PRESS}. */
+    public long pressMicros() {
+        return pressMicros;
+    }
+
+    /** The defender's assist level. */
+    public int assist() {
+        return assist;
     }
 }

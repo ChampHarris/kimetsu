@@ -37,6 +37,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Util;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
@@ -239,21 +240,40 @@ public final class PlayerSession implements ArenaMember {
 
     /**
      * Frame {@code f} arrived at {@code arrivalMicros} in combat time and {@code nowNanos} on the server's clock, with
-     * the tick length {@code tickLengthNanos} and the epoch {@code recordEpoch} of the record that converted it, while
-     * the server has announced {@code announcedEpoch}: the frames to run on the main thread now, in order, each through
-     * {@link #run} (network thread).
+     * the ticking state ({@code frozen} or paused, {@code sprinting}), the tick length {@code tickLengthNanos} and the
+     * epoch {@code recordEpoch} of the record that converted it, while the server has announced {@code announcedEpoch}:
+     * the frames to run on the main thread now, in order, each through {@link #run} (network thread).
      */
     List<FrameGate.Pass> gate(
             PlayerIntake.Frame f,
             long arrivalMicros,
             boolean frozen,
+            boolean sprinting,
             double tickLengthNanos,
             long nowNanos,
             int recordEpoch,
             int announcedEpoch) {
         synchronized (gate) {
             return gate.frame(
-                    f, arrivalMicros, frozen, leadMicros, tickLengthNanos, nowNanos, recordEpoch, announcedEpoch);
+                    f,
+                    arrivalMicros,
+                    frozen,
+                    sprinting,
+                    leadMicros,
+                    tickLengthNanos,
+                    nowNanos,
+                    recordEpoch,
+                    announcedEpoch);
+        }
+    }
+
+    /** The frame gate's lifetime counts and its abuse, if any ({@link #gateCounts}). */
+    record GateCounts(long arrived, long merged, FrameGate.@Nullable Abuse abuse) {}
+
+    /** The frame gate's lifetime counts, read under its lock, for {@code /kimetsu debug} (any thread). */
+    GateCounts gateCounts() {
+        synchronized (gate) {
+            return new GateCounts(gate.framesArrived(), gate.framesMerged(), gate.abuse());
         }
     }
 
@@ -314,12 +334,14 @@ public final class PlayerSession implements ArenaMember {
         intake.echo(nowMicros, rttMicros);
     }
 
-    /** A frame the gate let through, in arrival order, starts on the main thread. */
+    /** A frame the gate let through, in arrival order, starts on the main thread; its time counts to the budget. */
     void run(FrameGate.Pass p) {
+        long began = Util.getNanos();
         synchronized (gate) {
             gate.ran();
         }
         frame(p.frame(), p.arrivalMicros(), p.frozen());
+        sessions.server().ranFrame(Util.getNanos() - began);
     }
 
     /**
@@ -751,16 +773,18 @@ public final class PlayerSession implements ArenaMember {
     }
 
     /**
-     * Once a second, from its arena's fight log: the link's measures since the last (the longest gap between its
-     * frames' arrivals, the frames merged) and the bound's figures, taken whether or not it fights; written, with its
-     * meters, while it does.
+     * Once a second, from its arena's fight log: the link's measures since the last (the longest gap and silence
+     * between its frames, the frames merged: {@link FrameGate}) and the bound's figures, taken whether or not it
+     * fights; written, with its meters, while it does.
      * Returns whether it wrote a line.
      */
     boolean second(FightLog log, long n, boolean inFight) {
         long gap;
+        long silence;
         int merged;
         synchronized (gate) {
-            gap = gate.takeLongestGapNanos();
+            gap = gate.takeLongestGapMicros();
+            silence = gate.takeLongestSilenceMicros();
             merged = gate.takeMerged();
         }
         Fighter f = fighter;
@@ -771,7 +795,7 @@ public final class PlayerSession implements ArenaMember {
         if (!inFight) {
             return false;
         }
-        log.second(n, combatId(), f, intake.rttMicros(), gap, merged, move);
+        log.second(n, combatId(), f, intake.rttMicros(), gap, silence, merged, move);
         return true;
     }
 

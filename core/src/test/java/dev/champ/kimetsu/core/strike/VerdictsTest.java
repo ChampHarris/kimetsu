@@ -2,12 +2,16 @@ package dev.champ.kimetsu.core.strike;
 
 import static dev.champ.kimetsu.core.Asserts.assertNear;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.champ.kimetsu.core.Fixtures;
 import dev.champ.kimetsu.core.data.AttackClass;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.hit.Pose;
 import dev.champ.kimetsu.core.hit.Sight;
+import dev.champ.kimetsu.core.judge.DeflectJudge;
+import dev.champ.kimetsu.core.judge.DeflectJudge.Attempt;
 import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.Input;
 import dev.champ.kimetsu.core.strike.Verdict.Kind;
@@ -117,6 +121,63 @@ class VerdictsTest {
         assertEquals(Kind.HIT, judge(struckBy(swipe).press(Input.guard(I + Duel.ms(20))), swipe)); // after it
         assertEquals(0, out.rhythm());
         assertEquals(Kind.HIT, judge(struckBy(swipe), swipe));
+    }
+
+    @Test
+    void aWhiteStrikesVerdictCarriesItsGuardsRecord_theGatesAndThePress() {
+        FrameData swipe = Fixtures.swipe();
+        assertEquals(Kind.PERFECT, judge(struckBy(swipe).press(Input.guard(I - Duel.ms(30))), swipe));
+        assertTrue(out.guardJudged());
+        assertEquals(Attempt.CLAIMED, out.attempt());
+        assertEquals(I - Duel.ms(30), out.pressMicros());
+        assertTrue(out.inSweep());
+        assertTrue(out.inArc());
+        assertTrue(out.stateOk());
+        assertEquals(0, out.assist());
+        // 5b's −100 ms HIT, one way: a claim with the attacker behind the front arc
+        Duel away = struckBy(swipe).stand(0, 64, 1.5, 0).press(Input.guard(I - Duel.ms(100)));
+        assertEquals(Kind.HIT, judge(away, swipe));
+        assertEquals(Attempt.CLAIMED, out.attempt());
+        assertEquals(I - Duel.ms(100), out.pressMicros());
+        assertTrue(out.inSweep());
+        assertFalse(out.inArc());
+        assertTrue(out.stateOk());
+        assertEquals(Kind.HIT, judge(struckBy(swipe), swipe));
+        assertTrue(out.guardJudged());
+        assertEquals(Attempt.NONE, out.attempt());
+        assertEquals(DeflectJudge.NO_PRESS, out.pressMicros());
+        Duel far = struckBy(swipe).stand(0, 64, 3.5, 180).press(Input.guard(I - Duel.ms(30)));
+        assertEquals(Kind.MISS, judge(far, swipe));
+        assertFalse(out.inSweep());
+        assertTrue(out.inArc());
+        assertEquals(Attempt.CLAIMED, out.attempt());
+        FrameData low = Fixtures.lowSweep();
+        judge(struckBy(low).press(Input.guard(I - Duel.ms(30))), low);
+        assertFalse(out.guardJudged(), "a red strike can't be deflected: no guard to judge");
+        assertEquals(Attempt.NONE, out.attempt());
+    }
+
+    @Test
+    void aGuardPressedInsideALockoutComesBackLockedOut() {
+        FrameData swipe = Fixtures.swipe();
+        Duel d = struckBy(swipe)
+                .press(Input.guard(I - Duel.ms(300))) // a whiff: nothing inside the 150 ms after it
+                .press(Input.of(Input.Kind.GUARD_UP, I - Duel.ms(280)))
+                .press(Input.guard(I - Duel.ms(100))); // inside its lockout
+        assertEquals(Kind.BLOCK, judge(d, swipe)); // the guard is up, unclaimed: it blocks
+        assertEquals(Attempt.LOCKED_OUT, out.attempt());
+        assertEquals(I - Duel.ms(100), out.pressMicros());
+        assertTrue(out.inSweep() && out.inArc() && out.stateOk());
+    }
+
+    @Test
+    void aGuardPressedMidStepInsideTheWindowComesBackNoRise() {
+        FrameData swipe = Fixtures.swipe();
+        Duel d = struckBy(swipe).press(Input.Kind.STEP, I - Duel.ms(200)).press(Input.guard(I - Duel.ms(120)));
+        assertEquals(Kind.HIT, judge(d, swipe)); // these tests' bodies stand where they're put: still in the sweep
+        assertEquals(Attempt.NO_RISE, out.attempt());
+        assertEquals(I - Duel.ms(120), out.pressMicros());
+        assertFalse(out.stateOk(), "still mid-Step at the impact");
     }
 
     @Test

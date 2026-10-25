@@ -16,6 +16,7 @@ import dev.champ.kimetsu.core.fight.Outbox.AttackStarted;
 import dev.champ.kimetsu.core.fight.Outbox.Involved;
 import dev.champ.kimetsu.core.fight.Outbox.SwingLanded;
 import dev.champ.kimetsu.core.hit.Pose;
+import dev.champ.kimetsu.core.judge.DeflectJudge;
 import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.Input;
 import dev.champ.kimetsu.core.machine.State;
@@ -515,6 +516,56 @@ class CombatWorldTest {
         Fighter f = a.player(1).f; // 16 ticks of history
         f.holdCapMicros(Micros.ofMillis(740)); // 14.8 ticks and a tick to spare: still inside
         assertThrows(IllegalArgumentException.class, () -> f.holdCapMicros(Micros.ofMillis(760)));
+    }
+
+    @Test
+    void eachWhiteStrikeDecidedOnAPlayerLogsItsGuardsRecord_rightAfterItsResult() {
+        Arena a = new Arena();
+        Arena.Player p = backingOff(a.player(1));
+        guard(p, 117, -30);
+        guard(p, 130, -100);
+        guard(p, 143, 20); // after the impact: not inside the window
+        a.demon(10, commits(COMMIT, 1, SWIPE, SWIPE, SWIPE));
+        a.through(160);
+
+        List<Outbox.GuardJudged> records = a.all(Outbox.GuardJudged.class);
+        assertEquals(3, records.size(), records.toString());
+        Outbox.GuardJudged first = records.get(0);
+        assertEquals(1, first.strike());
+        assertEquals(1, first.fighter());
+        assertEquals(117, first.tick());
+        assertEquals(DeflectJudge.Attempt.CLAIMED, first.attempt());
+        assertEquals(at(117, -30), first.pressMicros());
+        assertEquals(-30_000, first.errorMicros());
+        assertTrue(first.inSweep());
+        assertTrue(first.inArc());
+        assertTrue(first.stateOk());
+        assertEquals(0, first.assist());
+        assertEquals(Kind.PERFECT, first.kind());
+        assertEquals(Kind.DEFLECT, records.get(1).kind());
+        assertEquals(-100_000, records.get(1).errorMicros());
+        Outbox.GuardJudged third = records.get(2);
+        assertEquals(DeflectJudge.Attempt.NONE, third.attempt());
+        assertEquals(DeflectJudge.NO_PRESS, third.pressMicros());
+        assertEquals(DeflectJudge.NO_PRESS, third.errorMicros());
+        assertEquals(Kind.HIT, third.kind());
+        List<Outbox.Event> all = a.all(Outbox.Event.class);
+        for (Outbox.GuardJudged g : records) {
+            Outbox.Event before = all.get(all.indexOf(g) - 1);
+            assertTrue(
+                    before instanceof Outbox.StrikeResult r && r.strike() == g.strike() && r.kind() == g.kind(),
+                    g + " follows " + before);
+        }
+    }
+
+    @Test
+    void aRedStrikeLogsNoGuardRecord() {
+        Arena a = new Arena();
+        a.player(1);
+        a.demon(10, commits(COMMIT, 1, Fixtures.lowSweep()));
+        a.through(140);
+        assertEquals(1, a.results(1).size());
+        assertTrue(a.all(Outbox.GuardJudged.class).isEmpty());
     }
 
     @Test

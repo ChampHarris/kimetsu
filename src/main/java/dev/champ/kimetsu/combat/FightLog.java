@@ -28,9 +28,10 @@ import org.slf4j.Logger;
  * One arena's fight log (spec Telemetry, S692–695; D-069): a JSON line for every engine event; each fight's start and
  * end (D-068); every press and release the stamp check judged into a timeline, with what it was judged on, and every
  * one it dropped; the damage the game dealt to its combatants and every engine hit {@code hurtServer} refused; and, once
- * a second, each fighting player's link (RTT, tolerance, hold cap, the longest gap between its frames' arrivals, the
- * frames merged) and meters, with the server's tick length. Local files only; {@code tools/fight_report.py} reads them
- * (slice 5c-4), and raises the spec's two cheat flags from them (Champ).
+ * a second, each fighting player's link (RTT, tolerance, hold cap, the longest gap and silence between its frames, the
+ * frames merged) and meters, then the server's clock and the budget's figures (its tick length, the arena's steps, the
+ * server's own tick work and the players' frames, each over the last second, and its players in a fight). Local files
+ * only; {@code tools/fight_report.py} reads them (slice 5c-4), and raises the spec's two cheat flags from them (Champ).
  *
  * <p>Its writer opens on its first line, so an arena nobody fights in writes no file, and is flushed once a second
  * and on close. A failed write or flush is logged once and switches it off: it never throws into the server tick.
@@ -213,29 +214,45 @@ public final class FightLog implements Fights.Listener {
         if (off || n % SECOND != 0) {
             return;
         }
-        boolean any = false;
+        int fighting = 0;
         for (int i = 0; i < members.size(); i++) {
-            if (members.get(i) instanceof PlayerSession s) {
-                any |= s.second(this, n, a.fights().fight(s.combatId()) != null);
+            if (members.get(i) instanceof PlayerSession s
+                    && s.second(this, n, a.fights().fight(s.combatId()) != null)) {
+                fighting++;
             }
         }
-        if (any) {
-            TickRecord r = a.server().published();
+        if (fighting > 0) {
+            CombatServer c = a.server();
+            TickRecord r = c.published();
             write(json.begin("clock", n)
                     .num("tbarNanos", r != null ? r.tickLengthNanos() : 0)
-                    .num("epoch", a.server().epoch())
-                    .num("generation", a.server().generation())
+                    .num("epoch", c.epoch())
+                    .num("generation", c.generation())
+                    .num("stepMicros", a.stepMeanMicros())
+                    .num("stepMaxMicros", a.stepMaxMicros())
+                    .num("tickMicros", c.tickMeanMicros())
+                    .num("framesMicros", c.framesMeanMicros())
+                    .num("fights", fighting) // a fight of the budget's: one Slayer, and the demons on it
                     .end());
         }
         flush();
     }
 
     /**
-     * Player {@code id}'s second: its link, its fighter {@code f}'s meters now, and its movement bound's figures for
-     * the poses it settled in the second ({@code move}: the fastest window and its rise, the free dashes, the clamps
-     * and the poses the stage dropped).
+     * Player {@code id}'s second: its link (the longest gap and silence between its frames, in combat µs, and the
+     * frames merged: {@code FrameGate}), its fighter {@code f}'s meters now, and its movement bound's figures for the
+     * poses it settled in the second ({@code move}: the fastest window and its rise, the free dashes, the clamps and
+     * the poses the stage dropped).
      */
-    void second(long n, int id, Fighter f, long rttMicros, long gapNanos, int merged, MoveBound.Second move) {
+    void second(
+            long n,
+            int id,
+            Fighter f,
+            long rttMicros,
+            long gapMicros,
+            long silenceMicros,
+            int merged,
+            MoveBound.Second move) {
         if (off) {
             return;
         }
@@ -250,7 +267,8 @@ public final class FightLog implements Fights.Listener {
                 .num("rtt", rttMicros)
                 .num("tolerance", f.toleranceMicros())
                 .num("holdCap", f.holdCapMicros())
-                .num("gapMax", gapNanos / 1000)
+                .num("gapMax", gapMicros)
+                .num("silence", silenceMicros)
                 .num("merged", merged)
                 .name("state", c.state())
                 .num("breath", Fixed.toUnits(breath.at(now)))

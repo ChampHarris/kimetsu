@@ -1,5 +1,6 @@
 package dev.champ.kimetsu.core.fight;
 
+import dev.champ.kimetsu.core.judge.DeflectJudge;
 import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.State;
 import dev.champ.kimetsu.core.strike.Verdict;
@@ -174,6 +175,29 @@ public final class Outbox {
      * window it moved {@code rawBlocks} and was allowed {@code allowedBlocks} of that. Routed to nobody: the fight log's.
      */
     public record PoseClamped(int fighter, long tick, double rawBlocks, double allowedBlocks) implements Event {}
+
+    /**
+     * White strike {@code strike}'s guard on player {@code fighter}, judged at its impact {@code tick} with its verdict
+     * {@code kind} (Rules 2.6–2.8, D-039; the deflect record, D-089): what became of the guard ({@code attempt}: the
+     * press that claimed it, or else the first inside its window and why it claimed nothing), that press's judged time
+     * and its error against the impact, negative before it (both {@code Long.MIN_VALUE} for no press), the gates the
+     * verdict went through (in the sweep, the attacker inside the front arc, able to guard at the impact) and the
+     * player's assist level. A strike a clash or a Pommel decides has none. Routed to nobody, though it names a strike
+     * and a player: the fight log's.
+     */
+    public record GuardJudged(
+            long strike,
+            int fighter,
+            long tick,
+            DeflectJudge.Attempt attempt,
+            long pressMicros,
+            long errorMicros,
+            boolean inSweep,
+            boolean inArc,
+            boolean stateOk,
+            int assist,
+            Verdict.Kind kind)
+            implements Event {}
 
     private final List<Event> events = new ArrayList<>();
 

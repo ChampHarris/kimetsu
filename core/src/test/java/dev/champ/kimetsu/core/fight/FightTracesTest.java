@@ -15,6 +15,7 @@ import dev.champ.kimetsu.core.fight.Outbox.StrikeLocked;
 import dev.champ.kimetsu.core.fight.Outbox.StrikeResult;
 import dev.champ.kimetsu.core.fight.Outbox.SwingLanded;
 import dev.champ.kimetsu.core.hit.SwingTrack;
+import dev.champ.kimetsu.core.judge.DeflectJudge;
 import dev.champ.kimetsu.core.machine.Combatant;
 import dev.champ.kimetsu.core.machine.Input;
 import dev.champ.kimetsu.core.meter.Fixed;
@@ -132,6 +133,16 @@ class FightTracesTest {
                         c.fighter(),
                         c.allowedBlocks(),
                         c.rawBlocks());
+            case Outbox.GuardJudged g ->
+                String.format(
+                        Locale.ROOT,
+                        "  %d's guard: %s%s%s%s%s",
+                        g.fighter(),
+                        g.attempt(),
+                        g.pressMicros() == DeflectJudge.NO_PRESS ? "" : " at " + g.errorMicros() / 1000 + " ms",
+                        g.inSweep() ? "" : ", out of the sweep",
+                        g.inArc() ? "" : ", behind its arc",
+                        g.stateOk() ? "" : ", couldn't guard");
             case AttackCancelled c -> "strike " + c.strike() + " cancelled (" + c.why() + ")";
             case PlayerEffect pe ->
                 "→" + pe.fighter() + (pe.tick() == n ? "" : " @" + pe.tick()) + " "

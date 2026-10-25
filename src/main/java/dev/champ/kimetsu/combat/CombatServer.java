@@ -44,6 +44,7 @@ import org.slf4j.Logger;
  */
 public final class CombatServer {
     private static final Logger LOGGER = LogUtils.getLogger();
+    private static final long NO_STEP = Long.MIN_VALUE; // a tick end that stepped no arena
     private static volatile @Nullable CombatServer current;
 
     private final MinecraftServer server;
@@ -59,6 +60,8 @@ public final class CombatServer {
     private volatile int epoch; // the network thread reads it too: it moves before ClockEpoch goes out
     private int generation;
     private boolean logging; // the fight log: dev runs, until 5d's SYNCED switch
+    private final SecondTimer ticks = new SecondTimer(); // its own tick start and end, the arenas' steps among them
+    private final SecondTimer frames = new SecondTimer(); // players' input frames, run between ticks
 
     private CombatServer(MinecraftServer server, CombatDataBuilder.Result loaded) {
         this.server = server;
@@ -250,14 +253,24 @@ public final class CombatServer {
     public static void onTickStart(ServerTickEvent.Pre event) {
         CombatServer c = of(event.getServer());
         if (c != null) {
+            long began = Util.getNanos();
             c.tickStart();
+            c.ticks.add(Util.getNanos() - began);
         }
     }
 
     public static void onTickEnd(ServerTickEvent.Post event) {
         CombatServer c = of(event.getServer());
         if (c != null) {
-            c.tickEnd();
+            long began = Util.getNanos();
+            long step = c.tickEnd();
+            c.ticks.add(Util.getNanos() - began);
+            if (step != NO_STEP) {
+                c.ticks.tick(step);
+                c.frames.tick(step); // frames that came while no fight stepped count toward this step
+            } else {
+                c.ticks.skip(); // frozen or held: no fight's tick (a single-player pause fires no tick event)
+            }
         }
     }
 
@@ -364,7 +377,8 @@ public final class CombatServer {
                         r.tick(), r.startNanos(), r.tickLengthNanos(), r.frozen(), r.paused(), r.sprinting(), epoch);
     }
 
-    private void tickEnd() {
+    /** The tick's end: the arenas step, unless the tick reached no new one. Returns the step, or {@link #NO_STEP}. */
+    private long tickEnd() {
         TickClock c = clock();
         long cutoff = c.epochCutoffMicros(); // before the tick reached moves it
         TickNumber.Step s = c.onTickEnd();
@@ -377,10 +391,12 @@ public final class CombatServer {
                 arenas.get(i).rebuild(data(), c.tick(), cutoff);
             }
         }
+        long stepped = NO_STEP;
         if (s != TickNumber.Step.HOLD) {
             boolean sprinting = c.sprinting();
+            stepped = c.tick();
             for (int i = 0; i < arenas.size(); i++) {
-                arenas.get(i).step(c.tick(), sprinting);
+                arenas.get(i).step(stepped, sprinting);
             }
         }
         TickRecord corrected = c.corrected();
@@ -390,6 +406,28 @@ public final class CombatServer {
         }
         sessions.tickEnded(wire, Util.getNanos()); // between ticks: joins land before the next step
         c.endMeasured();
+        return stepped;
+    }
+
+    /**
+     * The last second's mean per stepped tick of its own tick start and end, the arenas' steps among them, in µs (spec
+     * Performance Budget; 0 before a second has passed): the arenas' own second, steps 20k to 20k + 19.
+     */
+    public double tickMeanMicros() {
+        return ticks.meanMicros();
+    }
+
+    /**
+     * The last second's mean per stepped tick of running players' input frames, which come between ticks, in µs: the
+     * arenas' own second.
+     */
+    public double framesMeanMicros() {
+        return frames.meanMicros();
+    }
+
+    /** A player's input frame took {@code nanos} on the main thread, outside the tick's events. */
+    void ranFrame(long nanos) {
+        frames.add(nanos);
     }
 
     /** The tick a combatant that joins now begins with: the next one the engine steps. */
