@@ -93,6 +93,64 @@ class ForcedMotionTest {
     }
 
     @Test
+    void aPushMovesAlongItsWorldHeading_whateverTheLook_thenStops() {
+        ForcedMotion m = new ForcedMotion();
+        m.push(0, 1, 0.5, 4, 0, 20); // the heavy: 2 blocks along +z over 4 ticks
+        double total = 0;
+        for (int i = 0; i < 4; i++) {
+            assertEquals(ForcedMotion.Phase.MOVE, m.tick(20 + i, 90 * i), "tick " + i); // turning changes nothing
+            assertTrue(m.moving(), "its input is zeroed");
+            assertEquals(0, m.dx, 1e-12);
+            assertEquals(0.5, m.dz, 1e-12);
+            assertTrue(Double.isNaN(m.dy), "vanilla's vertical motion is kept");
+            total += m.dz;
+        }
+        assertEquals(2.0, total, 1e-12);
+        assertEquals(ForcedMotion.Phase.STOP, m.tick(24, 0));
+        assertEquals(ForcedMotion.Phase.IDLE, m.tick(25, 0));
+    }
+
+    @Test
+    void aLaunchLiftsOnItsFirstTickOnly() {
+        ForcedMotion m = new ForcedMotion();
+        m.push(1, 0, 0, 4, 0.42, 5); // the leap: no distance, 0.42 up
+        assertEquals(ForcedMotion.Phase.MOVE, m.tick(5, 0));
+        assertEquals(0.42, m.dy, 1e-12);
+        assertEquals(0, m.dx, 1e-12);
+        for (int i = 1; i < 4; i++) {
+            m.tick(5 + i, 0);
+            assertTrue(Double.isNaN(m.dy), "tick " + i + " falls as vanilla's does");
+            assertTrue(m.moving(), "it doesn't steer in the air");
+        }
+        assertEquals(ForcedMotion.Phase.STOP, m.tick(9, 0));
+    }
+
+    @Test
+    void aPushEndsADash_runningOrWaiting() {
+        ForcedMotion running = new ForcedMotion();
+        running.press(STEP, StepInput.Direction.FORWARD, 0, 0, BUFFER);
+        running.tick(0, 0);
+        running.tick(1, 0);
+        running.push(1, 0, 0.5, 4, 0, 2);
+        for (int i = 0; i < 4; i++) {
+            running.tick(2 + i, 0);
+            assertEquals(0.5, running.dx, 1e-12);
+            assertEquals(0, running.dz, 1e-12);
+        }
+        assertEquals(ForcedMotion.Phase.STOP, running.tick(6, 0)); // nothing of the dash is left
+
+        ForcedMotion waiting = new ForcedMotion();
+        assertTrue(waiting.press(STEP, StepInput.Direction.FORWARD, 10, 12, BUFFER));
+        waiting.push(1, 0, 0.5, 4, 0, 10);
+        for (int i = 0; i < 4; i++) {
+            waiting.tick(10 + i, 0);
+            assertEquals(0.5, waiting.dx, 1e-12, "tick " + i);
+        }
+        assertEquals(ForcedMotion.Phase.STOP, waiting.tick(14, 0));
+        assertEquals(ForcedMotion.Phase.IDLE, waiting.tick(15, 0)); // the waiting dash was dropped
+    }
+
+    @Test
     void aCancelStopsItAtOnce() {
         ForcedMotion m = new ForcedMotion();
         m.press(STEP, StepInput.Direction.FORWARD, 0, 0, BUFFER);

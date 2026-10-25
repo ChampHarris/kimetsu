@@ -212,6 +212,24 @@ class CombatDataTest {
                 .add("kimetsu:m1_demon/swipe");
         assertFails(whiteEnder, CombatDataBuilder.M1_DEMON, "white");
 
+        // the push numbers' own validation (5c-3b): a splat window and a tie's push must be positive
+        Map<String, Map<String, JsonElement>> noWindow = copy(sources());
+        noWindow.get(CombatDataBuilder.RULES)
+                .get(CombatData.DEFAULT_RULES)
+                .getAsJsonObject()
+                .getAsJsonObject("strikes")
+                .addProperty("splat_window_ticks", 0);
+        assertFails(noWindow, CombatData.DEFAULT_RULES, "splat_window_ticks");
+        Map<String, Map<String, JsonElement>> noTiePush = copy(sources());
+        noTiePush
+                .get(CombatDataBuilder.RULES)
+                .get(CombatData.DEFAULT_RULES)
+                .getAsJsonObject()
+                .getAsJsonObject("strikes")
+                .getAsJsonObject("clash")
+                .addProperty("tie_push_blocks", -1.5);
+        assertFails(noTiePush, CombatData.DEFAULT_RULES, "clash.tie_push_blocks");
+
         // no rules file
         Map<String, Map<String, JsonElement>> noRules = copy(sources());
         noRules.remove(CombatDataBuilder.RULES);

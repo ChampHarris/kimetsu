@@ -1,9 +1,9 @@
 package dev.champ.kimetsu.core.fight;
 
 /**
- * Who receives each outbox event (spec Netcode, "Need-to-know" and the payload table). A player's own effects and the
- * damage its own swings deal go to that player alone. Everything else is public: it goes to every player tracking the
- * combatant it concerns (its subject: a mob, or a strike's attacker) and to the player it names (its party: the one
+ * Who receives each outbox event (spec Netcode, "Need-to-know" and the payload table). A player's own effects, the
+ * damage its own swings deal and its wall splats go to that player alone. Everything else is public: it goes to every
+ * player tracking the combatant it concerns (its subject: a mob, or a strike's attacker) and to the player it names (its party: the one
  * targeted, struck, held or swinging), and a strike's result, a hold and a clash also to the party's own trackers
  * ("trackers of either side", "both fighters' trackers"). A strike event that names only its strike (its lock, an
  * involvement, a cancel) goes to whoever got that strike's {@code AttackStarted}, which the router remembers. A pose
@@ -25,6 +25,7 @@ public final class Audience {
         return switch (e) {
             case Outbox.PlayerEffect p -> p.fighter();
             case Outbox.SwingDealt d -> d.fighter();
+            case Outbox.WallSplat w -> w.fighter();
             case Outbox.AttackStarted _ -> NOBODY;
             case Outbox.StrikeLocked _ -> NOBODY;
             case Outbox.Involved _ -> NOBODY;
@@ -71,6 +72,7 @@ public final class Audience {
             case Outbox.AttackCancelled _ -> NOBODY;
             case Outbox.PlayerEffect _ -> NOBODY;
             case Outbox.SwingDealt _ -> NOBODY;
+            case Outbox.WallSplat _ -> NOBODY;
             case Outbox.PoseClamped _ -> NOBODY; // nobody tracks it: the log's alone
         };
     }
@@ -97,6 +99,7 @@ public final class Audience {
             case Outbox.Targeting _ -> NO_STRIKE;
             case Outbox.Clang _ -> NO_STRIKE;
             case Outbox.Pushed _ -> NO_STRIKE;
+            case Outbox.WallSplat _ -> NO_STRIKE;
             case Outbox.PoseClamped _ -> NO_STRIKE;
         };
     }
@@ -123,6 +126,7 @@ public final class Audience {
             case Outbox.MobState _ -> NOBODY;
             case Outbox.GuardYaw _ -> NOBODY;
             case Outbox.Pushed _ -> NOBODY;
+            case Outbox.WallSplat _ -> NOBODY;
             case Outbox.PoseClamped _ -> NOBODY;
         };
     }
@@ -152,6 +156,7 @@ public final class Audience {
             case Outbox.Targeting _ -> false;
             case Outbox.Clang _ -> false;
             case Outbox.Pushed _ -> false;
+            case Outbox.WallSplat _ -> false;
             case Outbox.PoseClamped _ -> false;
         };
     }

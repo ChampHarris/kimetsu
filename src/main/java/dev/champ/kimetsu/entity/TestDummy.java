@@ -10,6 +10,7 @@ import dev.champ.kimetsu.core.fight.Fighter;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.judge.InputHorizon;
 import dev.champ.kimetsu.core.machine.Combatant;
+import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.Input;
 import dev.champ.kimetsu.core.machine.Timeline;
 import dev.champ.kimetsu.data.CombatData;
@@ -34,6 +35,7 @@ import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -49,6 +51,13 @@ public final class TestDummy extends PathfinderMob implements ArenaMember {
     private static final long FRAME_MICROS = 16_667;
 
     private final TreeMap<Long, List<Input>> presses = new TreeMap<>(); // the step each acts in → the presses
+    // a push on it (Rule 7.10), moved as a client moves its player: its motion set at each push tick's start
+    private double pushX;
+    private double pushZ;
+    private double pushPerTick;
+    private double pushLift;
+    private int pushTick = -1; // the push's next tick, or −1
+    private int pushTicks;
     private @Nullable Arena arena;
     private @Nullable Arena chosen;
     private @Nullable Arena away; // the arena it left alive, to rejoin if the same object comes back (B-001: rare)
@@ -127,6 +136,9 @@ public final class TestDummy extends PathfinderMob implements ArenaMember {
      */
     @Override
     public void tick() {
+        if (pushTick >= 0 && !level().isClientSide()) {
+            push();
+        }
         super.tick();
         Arena a = away;
         if (level().isClientSide() || fighter == null || arena != null || dead || a == null) {
@@ -287,7 +299,33 @@ public final class TestDummy extends PathfinderMob implements ArenaMember {
             case Outbox.StrikeResult r
             when r.fighter() == getId() && r.damage() > 0 -> a.hurt(this, r.damage(), r.attacker());
             case Outbox.HoldEnded h when h.fighter() == getId() && h.damage() > 0 -> a.hurt(this, h.damage(), h.mob());
+            case Outbox.WallSplat w when w.fighter() == getId() && w.damage() > 0 -> a.hurt(this, w.damage(), w.mob());
+            case Outbox.PlayerEffect pe
+            when pe.fighter() == getId() && pe.effect() instanceof Effect.Push p -> {
+                pushX = p.dirX();
+                pushZ = p.dirZ();
+                pushPerTick = p.blocks() / p.ticks();
+                pushLift = p.lift();
+                pushTicks = p.ticks();
+                pushTick = 0; // from its next tick, as a client with no latency lives it
+            }
             default -> {}
         }
+    }
+
+    /**
+     * A push tick: its horizontal motion set to the push's (and on the first tick its vertical to a launch's lift), so
+     * vanilla's move carries it this tick, the level's collisions included, as a client's push carries its player; after
+     * the last, its horizontal motion is zeroed.
+     */
+    private void push() {
+        Vec3 v = getDeltaMovement();
+        if (pushTick >= pushTicks) {
+            setDeltaMovement(0, v.y, 0);
+            pushTick = -1;
+            return;
+        }
+        setDeltaMovement(pushX * pushPerTick, pushTick == 0 && pushLift > 0 ? pushLift : v.y, pushZ * pushPerTick);
+        pushTick++;
     }
 }

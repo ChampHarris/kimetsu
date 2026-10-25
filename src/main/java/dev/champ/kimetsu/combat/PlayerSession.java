@@ -9,14 +9,17 @@ import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.MoveRules;
 import dev.champ.kimetsu.core.data.Moveset;
 import dev.champ.kimetsu.core.data.TimingRules;
+import dev.champ.kimetsu.core.fight.FallHeight;
 import dev.champ.kimetsu.core.fight.Fighter;
 import dev.champ.kimetsu.core.fight.FrameGate;
 import dev.champ.kimetsu.core.fight.MoveBound;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.fight.PlayerIntake;
+import dev.champ.kimetsu.core.hit.Ground;
 import dev.champ.kimetsu.core.judge.FrameMeter;
 import dev.champ.kimetsu.core.judge.InputHorizon;
 import dev.champ.kimetsu.core.machine.Combatant;
+import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.Input;
 import dev.champ.kimetsu.core.machine.Timeline;
 import dev.champ.kimetsu.core.meter.Segment;
@@ -639,9 +642,24 @@ public final class PlayerSession implements ArenaMember {
         wasSlippery = false;
         a.world().add(f);
         intake.join(f);
+        intake.fallProbe(fallProbe(f, moves, a.ground()));
         arena = a;
         fighter = f;
         shown = null; // a fresh fighter: its whole state goes again
+    }
+
+    /**
+     * Its attack presses' fall height (Rule 5.5): the server's own, from {@code f}'s filed poses and the level, swept no
+     * deeper than the falling form needs; none when the style has no falling form.
+     */
+    private static PlayerIntake.FallProbe fallProbe(Fighter f, Moveset moves, Ground ground) {
+        FrameData falling = moves.falling();
+        FrameData.Contextual when = falling == null ? null : falling.contextual();
+        if (when == null) {
+            return PlayerIntake.FallProbe.NONE;
+        }
+        double depth = when.minFallBlocks();
+        return at -> FallHeight.of(f.poses(), at, ground, f.halfWidth(), f.height(), depth);
     }
 
     @Override
@@ -714,8 +732,21 @@ public final class PlayerSession implements ArenaMember {
             case Outbox.StrikeResult r
             when r.fighter() == id && r.damage() > 0 -> a.hurt(player, r.damage(), r.attacker());
             case Outbox.HoldEnded h when h.fighter() == id && h.damage() > 0 -> a.hurt(player, h.damage(), h.mob());
+            case Outbox.WallSplat w when w.fighter() == id && w.damage() > 0 -> a.hurt(player, w.damage(), w.mob());
+            case Outbox.PlayerEffect pe when pe.fighter() == id && pe.effect() instanceof Effect.Push p -> pushed(p);
             default -> {}
         }
+    }
+
+    /**
+     * The engine pushed the player (Rule 7.10): its client moves it, so vanilla's own movement check gives it an
+     * impulse's grace for the round trip, the push and the rules' grace, rather than setting it back mid-push.
+     */
+    private void pushed(Effect.Push p) {
+        MoveRules r = moveRules;
+        int grace = r == null ? 0 : r.impulseGraceTicks();
+        player.applyPostImpulseGraceTime(
+                (int) Math.ceil(intake.rttMicros() / (double) Micros.PER_TICK) + p.ticks() + grace);
     }
 
     /**

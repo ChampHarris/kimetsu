@@ -501,7 +501,8 @@ public final class CombatCodecs {
                     Codec.INT.fieldOf("false_start_ms").forGetter(ClashRules::falseStartMs),
                     Codec.INT.fieldOf("tie_ms").forGetter(ClashRules::tieMs),
                     Codec.INT.fieldOf("cooldown_ticks").forGetter(ClashRules::cooldownTicks),
-                    Codec.DOUBLE.fieldOf("win_posture_share").forGetter(ClashRules::winPostureShare))
+                    Codec.DOUBLE.fieldOf("win_posture_share").forGetter(ClashRules::winPostureShare),
+                    Codec.DOUBLE.fieldOf("tie_push_blocks").forGetter(ClashRules::tiePushBlocks))
             .apply(i, ClashRules::new));
 
     static final Codec<StrikeRules> STRIKES = RecordCodecBuilder.create(i -> i.group(
@@ -516,6 +517,10 @@ public final class CombatCodecs {
                     Codec.INT.fieldOf("pommel_stun_ticks").forGetter(StrikeRules::pommelStunTicks),
                     Codec.INT.fieldOf("grab_hold_beats").forGetter(StrikeRules::grabHoldBeats),
                     Codec.DOUBLE.fieldOf("throw_damage").forGetter(StrikeRules::throwDamage),
+                    Codec.INT.fieldOf("knockback_ticks").forGetter(StrikeRules::knockbackTicks),
+                    Codec.DOUBLE.fieldOf("launch_up").forGetter(StrikeRules::launchUp),
+                    Codec.INT.fieldOf("splat_window_ticks").forGetter(StrikeRules::splatWindowTicks),
+                    Codec.DOUBLE.fieldOf("splat_damage").forGetter(StrikeRules::splatDamage),
                     CLASH.fieldOf("clash").forGetter(StrikeRules::clash))
             .apply(i, StrikeRules::new));
 

@@ -46,8 +46,8 @@ import org.jspecify.annotations.Nullable;
  * The M1 demon (Rules 8, 11; D-052's calls 1 and 3): its body and brain are the engine's, its entity a vanilla
  * stand-in. One writer per phase: between strings its walking goal moves the entity and the engine is told where it
  * went; while a strike carries it, its own movement is off ({@link #travel}) and the entity is put where the strike's
- * path says after each step. Its HP is the engine's alone: the entity's health mirrors it, vanilla damage becomes the
- * engine's outside damage (Rule 8.6, {@code DamagePath}), and it dies, with its death events, when the engine says it
+ * path says after each step; while a hit pushes it, the push moves it a step before each step and its walking waits.
+ * Its HP is the engine's alone: the entity's health mirrors it, vanilla damage becomes the engine's outside damage (Rule 8.6, {@code DamagePath}), and it dies, with its death events, when the engine says it
  * died. No vehicle, portal or despawn moves or ends it behind the engine's back.
  */
 public final class M1Demon extends PathfinderMob implements ArenaMember {
@@ -75,6 +75,11 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
     private @Nullable EntityDimensions size;
     private boolean carried;
     private boolean dying;
+    // a hit's push (Rule 7.10, D-045): a step of pushStep blocks along (pushX, pushZ) before each of pushLeft steps
+    private double pushX;
+    private double pushZ;
+    private double pushStep;
+    private int pushLeft;
 
     public M1Demon(EntityType<? extends M1Demon> type, Level level) {
         super(type, level);
@@ -316,7 +321,28 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
             own.pause(a.sprinting()); // /tick sprint: no strikes (Rule 1.1)
         }
         if (!carried) {
+            if (pushLeft > 0) {
+                pushStep(a, b, n);
+            }
             b.moveTo(getX(), getY(), getZ(), getYRot());
+        }
+    }
+
+    /**
+     * One step of its push (D-045): as far along it as the level lets its box go, its horizontal motion zeroed so
+     * nothing carries on after it. A step the level cuts short met a wall: the engine hears of it at step {@code n} (a
+     * splat inside a splatting push's window, Rule 9.4) and the push ends.
+     */
+    private void pushStep(Arena a, Demon b, long n) {
+        double moved = a.ground().clear(getX(), getY(), getZ(), b.halfWidth(), b.height(), pushX, pushZ, pushStep);
+        setPos(getX() + pushX * moved, getY(), getZ() + pushZ * moved);
+        setDeltaMovement(0, getDeltaMovement().y, 0);
+        getNavigation().stop();
+        if (moved < pushStep) {
+            b.wallContact(n);
+            pushLeft = 0;
+        } else {
+            pushLeft--;
         }
     }
 
@@ -329,6 +355,7 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
         }
         carried = a.world().strikePose(getId(), n, strikePose);
         if (carried) {
+            pushLeft = 0; // the strike's path is the one writer (Rule 7.13): a push it interrupts is over
             float yaw = (float) strikePose.yaw();
             snapTo(strikePose.x(), strikePose.y(), strikePose.z(), yaw, getXRot());
             setYHeadRot(yaw);
@@ -341,10 +368,20 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
         }
     }
 
-    /** The engine said it died: it leaves the fight and dies in the level, with its death events. */
+    /**
+     * A hit pushed it (Rule 7.10): the push runs from the next step. The engine said it died: it leaves the fight and
+     * dies in the level, with its death events.
+     */
     @Override
     public void onEvent(Outbox.Event e) {
         Arena a = arena;
+        if (e instanceof Outbox.Pushed p && p.mob() == getId() && !dying) {
+            pushX = p.dirX();
+            pushZ = p.dirZ();
+            pushStep = p.distance() / p.ticks();
+            pushLeft = p.ticks();
+            return;
+        }
         if (!(e instanceof Outbox.MobDied d) || d.mob() != getId() || dying || a == null) {
             return;
         }
@@ -490,7 +527,7 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
         public void tick() {
             LivingEntity target = demon.walkTarget();
             Profile.Movement m = demon.movement;
-            if (target == null || m == null || demon.carried) {
+            if (target == null || m == null || demon.carried || demon.pushLeft > 0) {
                 demon.getNavigation().stop();
                 return;
             }

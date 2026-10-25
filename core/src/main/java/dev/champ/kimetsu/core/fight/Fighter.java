@@ -8,13 +8,15 @@ import dev.champ.kimetsu.core.hit.Combo;
 import dev.champ.kimetsu.core.hit.PoseRing;
 import dev.champ.kimetsu.core.hit.SwingTrack;
 import dev.champ.kimetsu.core.judge.InputHorizon;
+import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.Timeline;
 
 /**
  * One player in the fight loop: its Timeline (presses at their stamps, the barrier, state at any recent tick), its
  * input horizon (how far its input is known, Rule 2.9), its pose history (32 entries, from vanilla's movement packets,
- * Rule 2.10) and the movement bound that files it ({@link MoveBound}), its Pulse, its body, its combo count (Rule
- * 7.5), its swing registry (Rule 7.4), and the hold cap the mod works out from its RTT and stamp tolerance.
+ * Rule 2.10) and the movement bound that files it ({@link MoveBound}), where those poses met the level
+ * ({@link ContactCheck}), its Pulse, its body, its combo count (Rule 7.5), its swing registry (Rule 7.4), and the hold
+ * cap the mod works out from its RTT and stamp tolerance.
  */
 public final class Fighter {
     private final int id;
@@ -30,6 +32,8 @@ public final class Fighter {
     private final double eye;
     final Combo combo = new Combo();
     final SwingTrack track = new SwingTrack();
+    final ContactCheck contacts = new ContactCheck();
+    private int impulseGraceTicks;
     private long holdCapMicros;
     private long earliestHeldMicros = Long.MAX_VALUE;
     long sweptThrough; // the last tick whose active windows the loop has looked at
@@ -111,6 +115,7 @@ public final class Fighter {
     /** Its movement bound from now on: {@code rules}, a Step's envelope from {@code step}, and the machine's numbers. */
     public void movement(MoveRules rules, FrameData step, int bufferTicks) {
         bound.configure(rules, step, bufferTicks, timeline.historyTicks());
+        impulseGraceTicks = rules.impulseGraceTicks();
     }
 
     /**
@@ -133,6 +138,16 @@ public final class Fighter {
         bound.impulse(fromMicros, blocks, ticks);
     }
 
+    /**
+     * The world logged push {@code p} on it at tick {@code tick}, in tick {@code n}, from mob {@code mob}'s hit (Rule
+     * 7.10): its client moves it, so the bound opens by the push's distance from now until the push ends plus the
+     * impulse grace, and its contacts are looked for from the push's first tick.
+     */
+    void pushed(long n, long tick, Effect.Push p, int mob) {
+        bound.impulse(Micros.ofTicks(n), p.blocks(), Math.toIntExact(p.fromTick() - n + p.ticks() + impulseGraceTicks));
+        contacts.push(p, mob, tick, impulseGraceTicks);
+    }
+
     /** The bound's figures for the poses it settled since the last call (the fight log's second). */
     public MoveBound.Second takeMoveSecond() {
         return bound.takeSecond();
@@ -147,6 +162,7 @@ public final class Fighter {
     void clearPoses() {
         poses.clear();
         bound.clear();
+        contacts.clear();
     }
 
     public double halfWidth() {

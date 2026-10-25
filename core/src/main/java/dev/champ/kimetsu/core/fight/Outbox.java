@@ -104,8 +104,9 @@ public final class Outbox {
     public record ClashStarted(long strike, int mob, int fighter, long tick, long flashMicros) implements Event {}
 
     /**
-     * It ended at {@code tick}: the loser's Posture breaks; a tie's shockwave pushes both apart, the player and the mob
-     * alike, from the point between them (the mod applies both pushes; core sends no {@code Pushed} for it).
+     * It ended at {@code tick}: the loser's Posture breaks; a tie of reactions pushes both apart, each away from the
+     * other: the mob with a {@link Pushed}, the player with a push effect ({@link PlayerEffect}), neither splatting. A
+     * tie because a side left or stopped pushes nobody.
      */
     public record ClashEnded(long strike, int mob, int fighter, long tick, ClashOutcome outcome) implements Event {}
 
@@ -156,6 +157,17 @@ public final class Outbox {
      */
     public record Pushed(int mob, long tick, double dirX, double dirZ, double distance, int ticks, boolean splats)
             implements MobEvent {}
+
+    /**
+     * Player {@code fighter}, pushed by mob {@code mob}'s hit, met a wall inside the push's splat window at tick
+     * {@code tick} (Rule 9.4), settled once its input passed the contact's Tech window (Rule 9.2): {@code teched} if a
+     * Jump cancelled it, the Teching press {@code techOffsetMicros} from the contact ({@code Long.MIN_VALUE} if not
+     * Teched), {@code jumps} pressed in that window (more than one is mashing, D-078), and the {@code damage} the mod
+     * applies (Rule 12; 0 when Teched). Sent to that player alone; the fight log's too.
+     */
+    public record WallSplat(
+            int fighter, int mob, long tick, boolean teched, int jumps, long techOffsetMicros, double damage)
+            implements Event {}
 
     /**
      * The movement bound ({@code MoveBound}, D-070) pulled player {@code fighter}'s pose at {@code tick} back: over its

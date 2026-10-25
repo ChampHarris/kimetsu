@@ -24,6 +24,23 @@ public sealed interface Effect {
     /** A launch, a throw or a wall splat: KNOCKDOWN, airborne until a contact. */
     record Knockdown() implements Effect {}
 
+    /**
+     * A hit's push (Rules 7.10, 9.4): {@code blocks} along the unit direction {@code (dirX, dirZ)} over {@code ticks},
+     * starting at tick {@code fromTick}, the first its client can live it (the decision's tick + RTT/2, never the
+     * impact, which it lived long ago); a launch also lifts it {@code lift} blocks a tick on the push's first tick. Its
+     * client moves it, so the server bounds the move and finds where it meets the level from the poses it files. A wall
+     * met before tick {@code splatUntil} splats it, unless it Techs (Rule 9.2); {@link #NO_SPLAT} when none can.
+     */
+    record Push(double dirX, double dirZ, double blocks, int ticks, double lift, long fromTick, long splatUntil)
+            implements Effect {
+        public static final long NO_SPLAT = Long.MIN_VALUE;
+
+        /** Whether a wall it meets in time splats it. */
+        public boolean splats() {
+            return splatUntil != NO_SPLAT;
+        }
+    }
+
     /** The knocked-down body met the floor or a wall at {@code micros}, as its own client lived it (Rule 9.2). */
     record Contact(Surface surface, long micros) implements Effect {}
 

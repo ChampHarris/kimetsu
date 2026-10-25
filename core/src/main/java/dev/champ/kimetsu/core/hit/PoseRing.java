@@ -113,6 +113,24 @@ public final class PoseRing {
         return count;
     }
 
+    /** The time of the pose {@code i} places from the oldest kept ({@code 0 ≤ i < size()}). */
+    public long timeAt(int i) {
+        return time[slotAt(i)];
+    }
+
+    /** The pose {@code i} places from the oldest kept, as filed, into {@code out}. */
+    public void get(int i, Pose out) {
+        int slot = slotAt(i);
+        out.set(time[slot], x[slot], y[slot], z[slot], yaw[slot], pitch[slot], eye[slot]);
+    }
+
+    private int slotAt(int i) {
+        if (i < 0 || i >= count) {
+            throw new IndexOutOfBoundsException("pose " + i + " of " + count);
+        }
+        return Math.floorMod(head - count + i, time.length);
+    }
+
     /** Whether it holds as many poses as it can: the next one pushes out the oldest. */
     public boolean full() {
         return count == time.length;

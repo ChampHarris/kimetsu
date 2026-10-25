@@ -4,12 +4,14 @@ import static dev.champ.kimetsu.core.Asserts.assertNear;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import dev.champ.kimetsu.core.Fixtures;
+import dev.champ.kimetsu.core.data.AttackClass;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.hit.Pose;
 import dev.champ.kimetsu.core.hit.Sight;
 import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.Input;
 import dev.champ.kimetsu.core.strike.Verdict.Kind;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -264,5 +266,47 @@ class VerdictsTest {
         FrameData grab = Fixtures.grab();
         assertEquals(Verdicts.NONE, pommel(grab, 300, 1.5)); // lands at tick 36: the demon is still 3 blocks off
         assertEquals(I - Duel.ms(100), pommel(grab, 200, 1.5)); // lands at 38, 2 ticks into the lunge: in reach
+    }
+
+    // ------------------------------------------------------------------------------------------------- pushes
+
+    /** The effects a verdict of {@code kind} by {@code attack} logs, the push along +z from tick 43. */
+    private List<Effect> effects(Kind kind, FrameData attack) {
+        out.reset();
+        out.kind = kind;
+        List<Effect> e = new ArrayList<>();
+        verdicts.effects(out, attack, 1, 0, 1, 43, e);
+        return e;
+    }
+
+    @Test
+    void theHeavysHitPushesTwoBlocksOverFourTicks_andAWallInTheNextTenSplats() {
+        FrameData heavy = Fixtures.heavy();
+        assertEquals(Kind.HIT, judge(struckBy(heavy), heavy));
+        assertEquals(
+                List.of(new Effect.Hit(AttackClass.HEAVY, 10), new Effect.Push(0, 1, 2.0, 4, 0, 43, 53)),
+                effects(Kind.HIT, heavy));
+    }
+
+    @Test
+    void anAnswerABlockADodgeOrAGrabPushesNothing() {
+        FrameData heavy = Fixtures.heavy(); // 2 blocks of knockback whatever the verdict
+        for (Kind k : List.of(Kind.BLOCK, Kind.DEFLECT, Kind.PERFECT, Kind.CLEARED, Kind.GRAB, Kind.MISS)) {
+            for (Effect e : effects(k, heavy)) {
+                assertEquals(false, e instanceof Effect.Push, k + " pushed: " + e);
+            }
+        }
+        assertEquals(List.of(new Effect.Hit(AttackClass.LIGHT, 6)), effects(Kind.HIT, Fixtures.swipe())); // none
+    }
+
+    @Test
+    void theLeapsLaunchLiftsBeforeItsKnockdown_andCantSplat() {
+        FrameData leap = Fixtures.leap();
+        assertEquals(
+                List.of(
+                        new Effect.Hit(AttackClass.HEAVY, 0),
+                        new Effect.Push(0, 1, 0, 4, 0.42, 43, Effect.Push.NO_SPLAT),
+                        new Effect.Knockdown()),
+                effects(Kind.LAUNCH, leap));
     }
 }

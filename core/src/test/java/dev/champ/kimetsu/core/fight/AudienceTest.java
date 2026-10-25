@@ -47,7 +47,8 @@ class AudienceTest {
             new Outbox.GuardYaw(MOB, 121, 64),
             new Outbox.Targeting(MOB, 122, PLAYER),
             new Outbox.Clang(MOB, 123, PLAYER, true),
-            new Outbox.Pushed(MOB, 124, 1, 0, 2, 4, false));
+            new Outbox.Pushed(MOB, 124, 1, 0, 2, 4, false),
+            new Outbox.WallSplat(PLAYER, MOB, 126, false, 2, Long.MIN_VALUE, 2.0));
 
     /** The events the world logs and sends to nobody. */
     private static final List<Outbox.Event> LOG_ONLY = List.of(new Outbox.PoseClamped(PLAYER, 125, 10, 2.82));
@@ -62,9 +63,10 @@ class AudienceTest {
     }
 
     @Test
-    void aPlayersOwnEffectsAndItsSwingsDamageAreItsAlone() {
+    void aPlayersOwnEffectsItsSwingsDamageAndItsSplatsAreItsAlone() {
         for (Outbox.Event e : EVENTS) {
-            boolean own = e instanceof Outbox.PlayerEffect || e instanceof Outbox.SwingDealt;
+            boolean own =
+                    e instanceof Outbox.PlayerEffect || e instanceof Outbox.SwingDealt || e instanceof Outbox.WallSplat;
             assertEquals(own ? PLAYER : Audience.NOBODY, Audience.privateTo(e), e.toString());
             if (own) {
                 assertTrue(Audience.reaches(e, PLAYER, false, false), e.toString());

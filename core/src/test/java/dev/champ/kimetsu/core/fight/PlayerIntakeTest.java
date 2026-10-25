@@ -387,6 +387,34 @@ class PlayerIntakeTest {
     }
 
     @Test
+    void onlyAnAttackPressAsksTheFallProbe_atItsJudgedStamp() {
+        Judged sink = new Judged();
+        PlayerIntake in = intake(new Arena().player(1).silentFrom(1), sink, 0);
+        List<Long> asked = new ArrayList<>();
+        in.fallProbe(at -> {
+            asked.add(at);
+            return 2.5;
+        });
+        in.frame(
+                frame(
+                        0,
+                        1_000_000,
+                        0,
+                        PlayerIntake.Delta.press(PlayerIntake.Key.JUMP, 980_000),
+                        PlayerIntake.Delta.press(PlayerIntake.Key.SNEAK, 985_000),
+                        PlayerIntake.Delta.press(PlayerIntake.Key.ATTACK, 1_000_000)),
+                1_075_000,
+                false);
+        assertEquals(List.of(1_000_000 - FRAME / 2), asked);
+        assertEquals(
+                List.of(
+                        Input.of(Input.Kind.JUMP, 980_000 - FRAME / 2),
+                        Input.of(Input.Kind.SNEAK, 985_000 - FRAME / 2),
+                        Input.attackFalling(1_000_000 - FRAME / 2, 2.5)),
+                sink.inputs);
+    }
+
+    @Test
     void aRejoinedFighter_takesTheRttToleranceAndHoldCapTheIntakeMeasured() {
         Arena.Player old = new Arena().player(1).silentFrom(1);
         PlayerIntake in = intake(old, new Judged(), 0);

@@ -61,7 +61,7 @@ class FightLogJsonTest {
     @Test
     void everyEventIsALineWithItsTypeStepAndEveryField() throws ReflectiveOperationException {
         List<Class<?>> types = records(Outbox.Event.class);
-        assertEquals(20, types.size(), "the outbox's events"); // PoseClamped joined (D-070)
+        assertEquals(21, types.size(), "the outbox's events"); // WallSplat joined (5c-3b)
         for (int seed = 0; seed < 3; seed++) {
             for (Class<?> t : types) {
                 Outbox.Event e = (Outbox.Event) sample(t, seed);
@@ -76,7 +76,7 @@ class FightLogJsonTest {
     @Test
     void everyEffectNestsInItsPlayerEffectWithEveryField() throws ReflectiveOperationException {
         List<Class<?>> types = records(Effect.class);
-        assertEquals(19, types.size(), "the engine's effects");
+        assertEquals(20, types.size(), "the engine's effects"); // Push joined (5c-3b)
         for (int seed = 0; seed < 3; seed++) {
             for (Class<?> t : types) {
                 Outbox.PlayerEffect p = new Outbox.PlayerEffect(7, 99, (Effect) sample(t, seed));

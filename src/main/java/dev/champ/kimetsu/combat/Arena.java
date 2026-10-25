@@ -4,6 +4,7 @@ import dev.champ.kimetsu.core.data.Moveset;
 import dev.champ.kimetsu.core.fight.CombatWorld;
 import dev.champ.kimetsu.core.fight.Fights;
 import dev.champ.kimetsu.core.fight.Outbox;
+import dev.champ.kimetsu.core.hit.Ground;
 import dev.champ.kimetsu.data.CombatData;
 import dev.champ.kimetsu.data.CombatDataBuilder;
 import dev.champ.kimetsu.data.CombatRules;
@@ -36,6 +37,7 @@ public final class Arena {
 
     private final CombatServer server;
     private final ServerLevel level;
+    private final LevelGround ground;
     private final List<ArenaMember> members = new ArrayList<>(); // in id order
     private final List<Listener> listeners = new ArrayList<>();
     private @Nullable ArenaMember[] snapshot = new ArenaMember[8]; // the members a dispatch walks: no allocation
@@ -52,6 +54,7 @@ public final class Arena {
     Arena(CombatServer server, ServerLevel level, CombatData data) {
         this.server = server;
         this.level = level;
+        this.ground = new LevelGround(level);
         this.data = data;
         this.world = newWorld(data);
         this.lastStep = server.nextTick() - 1;
@@ -81,12 +84,16 @@ public final class Arena {
             throw new IllegalStateException(CombatDataBuilder.SLAYER + " isn't loaded"); // the builder requires it
         }
         Moveset moves = d.moveset(slayer);
-        return new CombatWorld(
-                r.hits(), r.strikes(), r.timing(), r.rhythm(), moves, new LevelSight(level), new LevelGround(level));
+        return new CombatWorld(r.hits(), r.strikes(), r.timing(), r.rhythm(), moves, new LevelSight(level), ground);
     }
 
     public ServerLevel level() {
         return level;
+    }
+
+    /** Where its level stops a body: the world's lunges and contacts, its players' fall heights and its mobs' pushes. */
+    public Ground ground() {
+        return ground;
     }
 
     public CombatWorld world() {

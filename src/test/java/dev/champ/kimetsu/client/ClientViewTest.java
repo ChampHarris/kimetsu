@@ -1,11 +1,13 @@
 package dev.champ.kimetsu.client;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.champ.kimetsu.core.fight.Outbox;
+import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.State;
 import dev.champ.kimetsu.core.meter.Segment;
 import dev.champ.kimetsu.net.NetMessage;
@@ -14,7 +16,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * What the client keeps of the routed state: a mob's state goes when the mob does, however it goes (slice 5c-1), and
- * its player's combat flag runs out on the client's ticks and goes with the level (5c-2).
+ * its player's combat flag runs out on the client's ticks and goes with the level (5c-2); its player's own push is
+ * handed on for the client to play (5c-3b).
  */
 class ClientViewTest {
     private static final int SELF = 1;
@@ -34,6 +37,19 @@ class ClientViewTest {
         ClientView v = seeing();
         v.mobGone(DEMON);
         assertNull(v.mob(DEMON));
+    }
+
+    @Test
+    void itsPlayersOwnPushIsHandedOn_notAnotherPlayersNorAnyOtherEffect() {
+        ClientView v = new ClientView();
+        Effect.Push mine = new Effect.Push(0, 1, 2.0, 4, 0, 123, 133);
+        Effect.Push theirs = new Effect.Push(1, 0, 2.0, 4, 0, 123, 133);
+        List<Outbox.Event> events = List.of(
+                new Outbox.PlayerEffect(SELF, 122, new Effect.Blocked()),
+                new Outbox.PlayerEffect(SELF, 122, mine),
+                new Outbox.PlayerEffect(2, 122, theirs));
+        assertEquals(mine, v.accept(new NetMessage.Tick(122, events, null), SELF));
+        assertNull(v.accept(new NetMessage.Tick(123, List.of(new Outbox.PlayerEffect(2, 123, theirs)), null), SELF));
     }
 
     @Test

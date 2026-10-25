@@ -12,6 +12,7 @@ import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.Moveset;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.hit.Pose;
+import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.meter.Fixed;
 import dev.champ.kimetsu.core.strike.StrikeView;
 import dev.champ.kimetsu.data.CombatData;
@@ -504,7 +505,10 @@ public final class ClientCombat {
     private void tickMessage(NetMessage.Tick t) {
         var player = Minecraft.getInstance().player;
         if (player != null) {
-            view.accept(t, player.getId()); // the client's entity ids are the server's
+            Effect.Push p = view.accept(t, player.getId()); // the client's entity ids are the server's
+            if (p != null) {
+                input.push(p);
+            }
         }
     }
 

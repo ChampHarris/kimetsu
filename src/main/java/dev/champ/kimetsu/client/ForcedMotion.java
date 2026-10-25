@@ -1,8 +1,10 @@
 package dev.champ.kimetsu.client;
 
+import java.util.Arrays;
+
 /**
- * The Step's dash on the client (Rule 9.1, D-070). Players move themselves in vanilla, so the client applies the Step's
- * frame-data displacement itself: for each of its ticks, at the client tick's start (before the player's own tick
+ * The Step's dash and a hit's push on the client (Rules 9.1 and 7.10, D-070). Players move themselves in vanilla, so
+ * the client applies the Step's frame-data displacement itself: for each of its ticks, at the client tick's start (before the player's own tick
  * runs), the player's horizontal motion is set to that tick's displacement along the look yaw turned by the Step's
  * direction, so turning mid-Step arcs it and a backstep stays a backstep (Champ). Its vertical motion is kept, and its
  * movement input is zeroed for the tick, so vanilla adds no push and no sprint-jump. After the last tick the horizontal
@@ -13,6 +15,10 @@ package dev.champ.kimetsu.client;
  * <p>A dash can't start before its state lets it: the caller passes the first tick it may ({@code opensTick}: an
  * attack's Step cancel, or its end with none, or the end of a dash still running), and as the server buffers the Step, it
  * starts then if that's within {@code buffer_ticks}, or not at all.
+ *
+ * <p>A push ({@link #push}) runs the same way along a heading fixed in the world, not the look, from the tick it
+ * arrives: the client lived the hit long ago, so it never catches up. A launch's lift sets the vertical motion on the
+ * push's first tick only. A push ends any dash, running or waiting.
  */
 final class ForcedMotion {
     /** What the tick does to the player's motion. */
@@ -35,8 +41,14 @@ final class ForcedMotion {
     private StepInput.Direction pendingDirection = StepInput.Direction.BACK;
     private long startTick = NONE; // a dash pressed and waiting to start
     private boolean moving;
+    private boolean pushing; // the running table is a push's, along (pushX, pushZ)
+    private double pushX;
+    private double pushZ;
+    private double lift = Double.NaN; // a launch's upward motion on its push's first tick
     double dx;
     double dz;
+    /** The vertical motion this tick sets, or NaN to keep vanilla's. */
+    double dy = Double.NaN;
 
     /**
      * A Step pressed before client tick {@code tick} (the next to run), dashing {@code perTick} blocks a tick toward
@@ -54,25 +66,54 @@ final class ForcedMotion {
         return true;
     }
 
+    /**
+     * The server's push (Rule 7.10) arrived before client tick {@code tick} (the next to run): {@code perTick} blocks a
+     * tick along the world heading ({@code dirX}, {@code dirZ}) for {@code ticks} ticks from then, and upward
+     * {@code lift} blocks a tick on the first (0: none). It ends any dash, running or waiting: the hit took the player
+     * out of it.
+     */
+    void push(double dirX, double dirZ, double perTick, int ticks, double lift, long tick) {
+        double[] t = new double[ticks];
+        Arrays.fill(t, perTick);
+        table = t;
+        pushing = true;
+        pushX = dirX;
+        pushZ = dirZ;
+        this.lift = lift > 0 ? lift : Double.NaN;
+        index = 0;
+        endTick = tick + ticks - 1;
+        startTick = NONE;
+    }
+
     /** Client tick {@code tick} starts, the player looking along {@code yawDegrees}: what it does to the motion. */
     Phase tick(long tick, double yawDegrees) {
         if (startTick != NONE && tick >= startTick) {
             table = pending;
             direction = pendingDirection;
+            pushing = false;
             index = 0;
             endTick = tick + table.length - 1;
             startTick = NONE;
         }
         moving = false;
+        dy = Double.NaN;
         if (index < 0) {
             return Phase.IDLE;
         }
         if (index >= table.length) {
             index = -1;
             endTick = NONE;
+            pushing = false;
             return Phase.STOP;
         }
         double blocks = table[index++];
+        if (pushing) {
+            dx = pushX * blocks;
+            dz = pushZ * blocks;
+            dy = index == 1 ? lift : Double.NaN;
+            moving = true;
+            return Phase.MOVE;
+        }
         double yaw = Math.toRadians(yawDegrees);
         double sin = Math.sin(yaw);
         double cos = Math.cos(yaw);
@@ -94,5 +135,7 @@ final class ForcedMotion {
         endTick = NONE;
         startTick = NONE;
         moving = false;
+        pushing = false;
+        dy = Double.NaN;
     }
 }

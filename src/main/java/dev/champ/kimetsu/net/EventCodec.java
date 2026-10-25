@@ -5,7 +5,7 @@ import io.netty.handler.codec.DecoderException;
 import net.minecraft.network.FriendlyByteBuf;
 
 /**
- * The engine's 18 outbox events on the wire, each a type byte and its fields (the spec's {@code AttackStarted},
+ * The engine's 21 outbox events on the wire, each a type byte and its fields (the spec's {@code AttackStarted},
  * {@code StrikeResult} and the rest; its {@code CombatantState} and {@code ThreadState} are {@code MobState}, D-052).
  * Both switches are exhaustive over the sealed type, so a new event doesn't compile until it has a wire form; the
  * numbers are fixed here and never reused.
@@ -166,6 +166,16 @@ final class EventCodec {
                 Wire.writeInt(buf, p.ticks());
                 buf.writeBoolean(p.splats());
             }
+            case Outbox.WallSplat w -> {
+                buf.writeByte(20);
+                Wire.writeInt(buf, w.fighter());
+                Wire.writeInt(buf, w.mob());
+                Wire.writeLong(buf, w.tick());
+                buf.writeBoolean(w.teched());
+                Wire.writeInt(buf, w.jumps());
+                Wire.writeLong(buf, w.techOffsetMicros());
+                buf.writeDouble(w.damage());
+            }
             case Outbox.PoseClamped c -> { // routed to nobody today; a wire form keeps every event sendable
                 buf.writeByte(19);
                 Wire.writeInt(buf, c.fighter());
@@ -281,6 +291,15 @@ final class EventCodec {
             case 18 -> new Outbox.MobLeft(Wire.readInt(buf), Wire.readLong(buf));
             case 19 ->
                 new Outbox.PoseClamped(Wire.readInt(buf), Wire.readLong(buf), buf.readDouble(), buf.readDouble());
+            case 20 ->
+                new Outbox.WallSplat(
+                        Wire.readInt(buf),
+                        Wire.readInt(buf),
+                        Wire.readLong(buf),
+                        buf.readBoolean(),
+                        Wire.readInt(buf),
+                        Wire.readLong(buf),
+                        buf.readDouble());
             default -> throw new DecoderException("unknown event " + type);
         };
     }

@@ -67,7 +67,7 @@ class SnapshotTest {
     }
 
     static Effect randomEffect(Random rnd, long n) {
-        return switch (rnd.nextInt(19)) {
+        return switch (rnd.nextInt(20)) {
             case 0 -> new Effect.Hit(rnd.nextBoolean() ? AttackClass.LIGHT : AttackClass.HEAVY, 1 + rnd.nextInt(20));
             case 1 -> new Effect.Blocked();
             case 2 -> new Effect.PostureDamage(Rig.points(5 + rnd.nextInt(120)), rnd.nextBoolean());
@@ -89,6 +89,9 @@ class SnapshotTest {
                         rnd.nextInt(4), Micros.ofTicks(n + 8) + rnd.nextInt(200_000), rnd.nextInt(4) > 0);
             case 16 -> new Effect.StrikeCancelled(rnd.nextInt(4));
             case 17 -> new Effect.StrikeDecided(rnd.nextInt(4), rnd.nextBoolean());
+            case 18 ->
+                new Effect.Push(
+                        0, 1, 2.0, 4, rnd.nextBoolean() ? 0.42 : 0, n + 1, rnd.nextBoolean() ? n + 11 : Long.MIN_VALUE);
             default -> rnd.nextInt(4) == 0 ? new Effect.Collapse(20 + rnd.nextInt(40)) : Effect.TARGETED;
         };
     }

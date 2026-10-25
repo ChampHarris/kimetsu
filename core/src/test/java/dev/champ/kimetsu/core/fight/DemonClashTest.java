@@ -1,5 +1,6 @@
 package dev.champ.kimetsu.core.fight;
 
+import static dev.champ.kimetsu.core.Asserts.assertNear;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -16,6 +17,7 @@ import dev.champ.kimetsu.core.demon.Demon;
 import dev.champ.kimetsu.core.fight.Outbox.ClashEnded;
 import dev.champ.kimetsu.core.fight.Outbox.ClashOutcome;
 import dev.champ.kimetsu.core.fight.Outbox.ClashStarted;
+import dev.champ.kimetsu.core.hit.Pose;
 import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.Input;
 import dev.champ.kimetsu.core.machine.State;
@@ -184,6 +186,10 @@ class DemonClashTest {
                 s.pommelStunTicks(),
                 s.grabHoldBeats(),
                 s.throwDamage(),
+                s.knockbackTicks(),
+                s.launchUp(),
+                s.splatWindowTicks(),
+                s.splatDamage(),
                 new ClashRules(
                         c.flashHalfBeats(),
                         c.flashMarginMs(),
@@ -191,7 +197,8 @@ class DemonClashTest {
                         c.falseStartMs(),
                         c.tieMs(),
                         c.cooldownTicks(),
-                        1.0));
+                        1.0,
+                        c.tiePushBlocks()));
     }
 
     @Test
@@ -305,7 +312,54 @@ class DemonClashTest {
             a.through(125);
             ClashEnded end = a.all(ClashEnded.class).get(0);
             assertEquals(ClashOutcome.TIE, end.outcome(), leaves ? "the player left" : "the demon died");
+            assertTrue(a.all(Outbox.Pushed.class).isEmpty(), "a tie with nobody to push pushes nobody");
         }
+    }
+
+    @Test
+    void aTieOfReactionsPushesBothApart_andEndsTheHeavysCarry() {
+        Arena a = new Arena();
+        Arena.Player p = a.player(1);
+        form(p, 0, 111);
+        // a quick demon (120 ms), so the tie comes while the heavy's recovery would still carry it (to 138)
+        held = a.demon(10, profile(120, 0), DemonFightTest.guarding(1, new Arena.Script().at(100, 1, HEAVY)));
+        a.through(117);
+        long flash = started(a).flashMicros();
+        p.press(Input.of(Input.Kind.ATTACK, flash + 110_000));
+        a.through(Micros.tickOf(flash) + 20);
+        ClashEnded end = a.all(ClashEnded.class).get(0);
+        assertEquals(ClashOutcome.TIE, end.outcome());
+        long found = a.tickOf(end);
+
+        Outbox.Pushed mob = a.all(Outbox.Pushed.class).get(0); // the demon, away from the player 2 blocks before it
+        assertEquals(10, mob.mob());
+        assertEquals(found, mob.tick());
+        assertNear(0, mob.dirX(), 1e-9);
+        assertNear(-1, mob.dirZ(), 1e-9);
+        assertNear(1.5, mob.distance(), 1e-9);
+        assertEquals(4, mob.ticks());
+        assertFalse(mob.splats());
+
+        Effect.Push push = null; // the player, away from the demon, from when its client can live it
+        for (Outbox.PlayerEffect e : a.all(Outbox.PlayerEffect.class)) {
+            if (e.effect() instanceof Effect.Push q) {
+                assertEquals(end.tick(), e.tick());
+                push = q;
+            }
+        }
+        assertTrue(push != null, "no push on the player");
+        assertNear(0, push.dirX(), 1e-9);
+        assertNear(1, push.dirZ(), 1e-9);
+        assertNear(1.5, push.blocks(), 1e-9);
+        assertEquals(4, push.ticks());
+        assertNear(0, push.lift(), 1e-9);
+        assertEquals(found + 1, push.fromTick());
+        assertFalse(push.splats());
+
+        Pose pose = new Pose();
+        assertTrue(end.tick() < 138, "the heavy's recovery would still carry it at the tie: " + end.tick());
+        assertTrue(a.world.strikePose(10, end.tick() - 1, pose)); // frozen on its path until the tie
+        assertFalse(a.world.strikePose(10, end.tick(), pose)); // and free to be pushed from it
     }
 
     /** Slice 5c-1: a demon whose chunk unloads mid-clash leaves it as a tie, and goes once the clash is over. */

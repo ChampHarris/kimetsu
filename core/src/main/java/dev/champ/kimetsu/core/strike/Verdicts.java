@@ -197,12 +197,16 @@ public final class Verdicts {
     /**
      * The effects verdict {@code v} of strike {@code attack} logs on its defender at the impact, in order, into {@code
      * out} (cleared first): its Rhythm, then the Posture an answer or a block costs the defender, the block, and for a
-     * strike that lands the hit, its Posture, then the launch or the grab. {@code comboCount} is the landed hit's place
-     * in the defender's combo (Rule 7.5, {@code Combo.land}), which scales its hitstun. The server logs these, and sends
-     * each to the player's client ({@code Outbox.PlayerEffect}). A client that logs them ahead, to predict its own state,
-     * must take them back when the server's arrive (slice 5's provisional effects), or they apply twice.
+     * strike that lands the hit, its Posture, its push, then the launch or the grab. {@code comboCount} is the landed
+     * hit's place in the defender's combo (Rule 7.5, {@code Combo.land}), which scales its hitstun. A hit or a launch
+     * whose window pushes (knockback, or a launch's lift) pushes along the unit direction {@code (dirX, dirZ)} from tick
+     * {@code fromTick} (Rule 7.10), splatting on a wall for {@code splat_window_ticks} when its window wall-splats (Rule
+     * 9.4); a grab never pushes. The server logs these, and sends each to the player's client
+     * ({@code Outbox.PlayerEffect}). A client that logs them ahead, to predict its own state, must take them back when
+     * the server's arrive (slice 5's provisional effects), or they apply twice.
      */
-    public void effects(Verdict v, FrameData attack, int comboCount, List<Effect> out) {
+    public void effects(
+            Verdict v, FrameData attack, int comboCount, double dirX, double dirZ, long fromTick, List<Effect> out) {
         out.clear();
         HitWindow w = attack.hits().get(0);
         switch (v.kind()) {
@@ -221,6 +225,16 @@ public final class Verdicts {
                 out.add(new Effect.Hit(attack.attackClass(), Combo.hitstun(w.hitstun(), comboCount, hits)));
                 if (w.posture() > 0) {
                     out.add(new Effect.PostureDamage(Fixed.of(w.posture()), true));
+                }
+                if (v.kind() != Verdict.Kind.GRAB && (w.knockback() > 0 || w.launch())) {
+                    out.add(new Effect.Push(
+                            dirX,
+                            dirZ,
+                            w.knockback(),
+                            strikes.knockbackTicks(),
+                            w.launch() ? strikes.launchUp() : 0,
+                            fromTick,
+                            w.wallSplat() ? fromTick + strikes.splatWindowTicks() : Effect.Push.NO_SPLAT));
                 }
                 if (v.kind() == Verdict.Kind.LAUNCH) {
                     out.add(new Effect.Knockdown());

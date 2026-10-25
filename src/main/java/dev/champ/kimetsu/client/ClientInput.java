@@ -8,6 +8,7 @@ import dev.champ.kimetsu.core.data.Moveset;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.fight.PlayerIntake;
 import dev.champ.kimetsu.core.judge.InputHorizon;
+import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.meter.Fixed;
 import dev.champ.kimetsu.data.CombatData;
 import dev.champ.kimetsu.item.NichirinItem;
@@ -341,8 +342,16 @@ final class ClientInput {
     }
 
     /**
-     * The client tick's start, after its presses went: the dash's motion for this tick ({@link ForcedMotion}), set
-     * before the player's own tick moves it.
+     * The server pushed the player (Rule 7.10): its client moves it from the next client tick, from when it arrived, not
+     * from the impact it lived long ago ({@link ForcedMotion#push}). It ends any dash.
+     */
+    void push(Effect.Push p) {
+        dash.push(p.dirX(), p.dirZ(), p.blocks() / p.ticks(), p.ticks(), p.lift(), clientTick + 1);
+    }
+
+    /**
+     * The client tick's start, after its presses went: the dash's or the push's motion for this tick
+     * ({@link ForcedMotion}), set before the player's own tick moves it; the vertical only for a launch's lift.
      */
     void dashTick(LocalPlayer p) {
         ForcedMotion.Phase ph = dash.tick(clientTick, p.getYRot());
@@ -351,7 +360,7 @@ final class ClientInput {
         }
         Vec3 v = p.getDeltaMovement();
         if (ph == ForcedMotion.Phase.MOVE) {
-            p.setDeltaMovement(dash.dx, v.y, dash.dz);
+            p.setDeltaMovement(dash.dx, Double.isNaN(dash.dy) ? v.y : dash.dy, dash.dz);
         } else {
             p.setDeltaMovement(0, v.y, 0);
         }

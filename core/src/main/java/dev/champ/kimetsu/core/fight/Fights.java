@@ -158,6 +158,11 @@ public final class Fights {
                 }
             }
             case Outbox.ClashStarted c -> link(c.mob(), c.fighter(), step);
+            case Outbox.WallSplat w -> {
+                if (w.damage() > 0) {
+                    link(w.mob(), w.fighter(), step); // a splat deals damage
+                }
+            }
             case Outbox.MobDied d -> defeated(d.mob(), step);
             // not triggers: what a mob shows (a target alone isn't one, Rule 13.1), a lock, a swing's damage (its
             // landing is), what the machine logged, a mob leaving alive (its foes' fights wait out their time), a clamp

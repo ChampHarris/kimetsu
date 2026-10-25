@@ -74,6 +74,10 @@ class ClashShareMeasure {
                 s.pommelStunTicks(),
                 s.grabHoldBeats(),
                 s.throwDamage(),
+                s.knockbackTicks(),
+                s.launchUp(),
+                s.splatWindowTicks(),
+                s.splatDamage(),
                 new ClashRules(
                         c.flashHalfBeats(),
                         c.flashMarginMs(),
@@ -81,6 +85,7 @@ class ClashShareMeasure {
                         c.falseStartMs(),
                         c.tieMs(),
                         c.cooldownTicks(),
-                        share));
+                        share,
+                        c.tiePushBlocks()));
     }
 }

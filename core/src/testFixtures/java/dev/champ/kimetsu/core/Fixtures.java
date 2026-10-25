@@ -267,6 +267,10 @@ public final class Fixtures {
                 10, // Pommel Strike: stun 10 ticks
                 6, // Grab hold: thrown after 6 beats
                 1.0, // ... for 1.0 damage
+                4, // Knockback: a push on a player runs over 4 ticks
+                0.42, // Launch: 0.42 blocks a tick up, vanilla's jump
+                10, // Wall splat: within 10 ticks of the push
+                2.0, // ... for 2.0 damage
                 clash());
     }
 
@@ -278,7 +282,8 @@ public final class Fixtures {
                 100, // a press within 100 ms of the flash is a false start
                 15, // reactions within 15 ms tie
                 300, // a player clashes at most once in 15 s
-                0.5); // a win takes half the mob's max Posture (Champ, D-050)
+                0.5, // a win takes half the mob's max Posture (Champ, D-050)
+                1.5); // a tie's shockwave pushes each 1.5 blocks apart
     }
 
     // Bodies (blocks): vanilla's player, and the M1 demon at a zombie's size (slice 3, PROPOSED).

@@ -19,6 +19,12 @@ package dev.champ.kimetsu.core.data;
  * @param pommelStunTicks how long a Pommel Strike that interrupts a strike stuns its attacker (Rule 5.2: 10 ticks)
  * @param grabHoldBeats how many of the grabbed player's beats a grab holds before the grabber throws (Rule 6.3: 6)
  * @param throwDamage the throw's damage (Rule 6.3: 1.0)
+ * @param knockbackTicks how many ticks a hit's push on a player runs over, and a clash tie's on both sides (Rule 7.10:
+ *     4, PROPOSED)
+ * @param launchUp the upward speed a launch gives a player on its push's first tick, in blocks a tick (Rule 9.4: 0.42,
+ *     vanilla's jump, PROPOSED)
+ * @param splatWindowTicks how long after its push starts a wall the pushed player meets splats it (Rule 9.4: 10)
+ * @param splatDamage a wall splat's damage (Rule 9.4: 2.0)
  * @param clash the micro-clash (Rule 10)
  */
 public record StrikeRules(
@@ -33,6 +39,10 @@ public record StrikeRules(
         int pommelStunTicks,
         int grabHoldBeats,
         double throwDamage,
+        int knockbackTicks,
+        double launchUp,
+        int splatWindowTicks,
+        double splatDamage,
         ClashRules clash) {
 
     public StrikeRules {
@@ -47,6 +57,12 @@ public record StrikeRules(
         Check.atLeast("pommel_stun_ticks", pommelStunTicks, 0);
         Check.positive("grab_hold_beats", grabHoldBeats);
         Check.atLeast("throw_damage", throwDamage, 0.0);
+        Check.positive("knockback_ticks", knockbackTicks);
+        Check.that(launchUp > 0 && Double.isFinite(launchUp), "launch_up must be positive and finite, was " + launchUp);
+        Check.positive("splat_window_ticks", splatWindowTicks);
+        Check.that(
+                splatDamage > 0 && Double.isFinite(splatDamage),
+                "splat_damage must be positive and finite, was " + splatDamage);
     }
 
     /**

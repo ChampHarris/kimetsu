@@ -11,6 +11,7 @@ import dev.champ.kimetsu.core.clock.PulseSchedule;
 import dev.champ.kimetsu.core.data.MoveRules;
 import dev.champ.kimetsu.core.hit.Pose;
 import dev.champ.kimetsu.core.judge.InputHorizon;
+import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.Input;
 import dev.champ.kimetsu.core.machine.State;
 import dev.champ.kimetsu.core.machine.TimedAnswers;
@@ -356,6 +357,20 @@ final class MoveBoundTest {
         assertEquals(List.of(), clamped);
 
         move(new double[] {0.6, 0.6, 0.6, 0.6, 0.5, 0.4}); // the same with no impulse: over
+        settle();
+        assertTrue(!clamped.isEmpty());
+    }
+
+    @Test
+    void aPushOpensTheBoundForItsDistance_fromItsDecisionToItsEndAndTheGrace() {
+        move(0, 0);
+        long decided = n - 1; // decided in the last tick, its client pushed from this one
+        f.pushed(decided, decided, new Effect.Push(1, 0, 2.0, 4, 0, n, Effect.Push.NO_SPLAT), 10);
+        move(new double[] {0.5, 0.5, 0.5, 0.5, 0.6, 0.6}); // the push, then sprint-jumping: 3.2 in 6 ticks
+        settle();
+        assertEquals(List.of(), clamped);
+
+        move(new double[] {0.5, 0.5, 0.5, 0.5, 0.6, 0.6}); // the same with no push: over open ground's 2.82
         settle();
         assertTrue(!clamped.isEmpty());
     }

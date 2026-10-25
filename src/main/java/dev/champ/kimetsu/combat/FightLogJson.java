@@ -194,6 +194,14 @@ final class FightLogJson {
                         .num("distance", p.distance())
                         .num("ticks", p.ticks())
                         .bool("splats", p.splats());
+            case Outbox.WallSplat w ->
+                num("fighter", w.fighter())
+                        .num("mob", w.mob())
+                        .num("tick", w.tick())
+                        .bool("teched", w.teched())
+                        .num("jumps", w.jumps())
+                        .num("techOffsetMicros", w.techOffsetMicros())
+                        .num("damage", w.damage());
             case Outbox.PoseClamped c ->
                 num("fighter", c.fighter())
                         .num("tick", c.tick())
@@ -223,6 +231,14 @@ final class FightLogJson {
             case Effect.StrikeDecided s -> num("id", s.id()).bool("answered", s.answered());
             case Effect.AssistChanged a -> num("level", a.level());
             case Effect.Collapse c -> num("ticks", c.ticks());
+            case Effect.Push p ->
+                num("dirX", p.dirX())
+                        .num("dirZ", p.dirZ())
+                        .num("blocks", p.blocks())
+                        .num("ticks", p.ticks())
+                        .num("lift", p.lift())
+                        .num("fromTick", p.fromTick())
+                        .num("splatUntil", p.splatUntil());
             case Effect.Blocked _,
                     Effect.Knockdown _,
                     Effect.Released _,

@@ -122,6 +122,9 @@ class FightTracesTest {
             case Outbox.ClashEnded c -> "CLASH ENDS @" + c.tick() + ": " + c.outcome();
             case Outbox.Clang c -> "CLANG on demon " + c.mob() + (c.recoils() ? ", it recoils" : "");
             case Outbox.Pushed p -> "demon " + p.mob() + " pushed " + p.distance();
+            case Outbox.WallSplat w ->
+                "WALL SPLAT on " + w.fighter() + " @" + w.tick() + (w.teched() ? ": Teched" : ": " + w.damage() + " HP")
+                        + ", " + w.jumps() + " jumps";
             case Outbox.PoseClamped c ->
                 String.format(
                         Locale.ROOT,

@@ -20,6 +20,8 @@ import dev.champ.kimetsu.core.fight.Fights;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.fight.PlayerIntake;
 import dev.champ.kimetsu.core.judge.InputHorizon;
+import dev.champ.kimetsu.core.machine.Combatant;
+import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.Input;
 import dev.champ.kimetsu.core.machine.State;
 import dev.champ.kimetsu.core.meter.Fixed;
@@ -128,7 +130,12 @@ public final class CombatGameTests {
             FUNCTIONS.register(
                     "a_claim_past_a_teleport_is_clamped", () -> CombatGameTests::aClaimPastATeleportIsClamped),
             FUNCTIONS.register("a_claim_onto_ice_is_clamped", () -> CombatGameTests::aClaimOntoIceIsClamped),
-            FUNCTIONS.register("a_blink_off_ice_is_clamped", () -> CombatGameTests::aBlinkOffIceIsClamped));
+            FUNCTIONS.register("a_blink_off_ice_is_clamped", () -> CombatGameTests::aBlinkOffIceIsClamped),
+            FUNCTIONS.register("a_push_into_a_wall_splats", () -> CombatGameTests::aPushIntoAWallSplats),
+            FUNCTIONS.register("a_landing_is_the_servers", () -> CombatGameTests::aLandingIsTheServers),
+            FUNCTIONS.register(
+                    "the_falling_form_needs_two_blocks", () -> CombatGameTests::theFallingFormNeedsTwoBlocks),
+            FUNCTIONS.register("a_pushed_dummy_is_never_clamped", () -> CombatGameTests::aPushedDummyIsNeverClamped));
 
     /** Tests that wait on chunks generating, with {@link #CHUNK_TICKS} to do it in. */
     private static final List<String> SLOW = List.of("an_unloaded_demon_leaves_alive");
@@ -1549,6 +1556,287 @@ public final class CombatGameTests {
             PlayerSession s = combat(h).sessions().session(p.connection);
             h.assertTrue(s != null && s.arena() == null, "the dead player's session is still in the arena");
         });
+    }
+
+    // ------------------------------------------------------------------------------- pushes, splats, landings (5c-3b)
+
+    /**
+     * Rule 9.4 in the world (D-078): the demon's heavy pushes the dummy 2 blocks into a wall 1.5 behind it, which splats
+     * it (2.0 and a KNOCKDOWN on top of the heavy's 2.5, the splat published once its Tech window has passed); and a
+     * second dummy's Turbulent (Mushin's fourth form) from behind a second demon pushes it 2.5 into the same wall, 1.7
+     * behind it, which splats the demon too (its push moves it, D-045, and the wall stops it there).
+     */
+    private static void aPushIntoAWallSplats(GameTestHelper h) {
+        floor(h);
+        for (int x = 0; x < FLOOR; x++) {
+            h.setBlock(x, 1, 6, Blocks.STONE); // the wall's face at z = 6
+            h.setBlock(x, 2, 6, Blocks.STONE);
+        }
+        Arena arena = arena(h);
+        CombatData d = arena.data();
+        FrameData heavy = attack(h, d, "heavy");
+        TestDummy pushed = dummy(h, arena, 1.5, 4.2, 180); // its back 1.5 from the wall
+        long start = arena.nextTick();
+        demon(h, arena, 1.5, 2, 0, b -> new ScriptedBrain(b, pushed::getId).at(start + 20, heavy));
+        TestDummy striker = dummy(h, arena, 6, 2.5, 0);
+        M1Demon splatted = demon(h, arena, 6, 4, 0, b -> new ScriptedBrain(b, () -> -1)); // its back to the striker
+        // Mushin, then Turbulent released on the striker's beat (every 13 ticks from tick 0): a beat 30 ticks on
+        long release = Math.ceilDiv(start + 30, 13) * 13;
+        striker.press(Input.of(Input.Kind.BREATHE_DOWN, Micros.ofTicks(release) - Micros.ofMillis(200)));
+        striker.press(Input.release(Micros.ofTicks(release), 2)); // the radial's fourth form
+        Outbox.WallSplat[] splat = {null};
+        @Nullable
+        State[] splatState = {null}; // the dummy's state a tick after its wall, read while its history holds it
+        Outbox.Pushed[] push = {null};
+        long[] knockedDown = {Long.MIN_VALUE};
+        arena.listen(e -> {
+            if (e instanceof Outbox.WallSplat w && w.fighter() == pushed.getId()) {
+                splat[0] = w;
+                Fighter f = pushed.fighter();
+                splatState[0] = f != null ? f.timeline().stateAt(w.tick() + 1).state() : null;
+            } else if (e instanceof Outbox.Pushed p && p.mob() == splatted.getId() && p.splats()) {
+                push[0] = p;
+            }
+        });
+        h.onEachTick(() -> {
+            long n = arena.nextTick();
+            if (n == release - 3) {
+                arena.world().apply(striker.getId(), new Effect.RhythmDelta(100)); // every point: Mushin
+            }
+            Demon body = splatted.body();
+            if (knockedDown[0] == Long.MIN_VALUE
+                    && body != null
+                    && push[0] != null
+                    && body.state(n - 1) == State.KNOCKDOWN) {
+                knockedDown[0] = n - 1;
+            }
+        });
+        h.succeedWhen(() -> {
+            Outbox.WallSplat w = splat[0];
+            h.assertTrue(w != null, "the pushed dummy never splatted");
+            if (w != null) {
+                h.assertFalse(w.teched(), "it pressed no Jump: " + w);
+                h.assertTrue(Math.abs(w.damage() - 2.0) < 1e-9, "the splat's damage: " + w);
+                h.assertTrue(splatState[0] == State.KNOCKDOWN, "a tick after the wall it was " + splatState[0]);
+                h.assertValueEqual(pushed.getHealth(), pushed.getMaxHealth() - 2.5f - 2.0f, "the heavy's 2.5 and 2.0");
+            }
+            Outbox.Pushed p = push[0];
+            h.assertTrue(p != null, "Turbulent's last hit didn't push the demon");
+            h.assertTrue(knockedDown[0] != Long.MIN_VALUE, "the demon met the wall and wasn't knocked down");
+            double z = h.relativeVec(splatted.position()).z;
+            double back = 6 - splatted.getBbWidth() / 2; // its box against the wall's face
+            h.assertTrue(Math.abs(z - back) < 0.01, "the wall stopped it at " + z + ", not " + back);
+        });
+    }
+
+    /**
+     * Rule 9.2's landing, from the server's own check (D-049): two session players, each launched by a demon's leap,
+     * their frames carrying a pose a tick. One is held in mid-air from the launch and lands nothing until the 40-tick
+     * backstop; the other leaves the floor once the launch reaches its client and comes down 5 ticks later, landing at
+     * its first pose on the floor, 20 ticks down and 8 to rise from there.
+     */
+    private static void aLandingIsTheServers(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        FrameData leap = attack(h, arena.data(), "leap");
+        ServerPlayer held = player(h, arena, 2, 6);
+        ServerPlayer let = player(h, arena, 6, 6);
+        held.connection.markClientLoaded();
+        let.connection.markClientLoaded();
+        long start = arena.nextTick();
+        demon(h, arena, 2, 4, 0, b -> new ScriptedBrain(b, held::getId).at(start + 20, leap));
+        demon(h, arena, 6, 4, 0, b -> new ScriptedBrain(b, let::getId).at(start + 20, leap));
+        Frames heldFrames = new Frames(h, held);
+        Frames letFrames = new Frames(h, let);
+        long[] launched = {Long.MIN_VALUE, Long.MIN_VALUE}; // the tick each launch was decided in
+        long[] knockdown = {Long.MIN_VALUE, Long.MIN_VALUE}; // the tick each knockdown began
+        long[] floorPose = {Long.MIN_VALUE};
+        List<Effect.Contact> heldContacts = new ArrayList<>();
+        List<Effect.Contact> letContacts = new ArrayList<>();
+        arena.listen(e -> {
+            if (e instanceof Outbox.PlayerEffect pe) {
+                int k = pe.fighter() == held.getId() ? 0 : pe.fighter() == let.getId() ? 1 : -1;
+                if (k >= 0 && pe.effect() instanceof Effect.Knockdown) {
+                    launched[k] = arena.lastStep();
+                    knockdown[k] = pe.tick();
+                } else if (k >= 0 && pe.effect() instanceof Effect.Contact c) {
+                    (k == 0 ? heldContacts : letContacts).add(c);
+                }
+            }
+        });
+        h.onEachTick(() -> {
+            long n = arena.nextTick();
+            heldFrames.send(n, 2, launched[0] == Long.MIN_VALUE ? 1 : 4, 6); // up 3 for good once launched
+            boolean up = launched[1] != Long.MIN_VALUE;
+            long from = launched[1] + 1; // its client's first tick after the launch was decided
+            boolean air = up && n - 1 >= from && n - 1 < from + 6;
+            long pose = letFrames.send(n, 6, air ? 2.5 : 1, 6);
+            if (up && floorPose[0] == Long.MIN_VALUE && n - 1 >= from + 6) {
+                floorPose[0] = pose; // its first pose back on the floor
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(knockdown[0] != Long.MIN_VALUE && knockdown[1] != Long.MIN_VALUE, "not both launched yet");
+            Combatant heldNow = fighterOf(h, held).timeline().live();
+            h.assertTrue(arena.lastStep() >= knockdown[0] + 41, "the held player's backstop hasn't come");
+            h.assertTrue(heldContacts.isEmpty(), "a player held in the air landed: " + heldContacts);
+            h.assertValueEqual(heldNow.stateUntil(), knockdown[0] + 40 + 28, "down at the backstop");
+            Combatant letNow = fighterOf(h, let).timeline().live();
+            h.assertValueEqual(
+                    letContacts, List.of(new Effect.Contact(Effect.Surface.FLOOR, floorPose[0])), "its landing");
+            h.assertValueEqual(letNow.stateUntil(), Micros.tickOf(floorPose[0]) + 28, "down from its landing");
+        });
+    }
+
+    /**
+     * Rule 5.5's falling form from the server's own fall height: two session players fall a quarter block a tick,
+     * their poses a tick apart, and each presses Attack, one 1.5 blocks above the floor (Chain 1) and one 2.5 above
+     * (Waterfall Basin, which needs 2).
+     */
+    private static void theFallingFormNeedsTwoBlocks(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        ServerPlayer low = player(h, arena, 2, 4);
+        ServerPlayer high = player(h, arena, 6, 4);
+        Frames lowFrames = new Frames(h, low);
+        Frames highFrames = new Frames(h, high);
+        long start = arena.nextTick() + STAND_TICKS; // standing until they've joined
+        double fall = 0.25;
+        String[] attacks = {null, null};
+        h.onEachTick(() -> {
+            long n = arena.nextTick();
+            // each falls from 6 blocks up from start, its press in the frame where it's 1.5 or 2.5 above the floor
+            double lowY = 1 + Math.min(6, Math.max(0, 6 - fall * (n - start)));
+            double highY = 1 + Math.min(6, Math.max(0, 6 - fall * (n - start)));
+            if (Math.abs(lowY - 1 - 1.5) < 1e-9) {
+                lowFrames.press(PlayerIntake.Key.ATTACK);
+            }
+            if (Math.abs(highY - 1 - 2.5) < 1e-9) {
+                highFrames.press(PlayerIntake.Key.ATTACK);
+            }
+            lowFrames.send(n, 2, lowY, 4);
+            highFrames.send(n, 6, highY, 4);
+            for (int k = 0; k < 2; k++) {
+                ServerPlayer p = k == 0 ? low : high;
+                PlayerSession s = combat(h).sessions().session(p.connection);
+                Fighter f = s != null ? s.fighter() : null;
+                FrameData a = f != null ? f.timeline().live().attack() : null;
+                if (attacks[k] == null && a != null) {
+                    attacks[k] = a.id();
+                }
+            }
+        });
+        h.succeedWhen(() -> {
+            // assertValueEqual throws outside the test on a null (GameTestHelper:1102), so these compare by hand
+            h.assertTrue("kimetsu:light_chain/1".equals(attacks[0]), "1.5 blocks up: Chain 1, not " + attacks[0]);
+            h.assertTrue(
+                    "kimetsu:water/eighth_form".equals(attacks[1]),
+                    "2.5 blocks up: Waterfall Basin, not " + attacks[1]);
+        });
+    }
+
+    /**
+     * The dummy is unbounded by default (D-071); bounded on tight rules (1 block over 6 ticks), the heavy's 2-block push
+     * still isn't clamped, since the push opens the bound (Rule 7.10), while the same 2 blocks over 4 ticks with no
+     * push is.
+     */
+    private static void aPushedDummyIsNeverClamped(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        CombatData d = arena.data();
+        FrameData heavy = attack(h, d, "heavy");
+        MoveRules tight = new MoveRules(6, 1.0, 1.0, 0.5, 0.5, 0.225, 2, 2.0);
+        TestDummy pushed = dummy(h, arena, 2, 4, 180);
+        TestDummy moved = dummy(h, arena, 6, 2, 180);
+        long start = arena.nextTick();
+        demon(h, arena, 2, 2, 0, b -> new ScriptedBrain(b, pushed::getId).at(start + 20, heavy));
+        List<Outbox.PoseClamped> pushedClamps = new ArrayList<>();
+        List<Outbox.PoseClamped> movedClamps = new ArrayList<>();
+        long[] hit = {Long.MIN_VALUE};
+        arena.listen(e -> {
+            if (e instanceof Outbox.PoseClamped c) {
+                (c.fighter() == pushed.getId() ? pushedClamps : movedClamps).add(c);
+            } else if (e instanceof Outbox.PlayerEffect pe
+                    && pe.fighter() == pushed.getId()
+                    && pe.effect() instanceof Effect.Push) {
+                hit[0] = arena.lastStep();
+            }
+        });
+        boolean[] bounded = {false};
+        h.onEachTick(() -> {
+            long n = arena.nextTick();
+            Fighter a = pushed.fighter();
+            Fighter b = moved.fighter();
+            if (!bounded[0] && a != null && b != null) {
+                bounded[0] = true;
+                FrameData step = d.frames().get("kimetsu:water/step");
+                if (step == null) {
+                    throw h.assertionException("kimetsu:water/step isn't loaded");
+                }
+                a.movement(tight, step, d.rules().machine().bufferTicks());
+                b.movement(tight, step, d.rules().machine().bufferTicks());
+            }
+            if (n > start + 20 && n <= start + 24) { // the same 2 blocks over 4 ticks, by hand
+                moved.snapTo(moved.getX(), moved.getY(), moved.getZ() + 0.5, 180, 0);
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(hit[0] != Long.MIN_VALUE, "the heavy hasn't pushed the dummy");
+            h.assertTrue(arena.lastStep() > hit[0] + SETTLE_TICKS, "the push's poses haven't settled");
+            double moved2 = h.relativeVec(pushed.position()).z - 4;
+            h.assertTrue(Math.abs(moved2 - 2.0) < 0.05, "the push moved it " + moved2);
+            h.assertTrue(pushedClamps.isEmpty(), "the pushed dummy was clamped: " + pushedClamps);
+            h.assertTrue(!movedClamps.isEmpty(), "2 blocks in 4 ticks with no push wasn't clamped");
+        });
+    }
+
+    /**
+     * A session player's client for a test: before each step {@code n} the player stands where the test puts it and
+     * the frame of client tick {@code n − 1} arrives with that pose, sent the seam's RTT/2 earlier, carrying the presses
+     * asked for since the last.
+     */
+    private static final class Frames {
+        private static final long RTT = Micros.ofMillis(50); // the seam's echo
+        private final GameTestHelper h;
+        private final ServerPlayer p;
+        private final List<PlayerIntake.Key> presses = new ArrayList<>();
+        private long seq;
+
+        Frames(GameTestHelper h, ServerPlayer p) {
+            this.h = h;
+            this.p = p;
+        }
+
+        void press(PlayerIntake.Key key) {
+            presses.add(key);
+        }
+
+        /** Before step {@code n}: the player at {@code (x, y, z)} from the test's corner; returns its pose's time. */
+        long send(long n, double x, double y, double z) {
+            Vec3 at = h.absoluteVec(new Vec3(x, y, z));
+            p.snapTo(at.x, at.y, at.z, 180, 0);
+            long tickTime = Micros.ofTicks(n - 1);
+            long sent = Micros.ofTicks(n) - RTT / 2;
+            List<PlayerIntake.Delta> deltas = new ArrayList<>();
+            for (PlayerIntake.Key k : presses) {
+                deltas.add(PlayerIntake.Delta.press(k, sent));
+            }
+            presses.clear();
+            combat(h)
+                    .sessions()
+                    .frameForTest(
+                            p,
+                            new PlayerIntake.Frame(
+                                    seq++,
+                                    sent,
+                                    FRAME_MICROS,
+                                    tickTime,
+                                    combat(h).epoch(),
+                                    0,
+                                    deltas),
+                            Micros.ofTicks(n));
+            return tickTime;
+        }
     }
 
     /** Whether a line of type {@code t} has each key-value pair of {@code pairs} (numbers as ints). */

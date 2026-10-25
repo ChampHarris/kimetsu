@@ -12,6 +12,7 @@ package dev.champ.kimetsu.core.data;
  * @param cooldownTicks a player who clashed can't clash again for this long (Rule 10.1: 15 s); mobs have none
  * @param winPostureShare the share of its max Posture a player's win takes from the mob (Champ, D-050: half; 1.0 breaks
  *     it, as Rule 10.3 was written, when forcing clashes cut kill time by up to 16%)
+ * @param tiePushBlocks how far a tie's shockwave pushes the player and the mob apart, each (Rule 10.3: 1.5, PROPOSED)
  */
 public record ClashRules(
         int flashHalfBeats,
@@ -20,7 +21,8 @@ public record ClashRules(
         int falseStartMs,
         int tieMs,
         int cooldownTicks,
-        double winPostureShare) {
+        double winPostureShare,
+        double tiePushBlocks) {
 
     public ClashRules {
         Check.positive("clash.flash_half_beats", flashHalfBeats);
@@ -31,5 +33,8 @@ public record ClashRules(
         Check.atLeast("clash.cooldown_ticks", cooldownTicks, 0);
         Check.that(falseStartMs < windowMs, "clash.false_start_ms must be below clash.window_ms");
         Check.between("clash.win_posture_share", winPostureShare, 0.0, 1.0);
+        Check.that(
+                tiePushBlocks > 0 && Double.isFinite(tiePushBlocks),
+                "clash.tie_push_blocks must be positive and finite, was " + tiePushBlocks);
     }
 }

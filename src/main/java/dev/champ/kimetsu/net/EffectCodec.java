@@ -5,7 +5,7 @@ import io.netty.handler.codec.DecoderException;
 import net.minecraft.network.FriendlyByteBuf;
 
 /**
- * The engine's 19 effects on the wire, each a type byte and its fields. Both switches are exhaustive over the sealed
+ * The engine's 20 effects on the wire, each a type byte and its fields. Both switches are exhaustive over the sealed
  * type, so a new effect doesn't compile until it has a wire form; the numbers are fixed here and never reused (12 was
  * {@code InCombat}, until Rule 13.1's flag became the machine's own).
  */
@@ -75,6 +75,16 @@ final class EffectCodec {
                 Wire.writeInt(buf, c.ticks());
             }
             case Effect.Die _ -> buf.writeByte(19);
+            case Effect.Push p -> {
+                buf.writeByte(20);
+                buf.writeDouble(p.dirX());
+                buf.writeDouble(p.dirZ());
+                buf.writeDouble(p.blocks());
+                Wire.writeInt(buf, p.ticks());
+                buf.writeDouble(p.lift());
+                Wire.writeLong(buf, p.fromTick());
+                Wire.writeLong(buf, p.splatUntil());
+            }
         }
     }
 
@@ -100,6 +110,15 @@ final class EffectCodec {
             case 17 -> new Effect.AssistChanged(Wire.readInt(buf));
             case 18 -> new Effect.Collapse(Wire.readInt(buf));
             case 19 -> new Effect.Die();
+            case 20 ->
+                new Effect.Push(
+                        buf.readDouble(),
+                        buf.readDouble(),
+                        buf.readDouble(),
+                        Wire.readInt(buf),
+                        buf.readDouble(),
+                        Wire.readLong(buf),
+                        Wire.readLong(buf));
             default -> throw new DecoderException("unknown effect " + type);
         };
     }

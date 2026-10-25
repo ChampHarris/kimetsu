@@ -2,6 +2,7 @@ package dev.champ.kimetsu.client;
 
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.fight.Outbox;
+import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.strike.StrikeView;
 import dev.champ.kimetsu.data.CombatData;
 import dev.champ.kimetsu.net.NetMessage;
@@ -32,9 +33,13 @@ final class ClientView {
     private long tick = Long.MIN_VALUE;
     private long combatUntil = Long.MIN_VALUE; // the last snapshot's Rule 13.1 flag, until the level goes
 
-    /** One step's message from the server, in order. */
-    void accept(NetMessage.Tick t, int self) {
+    /**
+     * One step's message from the server, in order; returns the newest push it carries on player {@code self}, which
+     * its client plays ({@code ClientInput.push}), or null.
+     */
+    Effect.@Nullable Push accept(NetMessage.Tick t, int self) {
         tick = Math.max(tick, t.tick());
+        Effect.Push pushed = null;
         for (Outbox.Event e : t.events()) {
             switch (e) {
                 case Outbox.AttackStarted s -> strikes.put(s.strike(), s);
@@ -51,7 +56,10 @@ final class ClientView {
                         verdicts.removeLast();
                     }
                 }
-                default -> {} // the presentation's (5d): hits, holds, clashes, effects
+                case Outbox.PlayerEffect p
+                when p.fighter() == self && p.effect() instanceof Effect.Push push ->
+                    pushed = push; // its client moves it (Rule 7.10)
+                default -> {} // the presentation's (5d): hits, holds, clashes, the other effects
             }
         }
         NetMessage.Snapshot s = t.snapshot();
@@ -60,6 +68,7 @@ final class ClientView {
             combatUntil = s.combatUntil();
         }
         prune();
+        return pushed;
     }
 
     /**

@@ -87,7 +87,8 @@ public final class PlayerIntake {
      * @param slot for a Breathe release, the radial slot it was released toward, or −1
      * @param fallBlocks for an attack press, how far above the ground the player was while falling (0 when not): the
      *     server's own reading, never the client's (the wire doesn't carry it: a client-declared height fired the
-     *     falling form from the ground); slice 5c takes it from the server's collision check
+     *     falling form from the ground). The mod's deltas carry none, so the intake's {@link FallProbe} gives it; a
+     *     test's or a bot's delta can carry its own
      */
     public record Delta(Key key, boolean down, long stampMicros, int slot, double fallBlocks) {
         public static Delta press(Key key, long stampMicros) {
@@ -168,6 +169,18 @@ public final class PlayerIntake {
 
     public static final Sink NO_SINK = (in, d, frameTime, held) -> {};
 
+    /**
+     * How far above the floor the player was while falling at an attack press's judged stamp (Rule 5.5), from the
+     * server's own poses and level ({@link FallHeight}); 0 when it wasn't falling. Asked for attack presses only.
+     */
+    @FunctionalInterface
+    public interface FallProbe {
+        /** No level to ask: no press is falling. */
+        FallProbe NONE = atMicros -> 0;
+
+        double fallBlocks(long atMicros);
+    }
+
     /** The presses and releases it holds for a stall's anchor at most (the stamp check holds no more). */
     public static final int MAX_PENDING = 64;
 
@@ -181,6 +194,7 @@ public final class PlayerIntake {
     private final StampCheck check;
     private final RttWindow rtt;
     private final Sink sink;
+    private FallProbe fall = FallProbe.NONE;
     private @Nullable Fighter fighter;
 
     private final long[] pendingToken = new long[MAX_PENDING];
@@ -213,6 +227,11 @@ public final class PlayerIntake {
         this.rtt = new RttWindow(Micros.ofMillis(rules.rttWindowMs()), 2 * Micros.ofMillis(rules.toleranceMinMs()));
         Arrays.fill(releasedAt, Long.MIN_VALUE);
         this.sink = sink;
+    }
+
+    /** Its attack presses' fall heights come from {@code probe} from now on. */
+    public void fallProbe(FallProbe probe) {
+        fall = probe;
     }
 
     /**
@@ -500,7 +519,9 @@ public final class PlayerIntake {
         if (kind == null) {
             return;
         }
-        Input in = new Input(kind, judged, d.slot(), d.fallBlocks());
+        double fallBlocks =
+                kind != Input.Kind.ATTACK ? 0 : d.fallBlocks() > 0 ? d.fallBlocks() : fall.fallBlocks(judged);
+        Input in = new Input(kind, judged, d.slot(), fallBlocks);
         if (k.releasable()) {
             told = d.down() ? told | k.bit() : told & ~k.bit();
             releasedAt[k.wire()] = d.down() ? Long.MIN_VALUE : judged;

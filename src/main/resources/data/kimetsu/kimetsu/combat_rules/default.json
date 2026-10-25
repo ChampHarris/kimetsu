@@ -84,6 +84,10 @@
     "pommel_stun_ticks": 10,
     "grab_hold_beats": 6,
     "throw_damage": 1.0,
+    "knockback_ticks": 4,
+    "launch_up": 0.42,
+    "splat_window_ticks": 10,
+    "splat_damage": 2.0,
     "clash": {
       "flash_half_beats": 3,
       "flash_margin_ms": 50,
@@ -91,7 +95,8 @@
       "false_start_ms": 100,
       "tie_ms": 15,
       "cooldown_ticks": 300,
-      "win_posture_share": 0.5
+      "win_posture_share": 0.5,
+      "tie_push_blocks": 1.5
     }
   },
   "rhythm": {

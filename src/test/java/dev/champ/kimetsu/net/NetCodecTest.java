@@ -47,7 +47,7 @@ class NetCodecTest {
     @Test
     void everyEventRoundTrips() throws ReflectiveOperationException {
         List<Class<?>> types = records(Outbox.Event.class);
-        assertEquals(20, types.size(), "the outbox's events"); // PoseClamped joined (D-070)
+        assertEquals(21, types.size(), "the outbox's events"); // WallSplat joined (5c-3b)
         for (int seed = 0; seed < 3; seed++) {
             for (Class<?> t : types) {
                 Outbox.Event e = (Outbox.Event) sample(t, seed);
@@ -62,7 +62,8 @@ class NetCodecTest {
     @Test
     void everyEffectRoundTrips() throws ReflectiveOperationException {
         List<Class<?>> types = records(Effect.class);
-        assertEquals(19, types.size(), "the engine's effects"); // InCombat went: Rule 13.1's flag is the machine's
+        // InCombat went (Rule 13.1's flag is the machine's); Push joined (5c-3b)
+        assertEquals(20, types.size(), "the engine's effects");
         for (int seed = 0; seed < 3; seed++) {
             for (Class<?> t : types) {
                 Effect e = (Effect) sample(t, seed);

@@ -13,6 +13,7 @@ import dev.champ.kimetsu.core.demon.Demon;
 import dev.champ.kimetsu.core.demon.DemonBrain;
 import dev.champ.kimetsu.core.hit.Sight;
 import dev.champ.kimetsu.core.judge.InputHorizon;
+import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.State;
 import dev.champ.kimetsu.core.machine.Timeline;
 import dev.champ.kimetsu.core.strike.Scheduler;
@@ -377,6 +378,38 @@ class FightHotPathTest {
         assertTrue(
                 clean >= 6,
                 "filing allocated in " + (windows.length - clean) + " of 10 windows: " + Arrays.toString(windows));
+    }
+
+    @Test
+    void lookingForAPushsWallAllocatesNothing() {
+        // every player inside a push's window that never closes, each newly filed pose asked whether it meets a wall
+        // along the push (Rule 9.2's contact, ContactCheck); the quiet ticks above look for none, asking nothing
+        Effect.Push open = new Effect.Push(1, 0, 2.0, 4, 0, 0, 1L << 40);
+        for (Fighter f : fighters) {
+            f.contacts.push(open, 10, 0, 2);
+        }
+        for (int i = 0; i < 50_000; i++) {
+            tick();
+        }
+        com.sun.management.ThreadMXBean bean = (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
+        long[] windows = new long[10];
+        for (int w = 0; w < windows.length; w++) {
+            long before = bean.getCurrentThreadAllocatedBytes();
+            for (int i = 0; i < 20_000; i++) {
+                tick();
+            }
+            windows[w] = bean.getCurrentThreadAllocatedBytes() - before;
+        }
+        System.out.println(
+                "ticks looking for 4 pushes' walls: bytes allocated per window of 20,000: " + Arrays.toString(windows));
+        int clean = 0;
+        for (long bytes : windows) {
+            clean += bytes == 0 ? 1 : 0;
+        }
+        assertTrue(
+                clean >= 6,
+                "the contact check allocated in " + (windows.length - clean) + " of 10 windows: "
+                        + Arrays.toString(windows));
     }
 
     @Test

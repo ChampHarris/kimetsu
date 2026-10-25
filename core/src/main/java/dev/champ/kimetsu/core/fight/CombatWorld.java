@@ -51,7 +51,8 @@ import org.jspecify.annotations.Nullable;
  * <ol>
  *   <li>players' presses arrive and their machines advance ({@code Timeline.beginTick}: steps 1 and 3); cancels,
  *       landings and the mod's own effects queued between ticks reach their machines; the poses staged since the last
- *       tick are filed, each within the movement bound ({@link MoveBound}); mobs report where they stand;
+ *       tick are filed, each within the movement bound ({@link MoveBound}), and where a pushed or knocked-down player's
+ *       poses met a wall or the floor is logged ({@link ContactCheck}); mobs report where they stand;
  *   <li>mobs' brains commit strings ({@link #commit}): each is scheduled onto its target's beat and told to it;
  *   <li>cues that fire lock their strike's direction and its path (Rule 7.13: from then the attacker moves only by
  *       the strike's own displacement, {@link #strikePose}), and players within reach of where its sweep will be at
@@ -64,7 +65,8 @@ import org.jspecify.annotations.Nullable;
  *       as they stood then. A grab or a charged red, which any of its players' Pommels could interrupt, is decided for
  *       all of them at once. Once every involved player is decided the attacker pays, once, for the best answer
  *       (D-039);
- *   <li>(effects are logged as they're decided);
+ *   <li>(effects are logged as they're decided; a wall splat's is published once the player's input has passed its
+ *       Tech window, Teched or not);
  *   <li>players' meters run and their snapshots are kept ({@code Timeline.endTick}); mobs end their tick.
  * </ol>
  *
@@ -112,6 +114,9 @@ public final class CombatWorld {
 
     /** An effect of the mod's own on a player, to log when its next tick begins. */
     private record Applied(int fighter, Effect effect) {}
+
+    /** A wall a splatting push met at {@code micros} (logged at {@code tick}), from mob {@code mob}'s hit: to settle. */
+    private record Splat(Fighter f, int mob, long micros, long tick) {}
 
     /** A micro-clash under way (Rule 10): who, from which impact, when the flash comes and when the mob presses. */
     private static final class Clash {
@@ -166,6 +171,7 @@ public final class CombatWorld {
     private final List<Queued> queued = new ArrayList<>();
     private final List<Landing> landings = new ArrayList<>();
     private final List<Applied> applied = new ArrayList<>();
+    private final List<Splat> splats = new ArrayList<>();
     private final List<Hold> holds = new ArrayList<>();
     private final List<Clash> clashes = new ArrayList<>();
     private final List<Effect> effects = new ArrayList<>();
@@ -297,12 +303,11 @@ public final class CombatWorld {
     }
 
     /**
-     * The mod reports that player {@code fighter}'s knocked-down body met {@code surface} at {@code micros} (Rule 9.2:
-     * the contact its Tech is judged against, and the floor that starts its ticks down). The server works the tick out
-     * from its own collision check on the player's movement, never from the client's on-ground flag, and takes a
-     * client's sub-tick fraction only within that tick (slice 5). Between ticks: when the next tick begins, it's logged
-     * on the player's machine as of its own tick (replaying from there, so what the player did meanwhile is judged
-     * against it), and never later than that next tick.
+     * Player {@code fighter}'s knocked-down body met {@code surface} at {@code micros} (Rule 9.2: the contact its Tech
+     * is judged against, and the floor that starts its ticks down). The loop finds its own from the filed poses
+     * ({@link ContactCheck}); this is for the bots and tests that report one. Between ticks: when the next tick begins,
+     * it's logged on the player's machine as of its own tick (replaying from there, so what the player did meanwhile is
+     * judged against it), and never later than that next tick.
      */
     public void landed(int fighter, Effect.Surface surface, long micros) {
         landings.add(new Landing(fighter, surface, micros));
@@ -481,9 +486,11 @@ public final class CombatWorld {
         }
         applied.clear();
         // every machine has run, cancels and landings included: the poses staged since are filed now, bounded by the
-        // Steps the machines accepted, before anything reads them
+        // Steps the machines accepted, before anything reads them, and where they met the level is logged
         for (int i = 0; i < fighters.size(); i++) {
-            fighters.get(i).filePoses(n, outbox);
+            Fighter f = fighters.get(i);
+            f.filePoses(n, outbox);
+            levelContacts(f, n);
         }
         for (int i = 0; i < mobs.size(); i++) {
             Mob m = mobs.get(i);
@@ -505,6 +512,7 @@ public final class CombatWorld {
         resolve(n);
         clashes(n);
         holds(n);
+        splats(n);
         depart(n);
         for (int i = 0; i < fighters.size(); i++) {
             fighters.get(i).timeline().endTick(n);
@@ -513,6 +521,86 @@ public final class CombatWorld {
             mobs.get(i).body.endTick(n);
         }
         bury();
+    }
+
+    /**
+     * Where player {@code f}'s newly filed poses met the level (Rule 9.2): a wall along its push, then the floor of its
+     * knockdown (a splat's own knockdown included), each logged as a landing is, at its pose's tick or the earliest an
+     * effect still can be. A wall inside a splatting push's window waits to be settled ({@link #splats}).
+     */
+    private void levelContacts(Fighter f, long n) {
+        long wall = f.contacts.wall(f.poses(), ground, f.halfWidth(), f.height());
+        if (wall != ContactCheck.NONE) {
+            long tick = contact(f, Effect.Surface.WALL, wall, n);
+            if (f.contacts.splats()) {
+                splats.add(new Splat(f, f.contacts.mob(), Math.min(wall, Micros.ofTicks(n)), tick));
+            }
+        }
+        long floor = f.contacts.floor(f.poses(), f.timeline().live(), ground, f.halfWidth(), f.height());
+        if (floor != ContactCheck.NONE) {
+            contact(f, Effect.Surface.FLOOR, floor, n);
+        }
+    }
+
+    /** Logs {@code f}'s contact with {@code surface} at {@code micros}, as of tick {@code n}; returns its tick. */
+    private long contact(Fighter f, Effect.Surface surface, long micros, long n) {
+        long at = Math.min(micros, Micros.ofTicks(n)); // a pose stamped ahead of the server's clock is taken as now
+        long tick = Math.max(Micros.stepOf(at), f.timeline().earliestEffectTick());
+        log(f, new Effect.Contact(surface, at), tick);
+        return tick;
+    }
+
+    /**
+     * Step 5, after the strikes: each wall splat is settled once the player's input has passed its contact's Tech window
+     * and no strike's barrier holds a press from it, or when the player leaves: {@link Outbox.WallSplat}, Teched or
+     * not, with its damage (none when Teched). A contact the machine didn't take as a splat (it was held, or out of the
+     * window as replayed) publishes nothing.
+     */
+    private void splats(long n) {
+        for (int i = 0; i < splats.size(); i++) {
+            Splat s = splats.get(i);
+            Fighter f = s.f();
+            if (fighter(f.id()) != f) {
+                splats.remove(i--); // gone with its machine
+                continue;
+            }
+            Combatant c = f.timeline().live();
+            long until = s.micros() + c.techAfterMicros();
+            if (!f.leaving
+                    && (awaited(f, until)
+                            || !f.horizon()
+                                    .decided(
+                                            until,
+                                            false,
+                                            Micros.ofTicks(n),
+                                            f.holdCapMicros(),
+                                            f.earliestHeldMicros()))) {
+                continue;
+            }
+            splats.remove(i--);
+            if (c.wallContactMicros() == s.micros()) {
+                boolean teched = c.wallTeched();
+                outbox.add(new Outbox.WallSplat(
+                        f.id(),
+                        s.mob(),
+                        s.tick(),
+                        teched,
+                        c.wallJumps(),
+                        c.wallTechOffsetMicros(),
+                        teched ? 0 : strikes.splatDamage()));
+            }
+        }
+    }
+
+    /** Whether a strike on {@code f} landing by {@code micros} is still to be decided: its barrier holds later presses. */
+    private boolean awaited(Fighter f, long micros) {
+        for (int i = 0; i < book.size(); i++) {
+            PendingStrike s = book.get(i);
+            if (s.status() == PendingStrike.Status.PENDING && s.awaits(f.id()) && s.impactMicros() <= micros) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -1360,7 +1448,9 @@ public final class CombatWorld {
             } else if (press != NONE && press < falseStart) {
                 endClash(i--, Micros.stepOf(Math.max(press, Micros.ofTicks(c.from))), Outbox.ClashOutcome.MOB);
             } else if (press != NONE && Math.abs(press - c.mobPress) <= Micros.ofMillis(r.tieMs())) {
-                endClash(i--, Micros.stepOf(Math.min(press, c.mobPress)), Outbox.ClashOutcome.TIE);
+                long tick = Micros.stepOf(Math.min(press, c.mobPress));
+                endClash(i--, tick, Outbox.ClashOutcome.TIE);
+                tiePush(c, tick, n);
             } else if (press != NONE && press < c.mobPress) {
                 endClash(i--, Micros.stepOf(press), Outbox.ClashOutcome.PLAYER);
             } else if (press != NONE
@@ -1386,6 +1476,48 @@ public final class CombatWorld {
         c.mob.body.clashEnded(
                 tick, outcome == Outbox.ClashOutcome.PLAYER, strikes.clash().winPostureShare());
         outbox.add(new Outbox.ClashEnded(c.strike, c.mob.body.id(), c.f.id(), tick, outcome));
+    }
+
+    /**
+     * A tie's shockwave (Rule 10.3), found in tick {@code n} for tick {@code tick}: the heavy's carry ends there, and each
+     * side is pushed away from the other by {@code tie_push_blocks} over {@code knockback_ticks}, splatting nobody: the
+     * mob from now, as the server moves it, and the player from when its client can live it. Only the reactions' tie
+     * pushes: a side leaving or stopping ends the clash with nobody to push.
+     */
+    private void tiePush(Clash c, long tick, long n) {
+        Mob m = c.mob;
+        PendingStrike heavy = m.path;
+        if (heavy != null && heavy.id() == c.strike) {
+            m.pathEnd = Math.min(m.pathEnd, tick);
+        }
+        m.poses.at(Micros.ofTicks(n), pose);
+        c.f.poses().at(Micros.ofTicks(n), other);
+        double dx = pose.x() - other.x();
+        double dz = pose.z() - other.z();
+        double len = Math.sqrt(dx * dx + dz * dz);
+        if (len < 1e-9) { // one on the other: back along the mob's own facing
+            dx = Trig.sinDeg(pose.yaw());
+            dz = -Trig.cosDeg(pose.yaw());
+            len = 1;
+        }
+        double ux = dx / len;
+        double uz = dz / len;
+        ClashRules r = strikes.clash();
+        outbox.publish(new Outbox.Pushed(m.body.id(), n, ux, uz, r.tiePushBlocks(), strikes.knockbackTicks(), false));
+        Effect.Push p = new Effect.Push(
+                -ux, -uz, r.tiePushBlocks(), strikes.knockbackTicks(), 0, pushFrom(c.f), Effect.Push.NO_SPLAT);
+        log(c.f, p, tick);
+        c.f.pushed(n, tick, p, m.body.id());
+    }
+
+    /**
+     * The first tick player {@code f}'s client can live what's decided now: the next tick plus RTT/2, capped at the
+     * longest hold as a clash's flash is, so a client claiming a huge RTT can't push its push out of its splat window.
+     * Never the impact: the client lived that long ago (gotcha: time anything physical from the decision).
+     */
+    private long pushFrom(Fighter f) {
+        return Micros.stepOf(
+                Micros.ofTicks(now + 1) + Math.min(f.rttMicros() / 2, Micros.ofMillis(timing.holdCapMaxMs())));
     }
 
     private void view(PendingStrike s) {
@@ -1509,13 +1641,32 @@ public final class CombatWorld {
         outbox.add(new Outbox.HoldEnded(h.strike, h.mob.body.id(), h.f.id(), tick, how, damage));
     }
 
-    /** Logs the verdict's effects on {@code f} at the impact tick ({@link Verdicts#effects}); returns the HP damage. */
+    /**
+     * Logs the verdict's effects on {@code f} at the impact tick ({@link Verdicts#effects}); returns the HP damage. A hit
+     * pushes from the attacker as the strike carried it at the impact toward the player's pose then (along the locked
+     * facing if they stand on each other), from when its client can live it; the bound opens for the push and its
+     * contacts are looked for.
+     */
     private double apply(Fighter f, PendingStrike s, long tick) {
         boolean landed = verdict.landed();
         int count = landed ? f.combo.land(tick, hits) : 0;
-        verdicts.effects(verdict, s.attack(), count, effects);
+        s.attackerAt(tick, pose);
+        f.poses().at(s.impactMicros(), other);
+        double dx = other.x() - pose.x();
+        double dz = other.z() - pose.z();
+        double len = Math.sqrt(dx * dx + dz * dz);
+        if (len < 1e-9) {
+            dx = -Trig.sinDeg(s.lockedYaw()); // forward is (−sin ψ, 0, cos ψ)
+            dz = Trig.cosDeg(s.lockedYaw());
+            len = 1;
+        }
+        verdicts.effects(verdict, s.attack(), count, dx / len, dz / len, pushFrom(f), effects);
         for (int i = 0; i < effects.size(); i++) {
-            log(f, effects.get(i), tick);
+            Effect e = effects.get(i);
+            log(f, e, tick);
+            if (e instanceof Effect.Push p) {
+                f.pushed(now, tick, p, s.attacker());
+            }
         }
         return landed ? s.attack().hits().get(0).damage() : 0;
     }
