@@ -734,6 +734,9 @@ class FrameDataTest {
                 () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 0, 0.42, 10, 2.0, Fixtures.clash()),
                 "knockback_ticks");
         rejects(
+                () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 201, 0.42, 10, 2.0, Fixtures.clash()),
+                "knockback_ticks"); // past the wire's bound on a push
+        rejects(
                 () -> new StrikeRules(2, 8, 2, 120, 4, 8, 0.07, 8, 10, 6, 1.0, 4, 0, 10, 2.0, Fixtures.clash()),
                 "launch_up");
         rejects(

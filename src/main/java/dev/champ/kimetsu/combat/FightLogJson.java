@@ -238,7 +238,8 @@ final class FightLogJson {
                         .num("ticks", p.ticks())
                         .num("lift", p.lift())
                         .num("fromTick", p.fromTick())
-                        .num("splatUntil", p.splatUntil());
+                        .num("splatUntil", p.splatUntil())
+                        .num("pressesFromMicros", p.pressesFromMicros());
             case Effect.Blocked _,
                     Effect.Knockdown _,
                     Effect.Released _,

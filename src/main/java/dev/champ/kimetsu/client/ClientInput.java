@@ -178,6 +178,7 @@ final class ClientInput {
             return;
         }
         if (steps.tap(move, clientTick + 1, d.rules().machine().doubleTapTicks())
+                && !dash.pushWaiting() // dropped, so the server never runs a Step its client won't show (both reviews)
                 && take(PlayerIntake.Key.STEP, true, nanos)) {
             held &= ~PlayerIntake.Key.STEP.bit(); // a tap has no key-up to release it, and frames flow while it's held
             stepped(nanos);
@@ -243,6 +244,9 @@ final class ClientInput {
                 mc.isWindowActive() && !mc.mouseHandler.isMouseGrabbed()); // grabMouse() needs the window active
         if (a == CaptureRules.Action.PASS) {
             return false;
+        }
+        if (k == PlayerIntake.Key.STEP && dash.pushWaiting()) {
+            return a == CaptureRules.Action.TAKE_AND_CANCEL; // dropped, never sent: as a double-tap's (both reviews)
         }
         if (take(k, true, nanos)) {
             pressed(k, nanos);
@@ -342,19 +346,32 @@ final class ClientInput {
     }
 
     /**
-     * The server pushed the player (Rule 7.10): its client moves it from the next client tick, from when it arrived, not
-     * from the impact it lived long ago ({@link ForcedMotion#push}). It ends any dash.
+     * The server pushed the player (Rule 7.10): its client moves it from the client tick whose pose frame carries the
+     * push's first tick, or the next client tick if that's past, never from the impact it lived long ago
+     * ({@link ForcedMotion#push}); it waits no longer than the longest hold and two ticks after the tick it arrives
+     * before (the server starts it at most the longest hold after the decision's next tick). It ends any dash.
      */
     void push(Effect.Push p) {
-        dash.push(p.dirX(), p.dirZ(), p.blocks() / p.ticks(), p.ticks(), p.lift(), clientTick + 1);
+        CombatData d = combat.data();
+        int wait = d == null
+                ? 0
+                : Math.toIntExact(
+                                Math.ceilDiv(Micros.ofMillis(d.rules().timing().holdCapMaxMs()), Micros.PER_TICK))
+                        + 2;
+        dash.push(p.dirX(), p.dirZ(), p.blocks() / p.ticks(), p.ticks(), p.lift(), clientTick + 1, p.fromTick(), wait);
     }
 
     /**
      * The client tick's start, after its presses went: the dash's or the push's motion for this tick
-     * ({@link ForcedMotion}), set before the player's own tick moves it; the vertical only for a launch's lift.
+     * ({@link ForcedMotion}), set before the player's own tick moves it; the vertical only for a launch's lift. Its
+     * combat tick is the one this tick's pose frame will carry ({@link #tickEnd}).
      */
     void dashTick(LocalPlayer p) {
-        ForcedMotion.Phase ph = dash.tick(clientTick, p.getYRot());
+        ClientClock clock = combat.clock();
+        long tick = clock != null && clock.inputOpen()
+                ? poseTick(clock)
+                : Long.MAX_VALUE; // no pose frame carries a tick to wait for
+        ForcedMotion.Phase ph = dash.tick(clientTick, tick, p.getYRot());
         if (ph == ForcedMotion.Phase.IDLE) {
             return;
         }
@@ -536,12 +553,21 @@ final class ClientInput {
         if (clock == null || !clock.inputOpen() || !flowing(nanos)) {
             return;
         }
-        long tickTime = Math.floorDiv(clock.micros(tickStartNanos), Micros.PER_TICK) * Micros.PER_TICK;
+        long tickTime = poseTick(clock) * Micros.PER_TICK;
         if (tickTime <= lastTickTime) {
             return; // frozen, or the clock stood still: no fresh pose
         }
         lastTickTime = tickTime;
         send(nanos, tickTime, pending.isEmpty() ? frameMicros : pendingFrameMicros);
+    }
+
+    /**
+     * The combat tick this client tick's pose frame carries: the tick its start fell in on the combat clock. A waiting
+     * push starts by the same number ({@link #dashTick}), so its first push pose is the one stamped with its first tick
+     * (the code review).
+     */
+    private long poseTick(ClientClock clock) {
+        return Math.floorDiv(clock.micros(tickStartNanos), Micros.PER_TICK);
     }
 
     /**

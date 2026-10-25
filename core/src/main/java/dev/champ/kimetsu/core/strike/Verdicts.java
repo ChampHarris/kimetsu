@@ -201,12 +201,20 @@ public final class Verdicts {
      * hit's place in the defender's combo (Rule 7.5, {@code Combo.land}), which scales its hitstun. A hit or a launch
      * whose window pushes (knockback, or a launch's lift) pushes along the unit direction {@code (dirX, dirZ)} from tick
      * {@code fromTick} (Rule 7.10), splatting on a wall for {@code splat_window_ticks} when its window wall-splats (Rule
-     * 9.4); a grab never pushes. The server logs these, and sends each to the player's client
+     * 9.4), its Tech taking Jumps stamped after {@code pressesFromMicros} (D-081); a grab never pushes. The server logs
+     * these, and sends each to the player's client
      * ({@code Outbox.PlayerEffect}). A client that logs them ahead, to predict its own state, must take them back when
      * the server's arrive (slice 5's provisional effects), or they apply twice.
      */
     public void effects(
-            Verdict v, FrameData attack, int comboCount, double dirX, double dirZ, long fromTick, List<Effect> out) {
+            Verdict v,
+            FrameData attack,
+            int comboCount,
+            double dirX,
+            double dirZ,
+            long fromTick,
+            long pressesFromMicros,
+            List<Effect> out) {
         out.clear();
         HitWindow w = attack.hits().get(0);
         switch (v.kind()) {
@@ -234,7 +242,8 @@ public final class Verdicts {
                             strikes.knockbackTicks(),
                             w.launch() ? strikes.launchUp() : 0,
                             fromTick,
-                            w.wallSplat() ? fromTick + strikes.splatWindowTicks() : Effect.Push.NO_SPLAT));
+                            w.wallSplat() ? fromTick + strikes.splatWindowTicks() : Effect.Push.NO_SPLAT,
+                            pressesFromMicros));
                 }
                 if (v.kind() == Verdict.Kind.LAUNCH) {
                     out.add(new Effect.Knockdown());

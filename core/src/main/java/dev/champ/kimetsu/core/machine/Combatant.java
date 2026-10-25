@@ -22,6 +22,7 @@ import dev.champ.kimetsu.core.meter.Breath;
 import dev.champ.kimetsu.core.meter.Fixed;
 import dev.champ.kimetsu.core.meter.Posture;
 import dev.champ.kimetsu.core.meter.Rhythm;
+import java.util.Arrays;
 import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 
@@ -60,6 +61,7 @@ public final class Combatant {
     private static final int JUMP_REPEAT_TICKS = 2;
     private static final long NONE = Long.MIN_VALUE;
     private static final int JUMPS = 16;
+    private static final int WALLS = 4; // wall results kept for settling: a splat settles within a hold cap of its wall
     private static final Slot[] SLOTS = Slot.values();
 
     private final MachineRules rules;
@@ -124,16 +126,17 @@ public final class Combatant {
     private boolean teched;
     private boolean juggleCut;
     // a push's splat window (Rule 9.4): a wall met from step splatFrom until before splatUntil splats it, and the Jumps
-    // pressed after splatOpened (µs, the push's tick) are kept for it
+    // pressed after splatOpened (µs: the push's tick, or the earliest its client can have shown it, D-081) count for it
     private long splatFrom = NONE;
     private long splatUntil = NONE;
     private long splatOpened = NONE;
-    // its last wall contact inside a splat window, for the splat's log (D-078): µs, whether a Jump Teched it, the
-    // Jumps pressed in its Tech window, and the Teching press's offset from it
-    private long wallAt = NONE;
-    private boolean wallTeched;
-    private int wallJumps;
-    private long wallTechOffset = NONE;
+    // its last WALLS wall contacts inside a splat window, newest first, for each splat's log (D-078): µs, whether a
+    // Jump Teched it, the Jumps pressed in its Tech window, and the Teching press's offset from it. More than the
+    // newest, so a second splat before the first is settled doesn't take the first's result (D-079's review)
+    private final long[] wallAt = new long[WALLS];
+    private final boolean[] wallTeched = new boolean[WALLS];
+    private final int[] wallJumps = new int[WALLS];
+    private final long[] wallTechOffset = new long[WALLS];
 
     private int grabEscapes;
     private long lastEscapeBeat = NONE;
@@ -167,6 +170,8 @@ public final class Combatant {
         this.ledger = new CreditLedger(timing.creditsPerBeat());
         this.buffer = new InputBuffer(rules.bufferTicks());
         this.deflects = new DeflectJudge(timing);
+        Arrays.fill(wallAt, NONE);
+        Arrays.fill(wallTechOffset, NONE);
     }
 
     /**
@@ -454,7 +459,8 @@ public final class Combatant {
 
     /**
      * Rule 9.2: a Jump during a knockdown is a Tech attempt, judged against the next contact; so is one while a push's
-     * splat window is open, against the wall it may meet (D-078: as written, so mashing Techs most close-wall splats).
+     * splat window is open, against the wall it may meet (D-078: as written, so mashing Techs most close-wall splats),
+     * unless it was pressed before its client could show the push (D-081).
      */
     private void jump(Input in, long tick) {
         if (state != State.KNOCKDOWN) {
@@ -467,23 +473,23 @@ public final class Combatant {
             }
             if (splatUntil != NONE && j > splatOpened && j < Micros.ofTicks(splatUntil)) {
                 storeJump(j); // judged if the push meets a wall
-            } else if (wallTeched
-                    && j >= wallAt - Micros.ofTicks(rules.techBeforeTicks())
-                    && j <= wallAt + Micros.ofTicks(rules.techAfterTicks())) {
-                wallJumps++; // a press after a Teched wall, still in its window: mashing counts it (D-078)
+            } else if (wallTeched[0]
+                    && j >= wallAt[0] - Micros.ofTicks(rules.techBeforeTicks())
+                    && j <= wallAt[0] + Micros.ofTicks(rules.techAfterTicks())) {
+                wallJumps[0]++; // a press after a Teched wall, still in its window: mashing counts it (D-078)
             }
             return; // the breakfall on an ordinary landing is travel (build step 6)
         }
         long j = in.stampMicros();
         if (lastContact != NONE && j <= lastContact + Micros.ofTicks(rules.techAfterTicks())) {
-            boolean wall = lastContact == wallAt; // still in the air from that splat
+            boolean wall = lastContact == wallAt[0]; // still in the air from that splat
             if (wall && j >= lastContact - Micros.ofTicks(rules.techBeforeTicks())) {
-                wallJumps++;
+                wallJumps[0]++;
             }
             if (techAgainst(lastContact, j)) {
                 if (wall) {
-                    wallTeched = true;
-                    wallTechOffset = j - lastContact;
+                    wallTeched[0] = true;
+                    wallTechOffset[0] = j - lastContact;
                 }
                 tech(tick);
             }
@@ -894,7 +900,7 @@ public final class Combatant {
                 if (movable) {
                     splatFrom = p.fromTick();
                     splatUntil = p.splats() ? p.splatUntil() : NONE; // the latest push decides
-                    splatOpened = Micros.ofTicks(tick);
+                    splatOpened = Math.max(Micros.ofTicks(tick), p.pressesFromMicros());
                     if (state != State.KNOCKDOWN) {
                         jumpCount = 0; // Jumps kept for an earlier push's wall aren't this one's
                     }
@@ -1113,33 +1119,38 @@ public final class Combatant {
 
     /**
      * Rule 9.4 with Rule 9.2 as written (D-078): the push met a wall at {@code micros}. The Jumps kept since the push
-     * are judged against it, lockout and all. A Tech cancels the splat: the window closes and a hitstun runs on
-     * (PROPOSED), and a knockdown is Teched as at any contact. Without one it's a KNOCKDOWN from here, airborne, the
-     * lockout kept, so a Jump up to a tick after the contact still Techs it, and a longer stun runs on after it. The
-     * contact, its Tech and its Jumps are kept for the splat's log.
+     * could show (D-081: one still kept from before, for a knockdown's floor, is none of the wall's) are judged against
+     * it, lockout and all. A Tech cancels the splat: the window closes and a hitstun runs on (PROPOSED), and a
+     * knockdown is Teched as at any contact. Without one it's a KNOCKDOWN from here, airborne, the lockout kept, so a
+     * Jump up to a tick after the contact still Techs it, and a longer stun runs on after it. The contact, its Tech and
+     * its Jumps are kept for the splat's log, the newest of the wall results it keeps.
      */
     private void splat(long micros, long tick) {
         splatUntil = NONE;
-        wallAt = micros;
-        wallTeched = false;
-        wallTechOffset = NONE;
-        wallJumps = 0;
+        System.arraycopy(wallAt, 0, wallAt, 1, WALLS - 1);
+        System.arraycopy(wallTeched, 0, wallTeched, 1, WALLS - 1);
+        System.arraycopy(wallJumps, 0, wallJumps, 1, WALLS - 1);
+        System.arraycopy(wallTechOffset, 0, wallTechOffset, 1, WALLS - 1);
+        wallAt[0] = micros;
+        wallTeched[0] = false;
+        wallTechOffset[0] = NONE;
+        wallJumps[0] = 0;
         long techFrom = micros - Micros.ofTicks(rules.techBeforeTicks());
         long techTo = micros + Micros.ofTicks(rules.techAfterTicks());
         for (int i = 0; i < jumpCount; i++) {
-            if (jumps[i] >= techFrom && jumps[i] <= techTo) {
-                wallJumps++;
+            if (jumps[i] > splatOpened && jumps[i] >= techFrom && jumps[i] <= techTo) {
+                wallJumps[0]++;
             }
         }
         for (int i = 0; i < jumpCount; i++) {
-            if (techAgainst(micros, jumps[i])) {
-                wallTeched = true;
-                wallTechOffset = jumps[i] - micros;
+            if (jumps[i] > splatOpened && techAgainst(micros, jumps[i])) {
+                wallTeched[0] = true;
+                wallTechOffset[0] = jumps[i] - micros;
                 break;
             }
         }
         jumpCount = 0;
-        if (wallTeched) {
+        if (wallTeched[0]) {
             if (state == State.KNOCKDOWN) {
                 tech(tick);
             }
@@ -1376,22 +1387,50 @@ public final class Combatant {
 
     /** Its last wall contact inside a splat window (µs), or {@code Long.MIN_VALUE}. */
     public long wallContactMicros() {
-        return wallAt;
+        return wallAt[0];
     }
 
     /** Whether a Jump Teched that contact, cancelling its splat. */
     public boolean wallTeched() {
-        return wallTeched;
+        return wallTeched[0];
     }
 
     /** The Jumps pressed in that contact's Tech window: more than one is mashing (D-078). */
     public int wallJumps() {
-        return wallJumps;
+        return wallJumps[0];
     }
 
     /** The Teching Jump's stamp less the contact's, or {@code Long.MIN_VALUE} if it wasn't Teched. */
     public long wallTechOffsetMicros() {
-        return wallTechOffset;
+        return wallTechOffset[0];
+    }
+
+    /**
+     * Which of its last four wall contacts inside a splat window came at {@code micros} (0 the newest), or −1: none did,
+     * or it's too old to be kept. A splat is settled by its own contact's result, whatever came since.
+     */
+    public int wallIndex(long micros) {
+        for (int i = 0; i < WALLS; i++) {
+            if (wallAt[i] == micros && micros != NONE) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** Whether a Jump Teched its {@code i}th last wall contact ({@link #wallIndex}). */
+    public boolean wallTeched(int i) {
+        return wallTeched[i];
+    }
+
+    /** The Jumps pressed in its {@code i}th last wall contact's Tech window. */
+    public int wallJumps(int i) {
+        return wallJumps[i];
+    }
+
+    /** Its {@code i}th last wall contact's Teching Jump less the contact, or {@code Long.MIN_VALUE}. */
+    public long wallTechOffsetMicros(int i) {
+        return wallTechOffset[i];
     }
 
     public int grabEscapes() {
@@ -1518,10 +1557,10 @@ public final class Combatant {
         splatFrom = o.splatFrom;
         splatUntil = o.splatUntil;
         splatOpened = o.splatOpened;
-        wallAt = o.wallAt;
-        wallTeched = o.wallTeched;
-        wallJumps = o.wallJumps;
-        wallTechOffset = o.wallTechOffset;
+        System.arraycopy(o.wallAt, 0, wallAt, 0, WALLS);
+        System.arraycopy(o.wallTeched, 0, wallTeched, 0, WALLS);
+        System.arraycopy(o.wallJumps, 0, wallJumps, 0, WALLS);
+        System.arraycopy(o.wallTechOffset, 0, wallTechOffset, 0, WALLS);
         grabEscapes = o.grabEscapes;
         lastEscapeBeat = o.lastEscapeBeat;
         escaped = o.escaped;
@@ -1587,10 +1626,10 @@ public final class Combatant {
                 && splatFrom == o.splatFrom
                 && splatUntil == o.splatUntil
                 && splatOpened == o.splatOpened
-                && wallAt == o.wallAt
-                && wallTeched == o.wallTeched
-                && wallJumps == o.wallJumps
-                && wallTechOffset == o.wallTechOffset
+                && Arrays.equals(wallAt, o.wallAt)
+                && Arrays.equals(wallTeched, o.wallTeched)
+                && Arrays.equals(wallJumps, o.wallJumps)
+                && Arrays.equals(wallTechOffset, o.wallTechOffset)
                 && grabEscapes == o.grabEscapes
                 && lastEscapeBeat == o.lastEscapeBeat
                 && escaped == o.escaped

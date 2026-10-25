@@ -11,15 +11,17 @@ import org.junit.jupiter.api.Test;
  * Rule 9.4's wall splat with Rule 9.2's Tech as written (D-078). The heavy lands at tick 5 with 20 ticks of hitstun (to
  * 25) and pushes from tick 7, splatting on a wall met before tick 17; the wall comes at 700 ms (tick 14). A Jump from 4
  * ticks before the contact to 1 after Techs it, the stored ones judged with their lockout; without one, it's a KNOCKDOWN
- * in the air, and the floor comes next.
+ * in the air, and the floor comes next. Jumps at or before 330 ms (the push's first tick less a 20 ms stamp tolerance,
+ * the earliest its client can have shown it) are none of its Tech attempts (D-081).
  */
 class SplatTest {
     private static final long WALL = Rig.ms(700);
+    private static final long SHOWN = Rig.ms(330);
 
     private static Rig pushed() {
         return new Rig()
                 .effect(new Effect.Hit(AttackClass.HEAVY, 20), 5)
-                .effect(new Effect.Push(0, 1, 2.0, 4, 0, 7, 17), 5);
+                .effect(new Effect.Push(0, 1, 2.0, 4, 0, 7, 17, SHOWN), 5);
     }
 
     private static Rig atTheWall(long... jumps) {
@@ -114,7 +116,7 @@ class SplatTest {
                 .effect(new Effect.Knockdown(), 2)
                 .effect(new Effect.Contact(Effect.Surface.FLOOR, Rig.ms(150)), 3) // down at 3, up at 31
                 .effect(new Effect.Hit(AttackClass.HEAVY, 20), 5)
-                .effect(new Effect.Push(0, 1, 2.0, 4, 0, 7, 17), 5)
+                .effect(new Effect.Push(0, 1, 2.0, 4, 0, 7, 17, SHOWN), 5)
                 .effect(new Effect.Contact(Effect.Surface.WALL, WALL), 14)
                 .through(14);
         assertEquals(State.KNOCKDOWN, down.c.state());
@@ -123,7 +125,7 @@ class SplatTest {
 
         Rig air = new Rig()
                 .effect(new Effect.Hit(AttackClass.HEAVY, 0), 5)
-                .effect(new Effect.Push(0, 1, 2.0, 4, 0.42, 7, 17), 5) // a splatting launch: none in M1's data
+                .effect(new Effect.Push(0, 1, 2.0, 4, 0.42, 7, 17, SHOWN), 5) // a splatting launch: none in M1's data
                 .effect(new Effect.Knockdown(), 5)
                 .effect(new Effect.Contact(Effect.Surface.WALL, WALL), 14)
                 .through(14);
@@ -149,7 +151,7 @@ class SplatTest {
 
         Rig noSplat = new Rig()
                 .effect(new Effect.Hit(AttackClass.HEAVY, 20), 5)
-                .effect(new Effect.Push(0, 1, 1.5, 4, 0, 7, Effect.Push.NO_SPLAT), 5)
+                .effect(new Effect.Push(0, 1, 1.5, 4, 0, 7, Effect.Push.NO_SPLAT, SHOWN), 5)
                 .effect(new Effect.Contact(Effect.Surface.WALL, WALL), 14)
                 .through(14);
         assertEquals(State.HITSTUN, noSplat.c.state()); // a push that doesn't splat (a clash's tie)
@@ -160,6 +162,71 @@ class SplatTest {
         Rig r = atTheWall(Rig.ms(240)).through(14); // pressed in tick 4, before the hit
         assertEquals(State.KNOCKDOWN, r.c.state());
         assertEquals(0, r.c.wallJumps());
+    }
+
+    @Test
+    void aJumpBeforeItsClientCouldShowThePush_neitherTechsNorLocksOut() {
+        // after the hit, before the push could show (a dodge that came too late): 8 ticks early would lock out
+        Rig r = atTheWall(Rig.ms(300), WALL - Rig.ms(50)).through(14);
+        assertTrue(r.c.wallTeched()); // by the second: the first locked nothing out
+        assertEquals(-Rig.ms(50), r.c.wallTechOffsetMicros());
+        assertEquals(1, r.c.wallJumps());
+
+        Rig alone = atTheWall(SHOWN).through(14); // at the edge: still before it showed
+        assertEquals(State.KNOCKDOWN, alone.c.state());
+        assertEquals(0, alone.c.wallJumps());
+    }
+
+    @Test
+    void againstAWallAtThePushsStart_aJumpBeforeItShowedCantTechIt() {
+        long wall = Rig.ms(400); // the push's second tick: the body was all but touching it
+        Rig before = pushed().press(Input.Kind.JUMP, Rig.ms(320)); // in the Tech window, but before it showed
+        before.effect(new Effect.Contact(Effect.Surface.WALL, wall), 8).through(8);
+        assertEquals(State.KNOCKDOWN, before.c.state()); // D-081's cost: a flush wall's splat is near certain
+        assertEquals(0, before.c.wallJumps());
+
+        Rig after = pushed().press(Input.Kind.JUMP, SHOWN + 1);
+        after.effect(new Effect.Contact(Effect.Surface.WALL, wall), 8).through(8);
+        assertTrue(after.c.wallTeched());
+    }
+
+    @Test
+    void inTheAir_aJumpKeptForTheFloorFromBeforeThePushShowedIsntTheWalls() {
+        Rig r = new Rig()
+                .effect(new Effect.Knockdown(), 5) // launched: a Jump in the air waits for the next contact
+                .press(Input.Kind.JUMP, Rig.ms(290))
+                .effect(new Effect.Push(0, 1, 2.0, 4, 0, 8, 18, Rig.ms(380)), 6)
+                .effect(new Effect.Contact(Effect.Surface.WALL, Rig.ms(450)), 9)
+                .through(9);
+        assertEquals(State.KNOCKDOWN, r.c.state()); // splatted: the early Jump neither Teched it nor locked it out
+        assertFalse(r.c.wallTeched());
+        assertEquals(0, r.c.wallJumps());
+        r.press(Input.Kind.JUMP, Rig.ms(480)).through(10);
+        assertTrue(r.c.wallTeched()); // a Jump just after the wall still Techs it
+    }
+
+    @Test
+    void aSecondSplatKeepsTheFirstsResultForItsSettling() {
+        Rig r = atTheWall().through(14); // splatted at 700 ms, still in the air
+        r.effect(new Effect.Hit(AttackClass.HEAVY, 20), 15)
+                .effect(new Effect.Push(0, 1, 2.0, 4, 0, 16, 26, Rig.ms(780)), 15)
+                .press(Input.Kind.JUMP, Rig.ms(850))
+                .effect(new Effect.Contact(Effect.Surface.WALL, Rig.ms(900)), 18)
+                .through(18);
+        assertEquals(0, r.c.wallIndex(Rig.ms(900))); // the newest: Teched
+        assertTrue(r.c.wallTeched(0));
+        assertEquals(-Rig.ms(50), r.c.wallTechOffsetMicros(0));
+        assertEquals(1, r.c.wallJumps(0));
+        assertEquals(1, r.c.wallIndex(WALL)); // the first still says it landed
+        assertFalse(r.c.wallTeched(1));
+        assertEquals(0, r.c.wallJumps(1));
+        assertEquals(Long.MIN_VALUE, r.c.wallTechOffsetMicros(1));
+        assertEquals(-1, r.c.wallIndex(Rig.ms(800))); // no splat there
+
+        Combatant copy = r.fresh();
+        copy.copyFrom(r.c);
+        assertTrue(copy.sameAs(r.c));
+        assertEquals(1, copy.wallIndex(WALL));
     }
 
     @Test

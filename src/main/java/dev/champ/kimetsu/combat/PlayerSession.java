@@ -450,16 +450,15 @@ public final class PlayerSession implements ArenaMember {
 
     /**
      * A vanilla impulse moved the player (a knockback, an explosion) that can carry it {@code blocks}: the bound opens
-     * from its fighter's tick for RTT/50 plus the rules' grace (D-070).
+     * from its fighter's tick for RTT/50 plus the rules' grace (D-070), each half of the RTT capped at the longest hold
+     * (D-079's netcode review).
      */
     void impulse(double blocks) {
         Fighter f = fighter;
-        MoveRules r = moveRules;
-        if (f == null || r == null || !(blocks > 0)) {
+        if (f == null || moveRules == null || !(blocks > 0)) {
             return;
         }
-        int ticks = (int) Math.ceil(intake.rttMicros() / (double) Micros.PER_TICK) + r.impulseGraceTicks();
-        f.impulse(Micros.ofTicks(f.timeline().current()), blocks, ticks);
+        f.impulse(f.timeline().current(), blocks, Micros.ofMillis(timing.holdCapMaxMs()));
     }
 
     /** The server's clock crossed epoch {@code epoch}: tell the client first, then the stamp check. */
@@ -740,13 +739,15 @@ public final class PlayerSession implements ArenaMember {
 
     /**
      * The engine pushed the player (Rule 7.10): its client moves it, so vanilla's own movement check gives it an
-     * impulse's grace for the round trip, the push and the rules' grace, rather than setting it back mid-push.
+     * impulse's grace until the push's last movement packets arrive plus the rules' grace, rather than setting it back
+     * mid-push: the core's span, whose start caps the RTT, so a client claiming a huge one gets no long exemption
+     * (D-079's netcode review).
      */
     private void pushed(Effect.Push p) {
-        MoveRules r = moveRules;
-        int grace = r == null ? 0 : r.impulseGraceTicks();
-        player.applyPostImpulseGraceTime(
-                (int) Math.ceil(intake.rttMicros() / (double) Micros.PER_TICK) + p.ticks() + grace);
+        Fighter f = fighter;
+        if (f != null) {
+            player.applyPostImpulseGraceTime(f.vanillaGraceTicks(f.timeline().current(), p));
+        }
     }
 
     /**

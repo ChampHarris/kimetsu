@@ -16,9 +16,12 @@ import java.util.Arrays;
  * attack's Step cancel, or its end with none, or the end of a dash still running), and as the server buffers the Step, it
  * starts then if that's within {@code buffer_ticks}, or not at all.
  *
- * <p>A push ({@link #push}) runs the same way along a heading fixed in the world, not the look, from the tick it
- * arrives: the client lived the hit long ago, so it never catches up. A launch's lift sets the vertical motion on the
- * push's first tick only. A push ends any dash, running or waiting.
+ * <p>A push ({@link #push}) runs the same way along a heading fixed in the world, not the look, from the first client
+ * tick whose combat tick is the push's own first tick (the server named it: the earliest any client tick's pose can be
+ * stamped once the push can have arrived), or from the tick after it arrives if that's later: the client lived the
+ * hit long ago, so it never catches up. Its first push pose then carries the tick the server's wall check opens on,
+ * at any RTT (D-079's netcode review). A launch's lift sets the vertical motion on the push's first tick only. A push
+ * ends any dash, running or waiting, when it arrives.
  */
 final class ForcedMotion {
     /** What the tick does to the player's motion. */
@@ -45,6 +48,14 @@ final class ForcedMotion {
     private double pushX;
     private double pushZ;
     private double lift = Double.NaN; // a launch's upward motion on its push's first tick
+    // a push that arrived and waits for its first tick: its table, heading and lift, the combat tick it starts on,
+    // and the client tick it starts by whatever the clock says
+    private double[] waiting = new double[0];
+    private double waitX;
+    private double waitZ;
+    private double waitLift = Double.NaN;
+    private long waitFrom = NONE;
+    private long waitUntil = NONE;
     double dx;
     double dz;
     /** The vertical motion this tick sets, or NaN to keep vanilla's. */
@@ -53,9 +64,13 @@ final class ForcedMotion {
     /**
      * A Step pressed before client tick {@code tick} (the next to run), dashing {@code perTick} blocks a tick toward
      * {@code d}: it starts at {@code opensTick} or at once if that's past, unless that's more than {@code bufferTicks}
-     * away, when it's dropped. Returns whether it will dash. A press while another waits replaces it.
+     * away, when it's dropped. Returns whether it will dash. A press while another waits replaces it; one while a push
+     * waits to start is dropped (the hit took the player out of its dashes).
      */
     boolean press(double[] perTick, StepInput.Direction d, long tick, long opensTick, int bufferTicks) {
+        if (waitFrom != NONE) {
+            return false;
+        }
         long at = Math.max(tick, Math.max(opensTick, endTick == NONE ? NONE : endTick + 1));
         if (at - tick > bufferTicks) {
             return false;
@@ -66,28 +81,58 @@ final class ForcedMotion {
         return true;
     }
 
-    /**
-     * The server's push (Rule 7.10) arrived before client tick {@code tick} (the next to run): {@code perTick} blocks a
-     * tick along the world heading ({@code dirX}, {@code dirZ}) for {@code ticks} ticks from then, and upward
-     * {@code lift} blocks a tick on the first (0: none). It ends any dash, running or waiting: the hit took the player
-     * out of it.
-     */
-    void push(double dirX, double dirZ, double perTick, int ticks, double lift, long tick) {
-        double[] t = new double[ticks];
-        Arrays.fill(t, perTick);
-        table = t;
-        pushing = true;
-        pushX = dirX;
-        pushZ = dirZ;
-        this.lift = lift > 0 ? lift : Double.NaN;
-        index = 0;
-        endTick = tick + ticks - 1;
-        startTick = NONE;
+    /** Whether a push arrived and waits for its first tick: a Step pressed now is dropped ({@link #press}). */
+    boolean pushWaiting() {
+        return waitFrom != NONE;
     }
 
-    /** Client tick {@code tick} starts, the player looking along {@code yawDegrees}: what it does to the motion. */
-    Phase tick(long tick, double yawDegrees) {
-        if (startTick != NONE && tick >= startTick) {
+    /**
+     * The server's push (Rule 7.10) arrived before client tick {@code tick} (the next to run): {@code perTick} blocks a
+     * tick along the world heading ({@code dirX}, {@code dirZ}) for {@code ticks} ticks, and upward {@code lift} blocks a
+     * tick on the first (0: none), from the first client tick at or after {@code tick} whose combat tick is
+     * {@code fromTick} or later, and no more than {@code maxWaitTicks} after {@code tick} (the clock moved back, or the
+     * server's estimate of the link was off). It ends any dash, running or waiting, at once: the hit took the player out
+     * of it.
+     */
+    void push(
+            double dirX,
+            double dirZ,
+            double perTick,
+            int ticks,
+            double lift,
+            long tick,
+            long fromTick,
+            int maxWaitTicks) {
+        double[] t = new double[ticks];
+        Arrays.fill(t, perTick);
+        waiting = t;
+        waitX = dirX;
+        waitZ = dirZ;
+        waitLift = lift > 0 ? lift : Double.NaN;
+        waitFrom = fromTick;
+        waitUntil = tick + maxWaitTicks;
+        startTick = NONE;
+        if (index >= 0) {
+            index = table.length; // what runs stops at the next tick, unless the push starts then
+        }
+    }
+
+    /**
+     * Client tick {@code tick} starts, on combat tick {@code combatTick} (the tick its pose frame carries;
+     * {@code Long.MAX_VALUE} with no combat clock), the player looking along {@code yawDegrees}: what it does to the
+     * motion.
+     */
+    Phase tick(long tick, long combatTick, double yawDegrees) {
+        if (waitFrom != NONE && (combatTick >= waitFrom || tick >= waitUntil)) {
+            table = waiting;
+            pushing = true;
+            pushX = waitX;
+            pushZ = waitZ;
+            lift = waitLift;
+            index = 0;
+            endTick = tick + table.length - 1;
+            waitFrom = NONE;
+        } else if (startTick != NONE && tick >= startTick) {
             table = pending;
             direction = pendingDirection;
             pushing = false;
@@ -134,6 +179,7 @@ final class ForcedMotion {
         index = -1;
         endTick = NONE;
         startTick = NONE;
+        waitFrom = NONE;
         moving = false;
         pushing = false;
         dy = Double.NaN;

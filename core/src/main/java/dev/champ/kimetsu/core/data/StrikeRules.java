@@ -20,7 +20,7 @@ package dev.champ.kimetsu.core.data;
  * @param grabHoldBeats how many of the grabbed player's beats a grab holds before the grabber throws (Rule 6.3: 6)
  * @param throwDamage the throw's damage (Rule 6.3: 1.0)
  * @param knockbackTicks how many ticks a hit's push on a player runs over, and a clash tie's on both sides (Rule 7.10:
- *     4, PROPOSED)
+ *     4, PROPOSED); at most {@link #MAX_KNOCKBACK_TICKS}
  * @param launchUp the upward speed a launch gives a player on its push's first tick, in blocks a tick (Rule 9.4: 0.42,
  *     vanilla's jump, PROPOSED)
  * @param splatWindowTicks how long after its push starts a wall the pushed player meets splats it (Rule 9.4: 10)
@@ -45,6 +45,9 @@ public record StrikeRules(
         double splatDamage,
         ClashRules clash) {
 
+    /** The longest a push on a player runs (10 s): a sanity bound the wire also holds a push to, not a tuning number. */
+    public static final int MAX_KNOCKBACK_TICKS = 200;
+
     public StrikeRules {
         Check.positive("strikes_per_target_per_beat", strikesPerTargetPerBeat);
         Check.positive("min_cue_lead_ticks", minCueLeadTicks);
@@ -58,6 +61,7 @@ public record StrikeRules(
         Check.positive("grab_hold_beats", grabHoldBeats);
         Check.atLeast("throw_damage", throwDamage, 0.0);
         Check.positive("knockback_ticks", knockbackTicks);
+        Check.atMost("knockback_ticks", knockbackTicks, MAX_KNOCKBACK_TICKS);
         Check.that(launchUp > 0 && Double.isFinite(launchUp), "launch_up must be positive and finite, was " + launchUp);
         Check.positive("splat_window_ticks", splatWindowTicks);
         Check.that(

@@ -53,7 +53,8 @@ class ContactCheckTest {
     private final PoseRing poses = new PoseRing(32);
     private final Combatant live = Arena.combatant(new PulseSchedule(13), 0);
 
-    private static final Effect.Push ALONG_X = new Effect.Push(1, 0, 2.0, 4, 0, 10, 20);
+    private static final long SHOWN = 480_000; // its first tick less a 20 ms tolerance: the Jumps' business, not ours
+    private static final Effect.Push ALONG_X = new Effect.Push(1, 0, 2.0, 4, 0, 10, 20, SHOWN);
 
     private void at(long tick, double x, double y) {
         poses.put(Micros.ofTicks(tick), x, y, 0, 270, 0);
@@ -107,21 +108,21 @@ class ContactCheckTest {
 
         ContactCheck away = new ContactCheck();
         PoseRing flush = new PoseRing(32);
-        away.push(new Effect.Push(-1, 0, 2.0, 4, 0, 10, 20), 10, 8, 2);
+        away.push(new Effect.Push(-1, 0, 2.0, 4, 0, 10, 20, SHOWN), 10, 8, 2);
         flush.put(Micros.ofTicks(10), 1.7, 64, 0, 270, 0);
         assertEquals(NONE, away.wall(flush, room, HALF, HEIGHT));
     }
 
     @Test
     void aPushThatDoesntSplatLooksForItsWallUntilItEndsPlusTheGrace() {
-        check.push(new Effect.Push(1, 0, 1.5, 4, 0, 10, Effect.Push.NO_SPLAT), 10, 8, 2);
+        check.push(new Effect.Push(1, 0, 1.5, 4, 0, 10, Effect.Push.NO_SPLAT, SHOWN), 10, 8, 2);
         at(16, 1.7, 64); // 10 + 4 + 2
         assertEquals(Micros.ofTicks(16), wall());
         assertEquals(false, check.splats());
 
         ContactCheck late = new ContactCheck();
         PoseRing past = new PoseRing(32);
-        late.push(new Effect.Push(1, 0, 1.5, 4, 0, 10, Effect.Push.NO_SPLAT), 10, 8, 2);
+        late.push(new Effect.Push(1, 0, 1.5, 4, 0, 10, Effect.Push.NO_SPLAT, SHOWN), 10, 8, 2);
         past.put(Micros.ofTicks(17), 1.7, 64, 0, 270, 0);
         assertEquals(NONE, late.wall(past, room, HALF, HEIGHT));
     }
@@ -129,7 +130,7 @@ class ContactCheckTest {
     @Test
     void aLaunchsFloorCountsOnlyOnceItHasLeftTheFloor() {
         live.effect(new Effect.Knockdown(), 8);
-        check.push(new Effect.Push(1, 0, 0, 4, 0.42, 10, Effect.Push.NO_SPLAT), 10, 8, 2);
+        check.push(new Effect.Push(1, 0, 0, 4, 0.42, 10, Effect.Push.NO_SPLAT, SHOWN), 10, 8, 2);
         at(8, 0, 64);
         at(9, 0, 64);
         at(10, 0, 64); // the push's first tick, its client still on the floor
@@ -148,7 +149,7 @@ class ContactCheckTest {
     @Test
     void aClientThatNeverLeavesTheFloorLandsNothing() {
         live.effect(new Effect.Knockdown(), 8);
-        check.push(new Effect.Push(1, 0, 0, 4, 0.42, 10, Effect.Push.NO_SPLAT), 10, 8, 2);
+        check.push(new Effect.Push(1, 0, 0, 4, 0.42, 10, Effect.Push.NO_SPLAT, SHOWN), 10, 8, 2);
         for (long t = 8; t < 48; t++) {
             at(t, 0, 64);
             assertEquals(NONE, floor()); // the machine's backstop lands it

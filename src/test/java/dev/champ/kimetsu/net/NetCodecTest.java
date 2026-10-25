@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.champ.kimetsu.core.clock.TickRecord;
+import dev.champ.kimetsu.core.data.StrikeRules;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.fight.PlayerIntake;
 import dev.champ.kimetsu.core.judge.InputHorizon;
@@ -235,6 +236,35 @@ class NetCodecTest {
         assertThrows(DecoderException.class, () -> NetCodec.readToServer(unknownType));
         unknownType.readerIndex(0);
         assertThrows(DecoderException.class, () -> NetCodec.readToClient(unknownType));
+    }
+
+    /**
+     * A push its client couldn't play (no ticks: it divides by them; more than any data allows: it allocates them; a
+     * value that isn't finite) is a malformed message (5c-3b's netcode review).
+     */
+    @Test
+    void aPushItsClientCantPlayFailsToDecode() {
+        Effect.Push ok = new Effect.Push(0, 1, 2.0, 4, 0.42, 123, 133, 6_130_000);
+        FriendlyByteBuf fine = buf();
+        EffectCodec.write(fine, ok);
+        assertEquals(ok, EffectCodec.read(fine));
+        Effect.Push longest =
+                new Effect.Push(0, 1, 2.0, StrikeRules.MAX_KNOCKBACK_TICKS, 0, 123, Effect.Push.NO_SPLAT, 6_130_000);
+        FriendlyByteBuf edge = buf();
+        EffectCodec.write(edge, longest);
+        assertEquals(longest, EffectCodec.read(edge));
+        for (Effect.Push bad : List.of(
+                new Effect.Push(0, 1, 2.0, 0, 0, 123, 133, 6_130_000),
+                new Effect.Push(0, 1, 2.0, -4, 0, 123, 133, 6_130_000),
+                new Effect.Push(0, 1, 2.0, StrikeRules.MAX_KNOCKBACK_TICKS + 1, 0, 123, 133, 6_130_000),
+                new Effect.Push(Double.NaN, 1, 2.0, 4, 0, 123, 133, 6_130_000),
+                new Effect.Push(0, Double.POSITIVE_INFINITY, 2.0, 4, 0, 123, 133, 6_130_000),
+                new Effect.Push(0, 1, Double.NaN, 4, 0, 123, 133, 6_130_000),
+                new Effect.Push(0, 1, 2.0, 4, Double.NEGATIVE_INFINITY, 123, 133, 6_130_000))) {
+            FriendlyByteBuf b = buf();
+            EffectCodec.write(b, bad);
+            assertThrows(DecoderException.class, () -> EffectCodec.read(b), bad.toString());
+        }
     }
 
     /** The server reads a falling form's height itself: a client's claim fired it from the ground (netcode review). */

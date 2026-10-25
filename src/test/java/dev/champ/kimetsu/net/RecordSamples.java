@@ -41,7 +41,10 @@ public final class RecordSamples {
             if (t == long.class) {
                 values[k] = k % 3 == 2 ? -(1L << 40) - v : 1_000_000_000L * v + k; // large, small and negative
             } else if (t == int.class) {
-                values[k] = k % 2 == 0 ? v : -v;
+                // a push's ticks are a count its client divides by and allocates: the wire refuses one below 1 (and
+                // over 200, so a push's seed stays small)
+                boolean count = type == Effect.Push.class && parts[k].getName().equals("ticks");
+                values[k] = k % 2 == 0 || count ? v : -v;
             } else if (t == double.class) {
                 values[k] = v + 0.25;
             } else if (t == boolean.class) {

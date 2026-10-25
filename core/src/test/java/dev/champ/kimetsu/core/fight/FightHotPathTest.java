@@ -384,7 +384,7 @@ class FightHotPathTest {
     void lookingForAPushsWallAllocatesNothing() {
         // every player inside a push's window that never closes, each newly filed pose asked whether it meets a wall
         // along the push (Rule 9.2's contact, ContactCheck); the quiet ticks above look for none, asking nothing
-        Effect.Push open = new Effect.Push(1, 0, 2.0, 4, 0, 0, 1L << 40);
+        Effect.Push open = new Effect.Push(1, 0, 2.0, 4, 0, 0, 1L << 40, -20_000);
         for (Fighter f : fighters) {
             f.contacts.push(open, 10, 0, 2);
         }

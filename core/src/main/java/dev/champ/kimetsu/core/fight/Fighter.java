@@ -133,19 +133,46 @@ public final class Fighter {
         bound.teleported();
     }
 
-    /** A vanilla impulse at {@code fromMicros} that can carry it {@code blocks}: the bound opens for {@code ticks}. */
-    public void impulse(long fromMicros, double blocks, int ticks) {
-        bound.impulse(fromMicros, blocks, ticks);
+    /**
+     * A vanilla impulse in tick {@code n} (a knockback, an explosion) that can carry it {@code blocks}: the bound opens
+     * from then for its round trip plus the impulse grace, each half of the RTT capped at {@code maxHalfRttMicros}
+     * (the longest hold, as a push's start caps it), so a client that claims a huge RTT by delaying its echoes can't
+     * keep it open (D-079's netcode review).
+     */
+    public void impulse(long n, double blocks, long maxHalfRttMicros) {
+        long rtt = Math.min(rttMicros, 2 * maxHalfRttMicros);
+        bound.impulse(
+                Micros.ofTicks(n), blocks, Math.toIntExact(Math.ceilDiv(rtt, Micros.PER_TICK)) + impulseGraceTicks);
     }
 
     /**
      * The world logged push {@code p} on it at tick {@code tick}, in tick {@code n}, from mob {@code mob}'s hit (Rule
-     * 7.10): its client moves it, so the bound opens by the push's distance from now until the push ends plus the
-     * impulse grace, and its contacts are looked for from the push's first tick.
+     * 7.10): its client moves it, so the bound opens by the push's distance from now for {@link #pushTicks}, and its
+     * contacts are looked for from the push's first tick.
      */
     void pushed(long n, long tick, Effect.Push p, int mob) {
-        bound.impulse(Micros.ofTicks(n), p.blocks(), Math.toIntExact(p.fromTick() - n + p.ticks() + impulseGraceTicks));
+        bound.impulse(Micros.ofTicks(n), p.blocks(), pushTicks(n, p));
         contacts.push(p, mob, tick, impulseGraceTicks);
+    }
+
+    /**
+     * How many ticks from tick {@code n} its client may still be moving by push {@code p}: to the push's end plus the
+     * impulse grace. Its start already caps the RTT at the longest hold, so this is bounded whatever RTT a client
+     * claims; vanilla's own movement check is waived for as long (D-079's netcode review).
+     */
+    public int pushTicks(long n, Effect.Push p) {
+        return Math.toIntExact(p.fromTick() - n + p.ticks() + impulseGraceTicks);
+    }
+
+    /**
+     * How many server ticks from tick {@code n} vanilla's own movement check must be waived for push {@code p}
+     * ({@code applyPostImpulseGraceTime}, counted down each server tick and read as each movement packet arrives):
+     * {@link #pushTicks} and the way back, as long as the way there ({@code fromTick − n − 1}, capped at the longest hold
+     * as it is), so the push's last movement packets still arrive inside it. That's at least RTT/50, the push's ticks and
+     * the grace up to a 900 ms RTT, and bounded whatever RTT a client claims (D-079's netcode review).
+     */
+    public int vanillaGraceTicks(long n, Effect.Push p) {
+        return pushTicks(n, p) + Math.toIntExact(p.fromTick() - n - 1);
     }
 
     /** The bound's figures for the poses it settled since the last call (the fight log's second). */

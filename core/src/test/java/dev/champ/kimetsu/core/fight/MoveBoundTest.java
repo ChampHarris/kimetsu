@@ -35,6 +35,7 @@ final class MoveBoundTest {
     private static final MoveRules SHIPPED = Fixtures.movement();
     private static final double[] STEP = {0.7, 0.6, 0.5, 0.5, 0.4, 0.3};
     private static final double STANDING = Double.NaN;
+    private static final long HOLD_CAP_MAX = Micros.ofMillis(Fixtures.timing().holdCapMaxMs());
 
     private final Outbox out = new Outbox();
     private final List<Outbox.PoseClamped> clamped = new ArrayList<>();
@@ -351,7 +352,8 @@ final class MoveBoundTest {
     @Test
     void anImpulseOpensTheBound() {
         move(0, 0);
-        f.impulse(Micros.ofTicks(n), 4.4, 4); // a vanilla knockback of 0.4: 0.4 / 0.09 blocks
+        f.rttMicros(100_000); // open for its round trip and the grace: 4 ticks
+        f.impulse(n, 4.4, HOLD_CAP_MAX); // a vanilla knockback of 0.4: 0.4 / 0.09 blocks
         move(new double[] {0.6, 0.6, 0.6, 0.6, 0.5, 0.4}); // 3.3 in 6 ticks, carried
         settle();
         assertEquals(List.of(), clamped);
@@ -365,7 +367,11 @@ final class MoveBoundTest {
     void aPushOpensTheBoundForItsDistance_fromItsDecisionToItsEndAndTheGrace() {
         move(0, 0);
         long decided = n - 1; // decided in the last tick, its client pushed from this one
-        f.pushed(decided, decided, new Effect.Push(1, 0, 2.0, 4, 0, n, Effect.Push.NO_SPLAT), 10);
+        f.pushed(
+                decided,
+                decided,
+                new Effect.Push(1, 0, 2.0, 4, 0, n, Effect.Push.NO_SPLAT, Micros.ofTicks(n) - 20_000),
+                10);
         move(new double[] {0.5, 0.5, 0.5, 0.5, 0.6, 0.6}); // the push, then sprint-jumping: 3.2 in 6 ticks
         settle();
         assertEquals(List.of(), clamped);
@@ -375,10 +381,40 @@ final class MoveBoundTest {
         assertTrue(!clamped.isEmpty());
     }
 
+    /**
+     * A client that claims a 5 s RTT (it can delay its echoes) gets an impulse's bound open for a round trip of twice the
+     * longest hold, 900 ms, plus the grace: 20 ticks, not 102 (the netcode review, D-079).
+     */
+    @Test
+    void anImpulseOnAClaimedHugeRtt_opensTheBoundForACappedRoundTrip() {
+        double[] carried = {0.6, 0.6, 0.6, 0.6, 0.5, 0.4}; // 3.3 in 6 ticks
+        move(0, 0);
+        f.rttMicros(5_000_000);
+        f.impulse(n, 4.4, HOLD_CAP_MAX);
+        for (int i = 0; i < 14; i++) {
+            move(0, 0);
+        }
+        move(carried); // from 15 ticks on: a window still overlaps the 20
+        settle();
+        assertEquals(List.of(), clamped);
+
+        make(0);
+        move(0, 0);
+        f.rttMicros(5_000_000);
+        f.impulse(n, 4.4, HOLD_CAP_MAX);
+        for (int i = 0; i < 22; i++) {
+            move(0, 0);
+        }
+        move(carried); // from 23 ticks on: past it
+        settle();
+        assertTrue(!clamped.isEmpty());
+    }
+
     @Test
     void anImpulseOpensTheBoundUpward() {
         move(0, 0);
-        f.impulse(Micros.ofTicks(n), 4.4, 4); // an explosion's lift
+        f.rttMicros(100_000);
+        f.impulse(n, 4.4, HOLD_CAP_MAX); // an explosion's lift
         for (int i = 0; i < 6; i++) {
             move(0, 0.55); // 3.3 up in 6 ticks, carried
         }

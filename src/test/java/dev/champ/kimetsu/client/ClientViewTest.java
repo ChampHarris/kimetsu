@@ -42,8 +42,8 @@ class ClientViewTest {
     @Test
     void itsPlayersOwnPushIsHandedOn_notAnotherPlayersNorAnyOtherEffect() {
         ClientView v = new ClientView();
-        Effect.Push mine = new Effect.Push(0, 1, 2.0, 4, 0, 123, 133);
-        Effect.Push theirs = new Effect.Push(1, 0, 2.0, 4, 0, 123, 133);
+        Effect.Push mine = new Effect.Push(0, 1, 2.0, 4, 0, 123, 133, 6_130_000);
+        Effect.Push theirs = new Effect.Push(1, 0, 2.0, 4, 0, 123, 133, 6_130_000);
         List<Outbox.Event> events = List.of(
                 new Outbox.PlayerEffect(SELF, 122, new Effect.Blocked()),
                 new Outbox.PlayerEffect(SELF, 122, mine),

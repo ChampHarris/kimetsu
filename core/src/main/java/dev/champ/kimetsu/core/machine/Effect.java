@@ -28,10 +28,22 @@ public sealed interface Effect {
      * A hit's push (Rules 7.10, 9.4): {@code blocks} along the unit direction {@code (dirX, dirZ)} over {@code ticks},
      * starting at tick {@code fromTick}, the first its client can live it (the decision's tick + RTT/2, never the
      * impact, which it lived long ago); a launch also lifts it {@code lift} blocks a tick on the push's first tick. Its
-     * client moves it, so the server bounds the move and finds where it meets the level from the poses it files. A wall
-     * met before tick {@code splatUntil} splats it, unless it Techs (Rule 9.2); {@link #NO_SPLAT} when none can.
+     * client moves it, starting on that tick of its combat clock, so the poses it sends from then are the push's; the
+     * server bounds the move and finds where it meets the level from the poses it files. A wall met before tick
+     * {@code splatUntil} splats it, unless it Techs (Rule 9.2); {@link #NO_SPLAT} when none can. Jumps stamped at or
+     * before {@code pressesFromMicros} (its first tick less the stamp tolerance: the earliest its client can have shown
+     * it) are no Tech attempts on its wall: a press made before it could see the push, a dodge that came too late,
+     * neither Techs nor locks out (D-081).
      */
-    record Push(double dirX, double dirZ, double blocks, int ticks, double lift, long fromTick, long splatUntil)
+    record Push(
+            double dirX,
+            double dirZ,
+            double blocks,
+            int ticks,
+            double lift,
+            long fromTick,
+            long splatUntil,
+            long pressesFromMicros)
             implements Effect {
         public static final long NO_SPLAT = Long.MIN_VALUE;
 

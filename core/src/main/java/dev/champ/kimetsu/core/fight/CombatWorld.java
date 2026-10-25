@@ -578,15 +578,16 @@ public final class CombatWorld {
                 continue;
             }
             splats.remove(i--);
-            if (c.wallContactMicros() == s.micros()) {
-                boolean teched = c.wallTeched();
+            int w = c.wallIndex(s.micros()); // a later splat logged meanwhile doesn't take this one's (D-079's review)
+            if (w >= 0) {
+                boolean teched = c.wallTeched(w);
                 outbox.add(new Outbox.WallSplat(
                         f.id(),
                         s.mob(),
                         s.tick(),
                         teched,
-                        c.wallJumps(),
-                        c.wallTechOffsetMicros(),
+                        c.wallJumps(w),
+                        c.wallTechOffsetMicros(w),
                         teched ? 0 : strikes.splatDamage()));
             }
         }
@@ -1504,8 +1505,16 @@ public final class CombatWorld {
         double uz = dz / len;
         ClashRules r = strikes.clash();
         outbox.publish(new Outbox.Pushed(m.body.id(), n, ux, uz, r.tiePushBlocks(), strikes.knockbackTicks(), false));
+        long from = pushFrom(c.f);
         Effect.Push p = new Effect.Push(
-                -ux, -uz, r.tiePushBlocks(), strikes.knockbackTicks(), 0, pushFrom(c.f), Effect.Push.NO_SPLAT);
+                -ux,
+                -uz,
+                r.tiePushBlocks(),
+                strikes.knockbackTicks(),
+                0,
+                from,
+                Effect.Push.NO_SPLAT,
+                shownFrom(c.f, from));
         log(c.f, p, tick);
         c.f.pushed(n, tick, p, m.body.id());
     }
@@ -1513,11 +1522,25 @@ public final class CombatWorld {
     /**
      * The first tick player {@code f}'s client can live what's decided now: the next tick plus RTT/2, capped at the
      * longest hold as a clash's flash is, so a client claiming a huge RTT can't push its push out of its splat window.
-     * Never the impact: the client lived that long ago (gotcha: time anything physical from the decision).
+     * Never the impact: the client lived that long ago (gotcha: time anything physical from the decision). Every pose
+     * its client sends before the push can reach it is stamped earlier, so its client starts the push on this tick of
+     * its combat clock, and its first push pose is the first the wall check looks at (D-079's netcode review).
      */
     private long pushFrom(Fighter f) {
         return Micros.stepOf(
                 Micros.ofTicks(now + 1) + Math.min(f.rttMicros() / 2, Micros.ofMillis(timing.holdCapMaxMs())));
+    }
+
+    /**
+     * The earliest player {@code f}'s client can have shown a push starting at tick {@code from}, less its stamp
+     * tolerance (clamped as the clash's is): Jumps stamped at or before it are none of the push's Tech attempts (D-081).
+     */
+    private long shownFrom(Fighter f, long from) {
+        return Micros.ofTicks(from)
+                - Math.clamp(
+                        f.toleranceMicros(),
+                        Micros.ofMillis(timing.toleranceMinMs()),
+                        Micros.ofMillis(timing.toleranceMaxMs()));
     }
 
     private void view(PendingStrike s) {
@@ -1660,7 +1683,8 @@ public final class CombatWorld {
             dz = Trig.cosDeg(s.lockedYaw());
             len = 1;
         }
-        verdicts.effects(verdict, s.attack(), count, dx / len, dz / len, pushFrom(f), effects);
+        long from = pushFrom(f);
+        verdicts.effects(verdict, s.attack(), count, dx / len, dz / len, from, shownFrom(f, from), effects);
         for (int i = 0; i < effects.size(); i++) {
             Effect e = effects.get(i);
             log(f, e, tick);

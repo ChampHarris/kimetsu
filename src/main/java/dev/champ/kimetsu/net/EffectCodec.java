@@ -1,5 +1,6 @@
 package dev.champ.kimetsu.net;
 
+import dev.champ.kimetsu.core.data.StrikeRules;
 import dev.champ.kimetsu.core.machine.Effect;
 import io.netty.handler.codec.DecoderException;
 import net.minecraft.network.FriendlyByteBuf;
@@ -84,8 +85,34 @@ final class EffectCodec {
                 buf.writeDouble(p.lift());
                 Wire.writeLong(buf, p.fromTick());
                 Wire.writeLong(buf, p.splatUntil());
+                Wire.writeLong(buf, p.pressesFromMicros());
             }
         }
+    }
+
+    /**
+     * A push, bounded: its client allocates its table and divides by its ticks, so a push of no ticks, of more than any
+     * data can ask for, or with a value that isn't finite is a malformed message, never an honest server's (the netcode
+     * review).
+     */
+    private static Effect.Push push(FriendlyByteBuf buf) {
+        double dirX = buf.readDouble();
+        double dirZ = buf.readDouble();
+        double blocks = buf.readDouble();
+        int ticks = Wire.readInt(buf);
+        double lift = buf.readDouble();
+        long from = Wire.readLong(buf);
+        long splatUntil = Wire.readLong(buf);
+        long pressesFrom = Wire.readLong(buf);
+        if (ticks < 1
+                || ticks > StrikeRules.MAX_KNOCKBACK_TICKS
+                || !(Double.isFinite(dirX)
+                        && Double.isFinite(dirZ)
+                        && Double.isFinite(blocks)
+                        && Double.isFinite(lift))) {
+            throw new DecoderException("a push of " + blocks + " blocks over " + ticks + " ticks");
+        }
+        return new Effect.Push(dirX, dirZ, blocks, ticks, lift, from, splatUntil, pressesFrom);
     }
 
     static Effect read(FriendlyByteBuf buf) {
@@ -110,15 +137,7 @@ final class EffectCodec {
             case 17 -> new Effect.AssistChanged(Wire.readInt(buf));
             case 18 -> new Effect.Collapse(Wire.readInt(buf));
             case 19 -> new Effect.Die();
-            case 20 ->
-                new Effect.Push(
-                        buf.readDouble(),
-                        buf.readDouble(),
-                        buf.readDouble(),
-                        Wire.readInt(buf),
-                        buf.readDouble(),
-                        Wire.readLong(buf),
-                        Wire.readLong(buf));
+            case 20 -> push(buf);
             default -> throw new DecoderException("unknown effect " + type);
         };
     }

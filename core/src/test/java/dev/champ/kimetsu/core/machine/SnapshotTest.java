@@ -91,7 +91,14 @@ class SnapshotTest {
             case 17 -> new Effect.StrikeDecided(rnd.nextInt(4), rnd.nextBoolean());
             case 18 ->
                 new Effect.Push(
-                        0, 1, 2.0, 4, rnd.nextBoolean() ? 0.42 : 0, n + 1, rnd.nextBoolean() ? n + 11 : Long.MIN_VALUE);
+                        0,
+                        1,
+                        2.0,
+                        4,
+                        rnd.nextBoolean() ? 0.42 : 0,
+                        n + 1,
+                        rnd.nextBoolean() ? n + 11 : Long.MIN_VALUE,
+                        Micros.ofTicks(n + 1) - rnd.nextInt(80_000));
             default -> rnd.nextInt(4) == 0 ? new Effect.Collapse(20 + rnd.nextInt(40)) : Effect.TARGETED;
         };
     }

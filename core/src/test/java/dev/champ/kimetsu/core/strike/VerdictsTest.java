@@ -270,21 +270,23 @@ class VerdictsTest {
 
     // ------------------------------------------------------------------------------------------------- pushes
 
-    /** The effects a verdict of {@code kind} by {@code attack} logs, the push along +z from tick 43. */
+    /** The effects a verdict of {@code kind} by {@code attack} logs, the push along +z from tick 43, shown 20 ms before. */
     private List<Effect> effects(Kind kind, FrameData attack) {
         out.reset();
         out.kind = kind;
         List<Effect> e = new ArrayList<>();
-        verdicts.effects(out, attack, 1, 0, 1, 43, e);
+        verdicts.effects(out, attack, 1, 0, 1, 43, SHOWN, e);
         return e;
     }
+
+    private static final long SHOWN = 43 * 50_000 - 20_000;
 
     @Test
     void theHeavysHitPushesTwoBlocksOverFourTicks_andAWallInTheNextTenSplats() {
         FrameData heavy = Fixtures.heavy();
         assertEquals(Kind.HIT, judge(struckBy(heavy), heavy));
         assertEquals(
-                List.of(new Effect.Hit(AttackClass.HEAVY, 10), new Effect.Push(0, 1, 2.0, 4, 0, 43, 53)),
+                List.of(new Effect.Hit(AttackClass.HEAVY, 10), new Effect.Push(0, 1, 2.0, 4, 0, 43, 53, SHOWN)),
                 effects(Kind.HIT, heavy));
     }
 
@@ -305,7 +307,7 @@ class VerdictsTest {
         assertEquals(
                 List.of(
                         new Effect.Hit(AttackClass.HEAVY, 0),
-                        new Effect.Push(0, 1, 0, 4, 0.42, 43, Effect.Push.NO_SPLAT),
+                        new Effect.Push(0, 1, 0, 4, 0.42, 43, Effect.Push.NO_SPLAT, SHOWN),
                         new Effect.Knockdown()),
                 effects(Kind.LAUNCH, leap));
     }
