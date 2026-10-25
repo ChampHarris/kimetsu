@@ -1190,9 +1190,19 @@ public final class CombatGameTests {
         });
         MoveRules rules = arena.data().rules().movement();
         double window = rules.windowBlocks();
-        // a step the server runs with no pose filed (a held tick, a busy batch) leaves the window's start a tick older,
-        // and the bound widens in proportion (MoveBound): one such tick is allowed for
-        double widest = window * (rules.windowTicks() + 1) / rules.windowTicks();
+        // the bound scales by the client ticks a combat tick holds (T̄ over the nominal tick, at least 1), and the
+        // GameTest server runs its ticks back to back, so T̄ follows the batch's work: slow first ticks can lift it
+        // past 50 ms (D-075, D-076). A test's tick runs between ServerTickEvent.Pre, which publishes the record, and
+        // Post, where the pose is staged with it, so with no frames from this player the largest scale seen here is
+        // the largest any pose had: 1 at 50 ms ticks
+        double[] scale = {1};
+        h.onEachTick(() -> {
+            TickRecord r = combat(h).published();
+            long nominal = h.getLevel().getServer().tickRateManager().nanosecondsPerTick();
+            double clientTicks = r != null && nominal > 0 ? r.tickLengthNanos() / nominal : 1;
+            // PlayerSession.moveScale's, for a player with no effects on stone
+            scale[0] = Math.max(scale[0], rules.scale(clientTicks, 0, 1, false));
+        });
         h.runAfterDelay(STAND_TICKS, () -> {
             h.assertTrue(clamps.isEmpty(), "standing still was clamped: " + clamps);
             p.setPos(p.getX() + 10, p.getY(), p.getZ()); // what a movement packet would claim: no teleport counted
@@ -1201,9 +1211,12 @@ public final class CombatGameTests {
             h.assertFalse(clamps.isEmpty(), "a 10-block jump in a tick wasn't clamped");
             Outbox.PoseClamped first = clamps.get(0);
             h.assertTrue(Math.abs(first.rawBlocks() - 10) < 1e-6, "its window's raw displacement: " + first);
+            // a step the server runs with no pose filed (a held tick, a busy batch) leaves the window's start a tick
+            // older, and the bound widens in proportion (MoveBound): one such tick is allowed for
+            double widest = window * scale[0] * (rules.windowTicks() + 1) / rules.windowTicks();
             h.assertTrue(
                     first.allowedBlocks() >= window - 1e-6 && first.allowedBlocks() <= widest + 1e-6,
-                    "the bound's allowance: " + first);
+                    "the bound's allowance: " + first + " at a scale of at most " + scale[0]);
             h.succeed();
         });
     }
