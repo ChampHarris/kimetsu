@@ -6,10 +6,12 @@ import dev.champ.kimetsu.combat.DamagePath;
 import dev.champ.kimetsu.combat.Impulses;
 import dev.champ.kimetsu.command.KimetsuCommand;
 import dev.champ.kimetsu.data.CombatDataLoader;
+import dev.champ.kimetsu.entity.DevSpawns;
 import dev.champ.kimetsu.entity.KimetsuAttachments;
 import dev.champ.kimetsu.entity.KimetsuEntities;
 import dev.champ.kimetsu.entity.M1Demon;
 import dev.champ.kimetsu.gametest.CombatGameTests;
+import dev.champ.kimetsu.gametest.DevGameTests;
 import dev.champ.kimetsu.gametest.ScopeGameTests;
 import dev.champ.kimetsu.item.KimetsuItems;
 import dev.champ.kimetsu.net.KimetsuNet;
@@ -36,6 +38,7 @@ public final class Kimetsu {
         KimetsuItems.register(modBus);
         ScopeGameTests.register(modBus);
         CombatGameTests.register(modBus);
+        DevGameTests.register(modBus);
         modBus.addListener(KimetsuNet::onRegisterPayloads);
 
         IEventBus game = NeoForge.EVENT_BUS;
@@ -63,5 +66,6 @@ public final class Kimetsu {
         game.addListener(CombatServer::onStartTracking);
         game.addListener(CombatServer::onStopTracking);
         game.addListener(KimetsuCommand::onRegisterCommands);
+        DevSpawns.register(game); // dev runs only
     }
 }
