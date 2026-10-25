@@ -12,6 +12,7 @@ import dev.champ.kimetsu.combat.FightLog;
 import dev.champ.kimetsu.combat.PlayerSession;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.TickRecord;
+import dev.champ.kimetsu.core.data.DemonProfile;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.MoveRules;
 import dev.champ.kimetsu.core.demon.Demon;
@@ -134,6 +135,9 @@ public final class CombatGameTests {
             FUNCTIONS.register("a_push_into_a_wall_splats", () -> CombatGameTests::aPushIntoAWallSplats),
             FUNCTIONS.register(
                     "a_glancing_push_slides_along_a_wall", () -> CombatGameTests::aGlancingPushSlidesAlongAWall),
+            FUNCTIONS.register(
+                    "a_glancing_push_slides_a_demon_along_a_wall",
+                    () -> CombatGameTests::aGlancingPushSlidesADemonAlongAWall),
             FUNCTIONS.register("a_landing_is_the_servers", () -> CombatGameTests::aLandingIsTheServers),
             FUNCTIONS.register(
                     "the_falling_form_needs_two_blocks", () -> CombatGameTests::theFallingFormNeedsTwoBlocks),
@@ -1681,6 +1685,77 @@ public final class CombatGameTests {
             double slid = h.relativeVec(pushed.position()).z - startZ;
             h.assertTrue(slid > 1.0, "it didn't slide along the wall: " + slid);
             h.assertValueEqual(pushed.getHealth(), pushed.getMaxHealth() - 2.5f, "only the heavy's 2.5");
+        });
+    }
+
+    /**
+     * D-086 for a demon: it stands a hair off a wall on its +x side, and a dummy's Turbulent (Mushin's fourth form) from
+     * 1.5 behind it and 0.4 off its line pushes it 2.5 about 15° into the wall. Its push slides it along the wall, as
+     * vanilla's move would, by the push's part along it, and what it touches leaves the push most of its move along its
+     * heading: no wall met, so no splat and no knockdown.
+     */
+    private static void aGlancingPushSlidesADemonAlongAWall(GameTestHelper h) {
+        floor(h);
+        for (int z = 0; z < FLOOR; z++) {
+            h.setBlock(3, 1, z, Blocks.STONE); // the wall's face at x = 3
+            h.setBlock(3, 2, z, Blocks.STONE);
+        }
+        Arena arena = arena(h);
+        DemonProfile profile = arena.data().demons().get(M1Demon.PROFILE);
+        if (profile == null) {
+            throw h.assertionException(M1Demon.PROFILE + " isn't loaded");
+        }
+        double against = 3 - profile.body().halfWidth(); // its box against the wall's face
+        double startZ = 4;
+        long start = arena.nextTick();
+        float facing = (float) Math.toDegrees(Math.atan2(-0.4, 1.5)); // toward the demon
+        TestDummy striker = dummy(h, arena, against - 0.001 - 0.4, startZ - 1.5, facing);
+        M1Demon grazed = demon(h, arena, against - 0.001, startZ, 0, b -> new ScriptedBrain(b, () -> -1));
+        // Mushin, then Turbulent released on the striker's beat (every 13 ticks from tick 0): a beat 30 ticks on
+        long release = Math.ceilDiv(start + 30, 13) * 13;
+        striker.press(Input.of(Input.Kind.BREATHE_DOWN, Micros.ofTicks(release) - Micros.ofMillis(200)));
+        striker.press(Input.release(Micros.ofTicks(release), 2)); // the radial's fourth form
+        Outbox.Pushed[] push = {null};
+        long[] knockedDown = {Long.MIN_VALUE};
+        arena.listen(e -> {
+            if (e instanceof Outbox.Pushed p && p.mob() == grazed.getId() && p.splats()) {
+                push[0] = p;
+            }
+        });
+        h.onEachTick(() -> {
+            long n = arena.nextTick();
+            if (n == release - 3) {
+                arena.world().apply(striker.getId(), new Effect.RhythmDelta(100)); // every point: Mushin
+            }
+            Demon body = grazed.body();
+            if (knockedDown[0] == Long.MIN_VALUE
+                    && body != null
+                    && push[0] != null
+                    && body.state(n - 1) == State.KNOCKDOWN) {
+                knockedDown[0] = n - 1;
+            }
+        });
+        h.succeedWhen(() -> {
+            Outbox.Pushed p = push[0];
+            h.assertTrue(p != null, "Turbulent's last hit didn't push the demon");
+            if (p != null) {
+                h.assertTrue( // between 6° and 37° into the wall: a graze, well short of 45°
+                        p.dirX() > 0.1 && p.dirX() < 0.6, "not a graze into the wall: " + p);
+                h.assertTrue(
+                        arena.nextTick()
+                                > p.tick()
+                                        + Math.max(
+                                                p.ticks(), profile.knockdown().splatWindowTicks())
+                                        + 5,
+                        "its push and splat window haven't long passed");
+                h.assertTrue(knockedDown[0] == Long.MIN_VALUE, "a glancing push splatted it at tick " + knockedDown[0]);
+                Vec3 at = h.relativeVec(grazed.position());
+                double along = p.distance() * p.dirZ();
+                h.assertTrue(
+                        Math.abs(at.z - startZ - along) < 0.05,
+                        "it slid " + (at.z - startZ) + " along the wall, not the push's " + along);
+                h.assertTrue(Math.abs(at.x - against) < 0.01, "it left the wall's face: x = " + at.x);
+            }
         });
     }
 

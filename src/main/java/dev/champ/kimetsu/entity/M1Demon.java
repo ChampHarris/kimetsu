@@ -11,6 +11,8 @@ import dev.champ.kimetsu.core.demon.DemonBrain;
 import dev.champ.kimetsu.core.fight.Brain;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.hit.Pose;
+import dev.champ.kimetsu.core.hit.PushWall;
+import dev.champ.kimetsu.core.hit.V3;
 import dev.champ.kimetsu.data.CombatData;
 import dev.champ.kimetsu.data.CombatDataBuilder;
 import dev.champ.kimetsu.data.CombatRules;
@@ -60,6 +62,7 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
     private static final float VANILLA_STRAFE = 0.25f;
 
     private final Pose strikePose = new Pose();
+    private final V3 pushedTo = new V3();
     private @Nullable Arena arena;
     private @Nullable Arena chosen;
     private @Nullable Arena away; // the arena it left alive, to rejoin if the same object comes back (B-001: rare)
@@ -75,7 +78,9 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
     private @Nullable EntityDimensions size;
     private boolean carried;
     private boolean dying;
-    // a hit's push (Rule 7.10, D-045): a step of pushStep blocks along (pushX, pushZ) before each of pushLeft steps
+    // a hit's push (Rule 7.10, D-045): pushStep blocks along (pushX, pushZ) before each of pushLeft steps, sliding
+    // along
+    // what it grazes (D-086)
     private double pushX;
     private double pushZ;
     private double pushStep;
@@ -329,16 +334,30 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
     }
 
     /**
-     * One step of its push (D-045): as far along it as the level lets its box go, its horizontal motion zeroed so
-     * nothing carries on after it. A step the level cuts short met a wall: the engine hears of it at step {@code n} (a
-     * splat inside a splatting push's window, Rule 9.4) and the push ends.
+     * One step of its push (D-045): as far along it as the level lets its box go, one axis at a time as vanilla moves a
+     * body, so it slides along a wall it grazes, its horizontal motion zeroed so nothing carries on after it. Where it
+     * then meets a wall along the push, what it touches leaving the push under {@code wall_keep_share} of its move along
+     * its heading ({@link PushWall#step}, D-086: the rule a pushed player's poses are judged by), the engine hears of it
+     * at step {@code n} (a splat inside a splatting push's window, Rule 9.4) and the push ends.
      */
     private void pushStep(Arena a, Demon b, long n) {
-        double moved = a.ground().clear(getX(), getY(), getZ(), b.halfWidth(), b.height(), pushX, pushZ, pushStep);
-        setPos(getX() + pushX * moved, getY(), getZ() + pushZ * moved);
+        double keepShare = a.data().rules().strikes().wallKeepShare();
+        boolean wall = PushWall.step(
+                a.ground(),
+                getX(),
+                getY(),
+                getZ(),
+                b.halfWidth(),
+                b.height(),
+                pushX,
+                pushZ,
+                pushStep,
+                keepShare,
+                pushedTo);
+        setPos(pushedTo.x(), getY(), pushedTo.z());
         setDeltaMovement(0, getDeltaMovement().y, 0);
         getNavigation().stop();
-        if (moved < pushStep) {
+        if (wall) {
             b.wallContact(n);
             pushLeft = 0;
         } else {

@@ -13,8 +13,9 @@ import net.minecraft.world.phys.AABB;
  * feet, so standing on a floor is 0 below. No step-up: a slab stops a lunge. Collision tests don't load chunks. Asked
  * once per strike, when its cue locks it; for a pushed or knocked-down player, a sixteenth of a block for each pose
  * filed in its window (along the push, and along each of its axes where that touches: D-086); once per attack press
- * while falling; once per tick of a mob's push. The client asks its own level the same of its pose on a push's stop
- * tick ({@code PushWall}), so both judge that pose by one rule.
+ * while falling; for a pushed mob, along each axis of each tick of its push, then a touch as for a player's pose. The
+ * client asks its own level the same of its pose on a push's stop tick ({@code PushWall}), so both judge that pose by
+ * one rule.
  */
 public final class LevelGround implements Ground {
     /** The longest step tested whole, in blocks: thinner than any block's collision shape that matters. */
