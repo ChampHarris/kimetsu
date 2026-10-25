@@ -39,6 +39,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.DoubleConsumer;
 import java.util.function.Function;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -79,6 +80,7 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ServerLevelData;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.IEventBus;
@@ -1190,33 +1192,22 @@ public final class CombatGameTests {
         });
         MoveRules rules = arena.data().rules().movement();
         double window = rules.windowBlocks();
-        // the bound scales by the client ticks a combat tick holds (T̄ over the nominal tick, at least 1), and the
-        // GameTest server runs its ticks back to back, so T̄ follows the batch's work: slow first ticks can lift it
-        // past 50 ms (D-075, D-076). A test's tick runs between ServerTickEvent.Pre, which publishes the record, and
-        // Post, where the pose is staged with it, so with no frames from this player the largest scale seen here is
-        // the largest any pose had: 1 at 50 ms ticks
-        double[] scale = {1};
-        h.onEachTick(() -> {
-            TickRecord r = combat(h).published();
-            long nominal = h.getLevel().getServer().tickRateManager().nanosecondsPerTick();
-            double clientTicks = r != null && nominal > 0 ? r.tickLengthNanos() / nominal : 1;
-            // PlayerSession.moveScale's, for a player with no effects on stone
-            scale[0] = Math.max(scale[0], rules.scale(clientTicks, 0, 1, false));
-        });
+        Claim jump = new Claim(h, p, rules, 10, x -> p.setPos(x, p.getY(), p.getZ())); // no teleport counted
         h.runAfterDelay(STAND_TICKS, () -> {
             h.assertTrue(clamps.isEmpty(), "standing still was clamped: " + clamps);
-            p.setPos(p.getX() + 10, p.getY(), p.getZ()); // what a movement packet would claim: no teleport counted
+            jump.make();
         });
         h.runAfterDelay(STAND_TICKS + SETTLE_TICKS, () -> {
-            h.assertFalse(clamps.isEmpty(), "a 10-block jump in a tick wasn't clamped");
+            h.assertFalse(clamps.isEmpty(), "a " + jump.blocks() + "-block jump in a tick wasn't clamped");
             Outbox.PoseClamped first = clamps.get(0);
-            h.assertTrue(Math.abs(first.rawBlocks() - 10) < 1e-6, "its window's raw displacement: " + first);
-            // a step the server runs with no pose filed (a held tick, a busy batch) leaves the window's start a tick
-            // older, and the bound widens in proportion (MoveBound): one such tick is allowed for
-            double widest = window * scale[0] * (rules.windowTicks() + 1) / rules.windowTicks();
+            h.assertTrue(Math.abs(first.rawBlocks() - jump.blocks()) < 1e-6, "its window's raw displacement: " + first);
+            // with no frames from this player the server files its pose only once the hold cap has run out since the
+            // last (PlayerIntake.serverPose), every 7 ticks, so the window's start is a tick older than the window and
+            // the bound widens in proportion (MoveBound): one such tick is allowed for
+            double widest = window * jump.scale() * (rules.windowTicks() + 1) / rules.windowTicks();
             h.assertTrue(
                     first.allowedBlocks() >= window - 1e-6 && first.allowedBlocks() <= widest + 1e-6,
-                    "the bound's allowance: " + first + " at a scale of at most " + scale[0]);
+                    "the bound's allowance: " + first + " at a scale of at most " + jump.scale());
             h.succeed();
         });
     }
@@ -1257,13 +1248,18 @@ public final class CombatGameTests {
         Arena arena = arena(h);
         ServerPlayer p = player(h, arena, 4, 4);
         List<Outbox.PoseClamped> clamps = clampsOf(arena, p);
-        h.runAfterDelay(STAND_TICKS, () -> {
-            p.setPos(p.getX() + 10, p.getY(), p.getZ()); // the claim vanilla accepted
+        Claim claim = new Claim(h, p, arena.data().rules().movement(), 10, x -> {
+            p.setPos(x, p.getY(), p.getZ()); // the claim vanilla accepted
             p.connection.teleport(p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot()); // and the set-back
         });
+        h.runAfterDelay(STAND_TICKS, claim::make);
         h.runAfterDelay(STAND_TICKS + SETTLE_TICKS, () -> {
-            h.assertFalse(clamps.isEmpty(), "a set-back reset the bound: the 10-block claim wasn't clamped");
-            h.assertTrue(Math.abs(clamps.get(0).rawBlocks() - 10) < 1e-6, "its window's raw displacement: " + clamps);
+            h.assertFalse(
+                    clamps.isEmpty(),
+                    "a set-back reset the bound: the " + claim.blocks() + "-block claim wasn't clamped");
+            h.assertTrue(
+                    Math.abs(clamps.get(0).rawBlocks() - claim.blocks()) < 1e-6,
+                    "its window's raw displacement: " + clamps);
             h.succeed();
         });
     }
@@ -1300,14 +1296,25 @@ public final class CombatGameTests {
         Arena arena = arena(h);
         ServerPlayer p = player(h, arena, 0.5, 4.5);
         List<Outbox.PoseClamped> clamps = clampsOf(arena, p);
-        h.runAfterDelay(STAND_TICKS, () -> {
-            p.setPos(p.getX() + FLOOR - 1, p.getY(), p.getZ()); // onto the ice, on its top face
+        ServerLevel level = h.getLevel();
+        BlockPos[] ice = {h.absolutePos(new BlockPos(FLOOR - 1, 0, 4))};
+        BlockState[] under = {Blocks.STONE.defaultBlockState()}; // what the ice replaced
+        Claim claim = new Claim(h, p, arena.data().rules().movement(), FLOOR - 1, x -> {
+            BlockPos at = BlockPos.containing(x, p.getY() - 0.5, p.getZ());
+            if (!at.equals(ice[0])) { // a claim sized past the floor: the lone ice block goes under it
+                level.setBlockAndUpdate(ice[0], under[0]);
+                under[0] = level.getBlockState(at);
+                level.setBlockAndUpdate(at, Blocks.BLUE_ICE.defaultBlockState());
+                ice[0] = at;
+            }
+            p.setPos(x, p.getY(), p.getZ()); // onto the ice, on its top face
             p.setOnGroundWithMovement(true, Vec3.ZERO); // as vanilla's move handler settles the claim's support
         });
+        h.runAfterDelay(STAND_TICKS, claim::make);
         h.runAfterDelay(STAND_TICKS + SETTLE_TICKS, () -> {
             h.assertFalse(clamps.isEmpty(), "a claim onto a lone ice block opened the bound for itself");
             h.assertTrue(
-                    Math.abs(clamps.get(0).rawBlocks() - (FLOOR - 1)) < 1e-6,
+                    Math.abs(clamps.get(0).rawBlocks() - claim.blocks()) < 1e-6,
                     "its window's raw displacement: " + clamps);
             h.succeed();
         });
@@ -1324,10 +1331,13 @@ public final class CombatGameTests {
         ServerPlayer p = player(h, arena, 0.5, 4.5);
         p.setOnGroundWithMovement(true, Vec3.ZERO); // on the ice, as vanilla's move handler settles it
         List<Outbox.PoseClamped> clamps = clampsOf(arena, p);
-        h.runAfterDelay(STAND_TICKS, () -> p.setPos(p.getX() + 20, p.getY(), p.getZ()));
+        Claim blink = new Claim(h, p, arena.data().rules().movement(), 20, x -> p.setPos(x, p.getY(), p.getZ()));
+        h.runAfterDelay(STAND_TICKS, blink::make);
         h.runAfterDelay(STAND_TICKS + SETTLE_TICKS, () -> {
             h.assertFalse(clamps.isEmpty(), "a blink off the ice wasn't clamped: ice left the bound open");
-            h.assertTrue(Math.abs(clamps.get(0).rawBlocks() - 20) < 1e-6, "its window's raw displacement: " + clamps);
+            h.assertTrue(
+                    Math.abs(clamps.get(0).rawBlocks() - blink.blocks()) < 1e-6,
+                    "its window's raw displacement: " + clamps);
             h.succeed();
         });
     }
@@ -1360,14 +1370,127 @@ public final class CombatGameTests {
 
     /** Where the engine's newest pose of {@code p} is, along x. */
     private static double engineX(GameTestHelper h, ServerPlayer p) {
+        Fighter f = fighterOf(h, p);
+        dev.champ.kimetsu.core.hit.Pose at = new dev.champ.kimetsu.core.hit.Pose(); // vanilla's Pose is imported
+        f.poses().at(f.poses().newestTime(), at);
+        return at.x();
+    }
+
+    private static Fighter fighterOf(GameTestHelper h, ServerPlayer p) {
         PlayerSession s = combat(h).sessions().session(p.connection);
         Fighter f = s != null ? s.fighter() : null;
         if (f == null) {
             throw h.assertionException("the player isn't fighting");
         }
-        dev.champ.kimetsu.core.hit.Pose at = new dev.champ.kimetsu.core.hit.Pose(); // vanilla's Pose is imported
-        f.poses().at(f.poses().newestTime(), at);
-        return at.x();
+        return f;
+    }
+
+    /**
+     * A claim the movement bound must clamp (D-077): {@code blocks} along x at 50 ms ticks, times the largest scale the
+     * tick rate gave the bound. The bound scales by the client ticks a combat tick holds (T̄ over the nominal tick, at
+     * least 1), and the GameTest server runs its ticks back to back, so T̄ follows the batch's work: a fresh server's
+     * slow first ticks can lift it past 50 ms (D-075, D-076), and a fixed claim stops being clamped once the bound
+     * reaches it. A player with no frames gets a server pose only once the hold cap has run out since its last
+     * ({@code PlayerIntake.serverPose}, every 7 ticks), so a claim can wait 6 ticks for its pose: it's sized again each
+     * tick until that pose is filed. A test's tick runs between {@code ServerTickEvent.Pre}, which publishes the record,
+     * and {@code Post}, where the pose is staged with it, so the largest scale of the ticks from the window and its
+     * one-tick stretch before the claim to the pose's own is the largest of every pose in its window. Only those count,
+     * not the test's first ticks: a claim sized past them could pass the ice test's bound as on ice too (code review).
+     * At 50 ms ticks the scale is 1 and the claim is {@code blocks}.
+     */
+    private static final class Claim {
+        private final GameTestHelper h;
+        private final ServerPlayer p;
+        private final MoveRules rules;
+        private final double blocks;
+        private final DoubleConsumer moveTo;
+        private final long[] ticks; // the last window_ticks + 2 ticks sampled and their scales, a ring
+        private final double[] scales;
+        private double scale = 1;
+        private double from = Double.NaN;
+        private double made = Double.NaN;
+        private long before;
+        private boolean filed;
+
+        /**
+         * A claim {@link #make} makes later through {@code moveTo}, which moves {@code p} to an x as a movement packet
+         * would claim it. Built as the test starts, so it samples every tick from then: a test's callbacks can't
+         * schedule more (they run while the test's schedule is iterated).
+         */
+        Claim(GameTestHelper h, ServerPlayer p, MoveRules rules, double blocks, DoubleConsumer moveTo) {
+            this.h = h;
+            this.p = p;
+            this.rules = rules;
+            this.blocks = blocks;
+            this.moveTo = moveTo;
+            ticks = new long[rules.windowTicks() + 2];
+            Arrays.fill(ticks, Long.MIN_VALUE);
+            scales = new double[ticks.length];
+            h.onEachTick(this::tick);
+        }
+
+        /** Claims the move from where the player stands now. */
+        void make() {
+            from = p.getX();
+            before = fighterOf(h, p).poses().newestTime();
+            long now = h.getTick();
+            sample();
+            for (int i = 0; i < ticks.length; i++) {
+                if (ticks[i] >= now - rules.windowTicks() - 1) {
+                    scale = Math.max(scale, scales[i]);
+                }
+            }
+            resize();
+        }
+
+        /** How far it claimed: as far as the pose that carries it, once that's filed. */
+        double blocks() {
+            return made;
+        }
+
+        /** The largest scale the tick rate gave any pose in the claim's window: 1 at 50 ms ticks. */
+        double scale() {
+            return scale;
+        }
+
+        private void tick() {
+            if (filed) {
+                return;
+            }
+            if (Double.isNaN(from)) {
+                sample();
+            } else if (fighterOf(h, p).poses().newestTime() != before) {
+                filed = true; // at the last tick's end, with the claim as it stood
+            } else {
+                resize();
+            }
+        }
+
+        private void resize() {
+            scale = Math.max(scale, sample());
+            double claim = blocks * scale;
+            if (Double.isNaN(made) || claim > made) {
+                made = claim;
+                moveTo.accept(from + claim);
+            }
+        }
+
+        /** This tick's scale, kept for {@link #make}. */
+        private double sample() {
+            long now = h.getTick();
+            int i = Math.floorMod(now, ticks.length);
+            ticks[i] = now;
+            scales[i] = tickScale();
+            return scales[i];
+        }
+
+        /** The scale of a pose staged this tick: {@code PlayerSession.moveScale}'s for a player with no effects. */
+        private double tickScale() {
+            TickRecord r = combat(h).published();
+            long nominal = h.getLevel().getServer().tickRateManager().nanosecondsPerTick();
+            double clientTicks = r != null && nominal > 0 ? r.tickLengthNanos() / nominal : 1;
+            return rules.scale(clientTicks, 0, 1, false);
+        }
     }
 
     /**
