@@ -33,7 +33,6 @@ import dev.champ.kimetsu.entity.M1Demon;
 import dev.champ.kimetsu.entity.TestDummy;
 import dev.champ.kimetsu.item.KimetsuItems;
 import java.io.StringWriter;
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -1332,19 +1331,18 @@ public final class CombatGameTests {
     }
 
     /**
-     * {@code /tp} from the server's console, as an operator would run it. Plain decimals: a test can sit 14 million
-     * blocks out, where {@code Double.toString} writes an exponent the command's parser stops at.
+     * {@code /tp} from the server's console, as an operator would run it, landing the player exactly at {@code x},
+     * {@code y}, {@code z}: a test that went on from anywhere else would blame the bound for the helper (D-074).
      */
     private static void tp(GameTestHelper h, ServerPlayer p, double x, double y, double z) {
         MinecraftServer server = h.getLevel().getServer();
         server.getCommands()
                 .performPrefixedCommand(
                         server.createCommandSourceStack(),
-                        "tp " + p.getStringUUID() + " " + plain(x) + " " + plain(y) + " " + plain(z));
-    }
-
-    private static String plain(double v) {
-        return BigDecimal.valueOf(v).toPlainString();
+                        "tp " + p.getStringUUID() + " " + CommandCoords.plain(x) + " " + CommandCoords.plain(y) + " "
+                                + CommandCoords.plain(z));
+        Vec3 to = new Vec3(x, y, z);
+        h.assertTrue(p.position().distanceTo(to) < 1e-6, "/tp put the player at " + p.position() + ", not " + to);
     }
 
     /** Where the engine's newest pose of {@code p} is, along x. */
