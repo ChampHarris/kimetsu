@@ -44,7 +44,8 @@ import org.jspecify.annotations.Nullable;
  * hold, never an Inhale ({@link FocusRelease}). Deltas polled in different render frames go in different frames, each
  * with its own frame time for the half-frame correction. A Step (the Step key, or a double-tap of left, back or right:
  * {@link StepInput}) goes out like any press, at the next tick's start, and the client dashes from that tick
- * ({@link ForcedMotion}). Main thread only.
+ * ({@link ForcedMotion}). Presses of vanilla's Jump go out the same way and stay vanilla's (D-083; Sneak waits for the
+ * juggle cut's drop, D-085). Main thread only.
  */
 final class ClientInput {
     private static final int GUARDS = 16; // guard presses kept for the overlay's offsets
@@ -90,6 +91,9 @@ final class ClientInput {
     private int armedAttacker;
     private long pressAt = Long.MIN_VALUE;
     private long releaseAt = Long.MIN_VALUE;
+    private boolean jumpArmed; // and a Jump at an offset from the next push's first tick (D-083)
+    private long jumpOffsetMicros;
+    private long jumpAt = Long.MIN_VALUE;
 
     ClientInput(ClientCombat combat, boolean overlay) {
         this.combat = combat;
@@ -111,6 +115,11 @@ final class ClientInput {
         PlayerIntake.Key k = KimetsuKeys.combatKey(key);
         if (k != null && capture(k, key, e.getAction() == InputConstants.PRESS, true, nanos)) {
             e.setCanceled(true);
+        }
+        PlayerIntake.Key v =
+                e.getAction() == InputConstants.PRESS ? vanillaKey(Minecraft.getInstance().options, key) : null;
+        if (v != null) {
+            vanillaPressed(v, nanos);
         }
     }
 
@@ -134,6 +143,39 @@ final class ClientInput {
         if (move != null) {
             tapped(move, nanos);
         }
+        PlayerIntake.Key v = e.getAction() == InputConstants.PRESS ? vanillaKey(mc.options, key) : null;
+        if (v != null) {
+            vanillaPressed(v, nanos);
+        }
+    }
+
+    /**
+     * The wire's key for a press of vanilla's {@code key} (D-083), or null: Jump. Sneak, the juggle cut's, waits for
+     * the cut's drop: without one it would only spend Breath (the netcode review; Champ, D-085).
+     */
+    private static PlayerIntake.@Nullable Key vanillaKey(Options o, InputConstants.Key key) {
+        return !key.equals(InputConstants.UNKNOWN) && o.keyJump.getKey().equals(key) ? PlayerIntake.Key.JUMP : null;
+    }
+
+    /**
+     * A press of vanilla's Jump (D-083): a Tech, a dodge's or a breakfall's, sent like any press under the combat
+     * keys' rule, and still vanilla's jump. A tap: the machine has no release for it, so none goes and a held key keeps
+     * no frames flowing. Sent even while vanilla's jump is let go ({@link #movementInput}): the server judges the
+     * press, not the hop. Returns whether it was stamped.
+     */
+    private boolean vanillaPressed(PlayerIntake.Key k, long nanos) {
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer p = mc.player;
+        if (p == null
+                || CaptureRules.vanillaKey(
+                                NichirinItem.isBlade(p.getMainHandItem()),
+                                mc.gui.screen() != null || mc.gui.overlay() != null)
+                        == CaptureRules.Action.PASS
+                || !take(k, true, nanos)) {
+            return false;
+        }
+        held &= ~k.bit();
+        return true;
     }
 
     /** Which of vanilla's movement keys {@code key} is bound to, or null. */
@@ -359,18 +401,23 @@ final class ClientInput {
                                 Math.ceilDiv(Micros.ofMillis(d.rules().timing().holdCapMaxMs()), Micros.PER_TICK))
                         + 2;
         dash.push(p.dirX(), p.dirZ(), p.blocks() / p.ticks(), p.ticks(), p.lift(), clientTick + 1, p.fromTick(), wait);
+        if (jumpArmed && jumpAt == Long.MIN_VALUE) {
+            jumpAt = Micros.ofTicks(p.fromTick()) + jumpOffsetMicros; // the dev hook's Jump
+        }
     }
 
     /**
      * The client tick's start, after its presses went: the dash's or the push's motion for this tick
      * ({@link ForcedMotion}), set before the player's own tick moves it; the vertical only for a launch's lift. Its
-     * combat tick is the one this tick's pose frame will carry ({@link #tickEnd}).
+     * combat tick is the one this tick's pose frame will carry ({@link #tickEnd}). Whether the last tick's move met a
+     * wall decides whether a push's stop tick holds the jump ({@link ForcedMotion#lastMoveBlocked}).
      */
     void dashTick(LocalPlayer p) {
         ClientClock clock = combat.clock();
         long tick = clock != null && clock.inputOpen()
                 ? poseTick(clock)
                 : Long.MAX_VALUE; // no pose frame carries a tick to wait for
+        dash.lastMoveBlocked(p.horizontalCollision);
         ForcedMotion.Phase ph = dash.tick(clientTick, tick, p.getYRot());
         if (ph == ForcedMotion.Phase.IDLE) {
             return;
@@ -384,24 +431,33 @@ final class ClientInput {
     }
 
     /**
-     * {@code MovementInputUpdateEvent}, inside the player's tick: during a dash its movement keys, jump and sprint are
-     * let go (Sneak is kept) and its move vector zeroed, so vanilla adds no push and no sprint-jump to the dash.
+     * {@code MovementInputUpdateEvent}, inside the player's tick: during a dash or a push its movement keys, jump and
+     * sprint are let go (Sneak is kept) and its move vector zeroed, so vanilla adds no push and no sprint-jump to it;
+     * while a push waits, or stops after a wall, or the server shows a KNOCKDOWN in combat, its jump alone is
+     * ({@link ForcedMotion#holdsJump}). Vanilla reads the input after this event, auto-jump aside (off by default).
      */
     void movementInput(MovementInputUpdateEvent e) {
-        if (!dash.moving()) {
+        net.minecraft.client.player.ClientInput in = e.getInput();
+        net.minecraft.world.entity.player.Input k = in.keyPresses;
+        if (dash.moving()) {
+            in.keyPresses =
+                    new net.minecraft.world.entity.player.Input(false, false, false, false, false, k.shift(), false);
+            in.moveVector = Vec2.ZERO;
             return;
         }
-        net.minecraft.client.player.ClientInput in = e.getInput();
-        in.keyPresses = new net.minecraft.world.entity.player.Input(
-                false, false, false, false, false, in.keyPresses.shift(), false);
-        in.moveVector = Vec2.ZERO;
+        NetMessage.Snapshot s = combat.view().snapshot();
+        if (k.jump() && dash.holdsJump(s != null ? s.state() : null, combat.inCombat(Util.getNanos()))) {
+            in.keyPresses = new net.minecraft.world.entity.player.Input(
+                    k.forward(), k.backward(), k.left(), k.right(), false, k.shift(), k.sprint());
+        }
     }
 
-    /** The level went (a dimension change, a respawn): no dash carries over, nor a first tap. */
+    /** The level went (a dimension change, a respawn): no dash carries over, nor a first tap, nor the dev hook's Jump. */
     void leftLevel() {
         dash.cancel();
         steps.reset();
         attack = null;
+        jumpAt = Long.MIN_VALUE; // still armed: the next push sets it again (code review)
     }
 
     /**
@@ -587,6 +643,7 @@ final class ClientInput {
     void onEpoch() {
         lastTickTime = Long.MIN_VALUE;
         Arrays.fill(ownSteps, NONE);
+        jumpAt = Long.MIN_VALUE; // the dev hook's, on the old timeline
     }
 
     private boolean flowing(long nanos) {
@@ -643,7 +700,18 @@ final class ClientInput {
         releaseAt = Long.MIN_VALUE;
     }
 
+    /**
+     * Arms a Jump press {@code offsetMs} from the first tick of the next push on this player, where a push into a flush
+     * wall meets it (D-082): MCTest can't time a key within Rule 9.2's window (D-083).
+     */
+    void armJump(int offsetMs) {
+        jumpArmed = true;
+        jumpOffsetMicros = offsetMs * 1000L;
+        jumpAt = Long.MIN_VALUE;
+    }
+
     private void devHook(long nanos) {
+        devJump(nanos);
         ClientClock clock = combat.clock();
         LocalPlayer p = Minecraft.getInstance().player;
         if (!armed || clock == null || !clock.inputOpen() || p == null) {
@@ -675,6 +743,30 @@ final class ClientInput {
             releaseAt = Long.MIN_VALUE;
             armed = false;
         }
+    }
+
+    /**
+     * The armed Jump, in the first render frame at or past its time, through the capture's own path as a press of the
+     * jump key then would go (stamped then, at most a frame late; judged within half a frame of it), so only the key's
+     * lookup is skipped, and no hop goes with it.
+     */
+    private void devJump(long nanos) {
+        ClientClock clock = combat.clock();
+        LocalPlayer p = Minecraft.getInstance().player;
+        if (jumpAt == Long.MIN_VALUE || clock == null || !clock.inputOpen() || p == null) {
+            return;
+        }
+        long now = clock.micros(nanos);
+        if (now < jumpAt) {
+            return;
+        }
+        long armedFor = jumpAt;
+        jumpAt = Long.MIN_VALUE;
+        jumpArmed = false;
+        p.sendSystemMessage(Component.literal(
+                vanillaPressed(PlayerIntake.Key.JUMP, nanos)
+                        ? "Kimetsu dev: Jump at " + now + " µs, armed for " + armedFor
+                        : "Kimetsu dev: Jump dropped (no blade in hand, or a screen open)"));
     }
 
     /**

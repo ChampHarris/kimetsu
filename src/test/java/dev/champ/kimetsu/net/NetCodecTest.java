@@ -200,6 +200,18 @@ class NetCodecTest {
         }
     }
 
+    /** Every key's press crosses the wire as itself: Jump and Sneak never went before D-083. */
+    @Test
+    void everyKeysPressRoundTrips() {
+        List<PlayerIntake.Delta> d = new ArrayList<>();
+        for (PlayerIntake.Key k : PlayerIntake.Key.values()) {
+            d.add(PlayerIntake.Delta.press(k, 60_990_000 + 1000L * k.wire()));
+        }
+        NetMessage m =
+                new NetMessage.InputFrame(new PlayerIntake.Frame(5, 61_000_000, 16_667, InputHorizon.NO_TICK, 3, 0, d));
+        assertEquals(m, roundTrip(m));
+    }
+
     @Test
     void aTypicalInputFrameIsADozenBytes() {
         FriendlyByteBuf b = buf();

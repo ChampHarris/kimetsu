@@ -1,6 +1,8 @@
 package dev.champ.kimetsu.client;
 
+import dev.champ.kimetsu.core.machine.State;
 import java.util.Arrays;
+import org.jspecify.annotations.Nullable;
 
 /**
  * The Step's dash and a hit's push on the client (Rules 9.1 and 7.10, D-070). Players move themselves in vanilla, so
@@ -21,7 +23,8 @@ import java.util.Arrays;
  * stamped once the push can have arrived), or from the tick after it arrives if that's later: the client lived the
  * hit long ago, so it never catches up. Its first push pose then carries the tick the server's wall check opens on,
  * at any RTT (D-079's netcode review). A launch's lift sets the vertical motion on the push's first tick only. A push
- * ends any dash, running or waiting, when it arrives.
+ * ends any dash, running or waiting, when it arrives. From its arrival through its last tick (its stop tick too after a
+ * wall), and in a knockdown the server shows, vanilla's jump is let go ({@link #holdsJump}).
  */
 final class ForcedMotion {
     /** What the tick does to the player's motion. */
@@ -44,6 +47,8 @@ final class ForcedMotion {
     private StepInput.Direction pendingDirection = StepInput.Direction.BACK;
     private long startTick = NONE; // a dash pressed and waiting to start
     private boolean moving;
+    private boolean pushTick; // the last tick moved a push, or stopped one whose last tick met a wall
+    private boolean blocked; // the player's last move was cut short (vanilla's horizontalCollision)
     private boolean pushing; // the running table is a push's, along (pushX, pushZ)
     private double pushX;
     private double pushZ;
@@ -141,11 +146,13 @@ final class ForcedMotion {
             startTick = NONE;
         }
         moving = false;
+        pushTick = false;
         dy = Double.NaN;
         if (index < 0) {
             return Phase.IDLE;
         }
         if (index >= table.length) {
+            pushTick = pushing && blocked;
             index = -1;
             endTick = NONE;
             pushing = false;
@@ -157,6 +164,7 @@ final class ForcedMotion {
             dz = pushZ * blocks;
             dy = index == 1 ? lift : Double.NaN;
             moving = true;
+            pushTick = true;
             return Phase.MOVE;
         }
         double yaw = Math.toRadians(yawDegrees);
@@ -174,6 +182,28 @@ final class ForcedMotion {
         return moving;
     }
 
+    /**
+     * Before {@link #tick}: whether the player's last move was cut short by a wall (vanilla's horizontal collision). On
+     * a push's last tick that's its splat's contact, whose floor is read from the pose a tick later (its stop tick).
+     */
+    void lastMoveBlocked(boolean b) {
+        blocked = b;
+    }
+
+    /**
+     * Whether this tick's jump input is let go (the netcode review, D-083), the server's last snapshot showing state
+     * {@code shown} (null: none yet), its combat flag up or not ({@code inCombat}): from a push's arrival through its
+     * last tick, so a Jump (a Tech attempt, sent whatever this says) doesn't hop the player before the push, and on its
+     * stop tick too when its last tick met a wall, so a hop doesn't lift it off the floor its splat's knockdown is read
+     * from; and while the server shows a KNOCKDOWN in combat, whose floor contact a hop would move about 10 ticks
+     * later. Out of combat the snapshot is stale (a death while down, a respawn, a dimension change: none comes until
+     * frames flow) and counts for nothing (both reviews). Until the client predicts its state (step 5), a knockdown
+     * shows a round trip after the contact its client lived, and ends a round trip late.
+     */
+    boolean holdsJump(@Nullable State shown, boolean inCombat) {
+        return waitFrom != NONE || pushTick || (inCombat && shown == State.KNOCKDOWN);
+    }
+
     /** Stops at once, with nothing waiting (a death, a respawn, a level change). */
     void cancel() {
         index = -1;
@@ -181,6 +211,7 @@ final class ForcedMotion {
         startTick = NONE;
         waitFrom = NONE;
         moving = false;
+        pushTick = false;
         pushing = false;
         dy = Double.NaN;
     }

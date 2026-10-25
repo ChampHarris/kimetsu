@@ -8,7 +8,7 @@ package dev.champ.kimetsu.client;
  * release would leave a vanilla key held, and releasing a key that's up does nothing. The click that grabs the mouse
  * (the window back in focus, the cursor free) is vanilla's, since cancelling it would skip the grab; its attack or use
  * is stopped by {@link #stopVanilla}. Away from fights a click of vanilla's attack key on a block is vanilla's, which
- * mines ({@link #mines}, D-055).
+ * mines ({@link #mines}, D-055). Vanilla's Jump is sent as a press and stays vanilla's ({@link #vanillaKey}).
  */
 final class CaptureRules {
     enum Action {
@@ -46,6 +46,16 @@ final class CaptureRules {
      */
     static boolean mines(boolean vanillaAttackKey, boolean onBlock, boolean fighting) {
         return vanillaAttackKey && onBlock && !fighting;
+    }
+
+    /**
+     * D-083: a press of vanilla's Jump (the key table's "Jump, Sneak: vanilla"; Sneak once the juggle cut drops the
+     * body, D-085) is the mod's too under the combat keys' rule, and this rule never takes it from vanilla, on a mouse
+     * button as on a key: it's still the jump. A combat key bound to the same mouse button cancels the event, and vanilla's hop with it (code
+     * review): bindings that share a button share it.
+     */
+    static Action vanillaKey(boolean bladeInMainHand, boolean screenOpen) {
+        return bladeInMainHand && !screenOpen ? Action.TAKE : Action.PASS;
     }
 
     static Action release(boolean pressTaken) {

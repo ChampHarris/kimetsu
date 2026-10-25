@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.champ.kimetsu.core.machine.State;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -210,6 +211,109 @@ class ForcedMotionTest {
         assertEquals(ForcedMotion.Phase.MOVE, m.tick(4, 4, 0));
         assertFalse(m.pushWaiting(), "it started");
         assertEquals(0.5, m.dx, 1e-12);
+    }
+
+    /**
+     * The netcode review (D-083): vanilla's jump is let go from a push's arrival through its last tick, so a Jump (a
+     * Tech attempt) doesn't hop the player before the push, and while the server shows a KNOCKDOWN in combat. The stop
+     * tick is the player's again when the push met no wall (S1: the last tick to jump a sweep after a heavy at 250–300
+     * ms RTT). Client ticks 30 to 37 run at combat ticks 100 to 107.
+     */
+    @Test
+    void vanillasJumpIsLetGoWhileAPushWaitsOrRuns_andInAKnockdown() {
+        ForcedMotion m = new ForcedMotion();
+        assertFalse(m.holdsJump(null, true), "no snapshot yet: a fresh fighter, standing");
+        assertFalse(m.holdsJump(State.HITSTUN, true));
+        assertTrue(m.holdsJump(State.KNOCKDOWN, true), "the server shows it down");
+        m.push(0, 1, 0.5, 4, 0, 30, 102, WAIT);
+        assertTrue(m.holdsJump(State.HITSTUN, true), "it arrived and waits");
+        assertEquals(ForcedMotion.Phase.IDLE, m.tick(30, 100, 0));
+        assertTrue(m.holdsJump(State.HITSTUN, true), "still waiting, though its movement keys are the player's");
+        m.tick(31, 101, 0);
+        for (int i = 0; i < 4; i++) {
+            assertEquals(ForcedMotion.Phase.MOVE, m.tick(32 + i, 102 + i, 0));
+            assertTrue(m.holdsJump(State.HITSTUN, true), "push tick " + i);
+        }
+        m.lastMoveBlocked(false);
+        assertEquals(ForcedMotion.Phase.STOP, m.tick(36, 106, 0));
+        assertFalse(m.holdsJump(State.HITSTUN, true), "its stop tick, no wall met: the player's own");
+        assertEquals(ForcedMotion.Phase.IDLE, m.tick(37, 107, 0));
+        assertFalse(m.holdsJump(State.HITSTUN, true));
+        assertTrue(m.holdsJump(State.KNOCKDOWN, true), "unless the splat's knockdown shows");
+    }
+
+    /**
+     * A push whose last tick met a wall holds its stop tick too: that contact's splat reads the floor from the pose a
+     * tick later, and a hop then would move it about 10 ticks. A wall met earlier is read from a push tick, held anyway.
+     */
+    @Test
+    void aPushWhoseLastTickMetAWallHoldsItsStopTick() {
+        ForcedMotion m = new ForcedMotion();
+        m.push(0, 1, 0.5, 4, 0, 30, 30, WAIT);
+        for (int i = 0; i < 4; i++) {
+            m.lastMoveBlocked(false);
+            m.tick(30 + i, 30 + i, 0);
+        }
+        m.lastMoveBlocked(true); // the last push tick's move was cut short
+        assertEquals(ForcedMotion.Phase.STOP, m.tick(34, 34, 0));
+        assertTrue(m.holdsJump(State.HITSTUN, true), "a contact on its last tick is a tick behind");
+        m.lastMoveBlocked(true);
+        m.tick(35, 35, 0);
+        assertFalse(m.holdsJump(State.HITSTUN, true), "a tick past it: the knockdown's floor has been read");
+
+        ForcedMotion earlier = new ForcedMotion();
+        earlier.push(0, 1, 0.5, 4, 0, 30, 30, WAIT);
+        earlier.tick(30, 30, 0);
+        earlier.lastMoveBlocked(true); // met the wall on its first tick, then slid free
+        earlier.tick(31, 31, 0);
+        earlier.lastMoveBlocked(false);
+        earlier.tick(32, 32, 0);
+        earlier.tick(33, 33, 0);
+        earlier.lastMoveBlocked(false);
+        assertEquals(ForcedMotion.Phase.STOP, earlier.tick(34, 34, 0));
+        assertFalse(earlier.holdsJump(State.HITSTUN, true));
+    }
+
+    /**
+     * Both reviews (B1): a KNOCKDOWN counts only in combat. Out of it the snapshot is stale (a death while down, a
+     * respawn, a dimension change: the server sends none until frames flow), and would hold the jump for good.
+     */
+    @Test
+    void aKnockdownShownOutOfCombatIsStale() {
+        ForcedMotion m = new ForcedMotion();
+        assertTrue(m.holdsJump(State.KNOCKDOWN, true));
+        assertFalse(m.holdsJump(State.KNOCKDOWN, false));
+        m.push(0, 1, 0.5, 4, 0, 30, 102, WAIT);
+        assertTrue(m.holdsJump(null, false), "a push it was just sent holds whatever the flag says");
+    }
+
+    /** A dash zeroes all its input while it moves (D-071) and holds nothing else: its stop tick's jump is vanilla's. */
+    @Test
+    void aDashHoldsTheJumpOnlyWhileItMoves() {
+        ForcedMotion m = new ForcedMotion();
+        m.press(STEP, StepInput.Direction.FORWARD, 0, 0, BUFFER);
+        for (int i = 0; i < STEP.length; i++) {
+            m.tick(i, i, 0);
+            assertTrue(m.moving(), "its whole input is zeroed");
+            assertFalse(m.holdsJump(State.STEP, true), "tick " + i + ": nothing more to hold");
+        }
+        m.lastMoveBlocked(true); // a dash into a wall splats nothing
+        assertEquals(ForcedMotion.Phase.STOP, m.tick(STEP.length, STEP.length, 0));
+        assertFalse(m.holdsJump(State.NEUTRAL, true));
+    }
+
+    @Test
+    void aCancelLetsTheJumpGo() {
+        ForcedMotion waiting = new ForcedMotion();
+        waiting.push(0, 1, 0.5, 4, 0, 30, 102, WAIT);
+        waiting.cancel(); // a death, a respawn, a level change
+        assertFalse(waiting.holdsJump(null, true));
+
+        ForcedMotion running = new ForcedMotion();
+        running.push(0, 1, 0.5, 4, 0, 30, 30, WAIT);
+        running.tick(30, 30, 0);
+        running.cancel();
+        assertFalse(running.holdsJump(null, true));
     }
 
     @Test

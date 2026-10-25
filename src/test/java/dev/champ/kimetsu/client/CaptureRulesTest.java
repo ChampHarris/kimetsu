@@ -46,6 +46,17 @@ class CaptureRulesTest {
                 CaptureRules.mines(false, true, false)); // the mod's Attack bound to a key vanilla doesn't attack with
     }
 
+    /**
+     * D-083: vanilla's Jump goes out as a press under the combat keys' rule (the blade in hand, no screen), and vanilla
+     * always sees it too, on a mouse button as on a key: it's its jump (Sneak too, once the juggle cut drops, D-085).
+     */
+    @Test
+    void vanillasJumpIsSentWithTheBlade_andStaysVanillas() {
+        assertEquals(Action.TAKE, CaptureRules.vanillaKey(true, false));
+        assertEquals(Action.PASS, CaptureRules.vanillaKey(false, false));
+        assertEquals(Action.PASS, CaptureRules.vanillaKey(true, true));
+    }
+
     @Test
     void aReleaseIsTakenWhenItsPressWas_andNeverCancelled() {
         assertEquals(Action.TAKE, CaptureRules.release(true));

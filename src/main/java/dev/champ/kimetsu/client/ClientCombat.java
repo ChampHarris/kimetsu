@@ -390,7 +390,10 @@ public final class ClientCombat {
         }
     }
 
-    /** {@code /kimetsu_dev guard <ms>}, dev runs only: a guard press at an exact offset from the next impact on you. */
+    /**
+     * Dev runs only: {@code /kimetsu_dev guard <ms>}, a guard press at an exact offset from the next impact on you;
+     * {@code /kimetsu_dev jump <ms>}, a Jump press at an offset from the next push's first tick (D-083).
+     */
     static void onClientCommands(RegisterClientCommandsEvent event) {
         if (FMLEnvironment.isProduction()) {
             return;
@@ -405,6 +408,16 @@ public final class ClientCombat {
                                                 return 0;
                                             }
                                             c.input.arm(IntegerArgumentType.getInteger(ctx, "ms"));
+                                            return 1;
+                                        })))
+                        .then(Commands.literal("jump")
+                                .then(Commands.argument("ms", IntegerArgumentType.integer(0, 1000))
+                                        .executes(ctx -> {
+                                            ClientCombat c = current;
+                                            if (c == null) {
+                                                return 0;
+                                            }
+                                            c.input.armJump(IntegerArgumentType.getInteger(ctx, "ms"));
                                             return 1;
                                         }))));
     }
