@@ -1,6 +1,7 @@
 package dev.champ.kimetsu.core.fight;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.champ.kimetsu.core.Fixtures;
 import dev.champ.kimetsu.core.clock.Micros;
@@ -80,6 +81,27 @@ class LastSeqTest {
         assertEquals(1, judged.size());
         assertEquals(0, intake.settledSeq(judged.get(0).tick() - 1));
         assertEquals(2, intake.settledSeq(judged.get(0).tick()));
+    }
+
+    @Test
+    void pastItsRingOf256TheOldestFrameGoesAsSettled_oneAFrame() {
+        // a client out of the fight, whose frames no snapshot settles: frame 0's press and frame 1's release act after
+        // tick 100, so nothing settles by it while the ring holds them; each frame past 256 drops the oldest
+        a.through(100);
+        send(0, at(101, 10), GUARD, PlayerIntake.Delta.press(PlayerIntake.Key.GUARD, at(101, 5)));
+        send(1, at(101, 30), 0, PlayerIntake.Delta.release(PlayerIntake.Key.GUARD, at(101, 25)));
+        assertTrue(judged.get(0).tick() > 100 && judged.get(1).tick() > 100, "both act after tick 100: " + judged);
+        long seq = 2;
+        for (; seq < 256; seq++) {
+            send(seq, at(101, 30) + (seq - 1) * FRAME, 0);
+        }
+        assertEquals(-1, intake.settledSeq(100)); // 256 frames: frame 0 still holds them all back
+        send(seq, at(101, 30) + (seq - 1) * FRAME, 0);
+        seq++;
+        assertEquals(0, intake.settledSeq(100)); // frame 0 went; frame 1's release still holds the rest
+        send(seq, at(101, 30) + (seq - 1) * FRAME, 0);
+        assertEquals(seq, intake.settledSeq(100)); // frame 1 went too: the rest carried nothing
+        assertEquals(seq, intake.lastSeq());
     }
 
     @Test

@@ -115,6 +115,7 @@ public final class CombatGameTests {
             FUNCTIONS.register("deflect_in_the_world", () -> CombatGameTests::deflectInTheWorld),
             FUNCTIONS.register("strikes_per_beat", () -> CombatGameTests::strikesPerBeat),
             FUNCTIONS.register("real_demon_fights_in_budget", () -> CombatGameTests::realDemonFightsInBudget),
+            FUNCTIONS.register("ten_fights_in_budget", () -> CombatGameTests::tenFightsInBudget),
             FUNCTIONS.register("demon_killed_mid_strike", () -> CombatGameTests::demonKilledMidStrike),
             FUNCTIONS.register("vanilla_damage_floors_the_demon", () -> CombatGameTests::vanillaDamageFloorsTheDemon),
             FUNCTIONS.register("mod_damage_passes_armour", () -> CombatGameTests::modDamagePassesArmour),
@@ -155,6 +156,9 @@ public final class CombatGameTests {
     /** Tests that wait on chunks generating, with {@link #CHUNK_TICKS} to do it in. */
     private static final List<String> SLOW = List.of("an_unloaded_demon_leaves_alive");
 
+    /** Tests that stand on {@link #CELLS_STRUCTURE}. */
+    private static final List<String> IN_CELLS = List.of("ten_fights_in_budget");
+
     /** Tests that rebuild every arena the server runs: each batch of its own, so no other test's fight is rebuilt. */
     private static final List<DeferredHolder<Consumer<GameTestHelper>, Consumer<GameTestHelper>>> ALONE = List.of(
             FUNCTIONS.register("a_reload_keeps_the_demons_wounds", () -> CombatGameTests::aReloadKeepsTheDemonsWounds),
@@ -170,11 +174,20 @@ public final class CombatGameTests {
      * floor and room past it; its barrier walls stand clear of every push, and it has sky access, no ceiling (D-087).
      */
     private static final Identifier FLOOR_STRUCTURE = Identifier.fromNamespaceAndPath(Kimetsu.MOD_ID, "test_floor");
+    /** {@link #FLOOR_STRUCTURE} at 51×4×21, room for ten walled cells: five by two, each {@link #CELL} wide inside. */
+    private static final Identifier CELLS_STRUCTURE = Identifier.fromNamespaceAndPath(Kimetsu.MOD_ID, "test_cells");
     /** The Performance Budget's server time for one fight's tick. */
     private static final double BUDGET_MICROS = 50;
 
     private static final int WARM_UP_TICKS = 100;
     private static final int MEASURED_TICKS = 300;
+    /** How many steps {@code ten_fights_in_budget} times, one by one. */
+    private static final int MEASURED_STEPS = 400;
+    /** A cell's inside, in blocks: room for a demon to circle the dummy at its centre at its band (2.5–3.5 blocks). */
+    private static final int CELL = 9;
+    /** How high a cell's walls stand: over every eye, so each hides the other cells' dummies from a demon. */
+    private static final int WALL_HEIGHT = 3;
+
     private static final int MAX_TICKS = 600;
     /** How long the dummy's last guard press holds past an impact: past any verdict, short of the next strike. */
     private static final long HOLD_AFTER_MS = 200;
@@ -220,7 +233,7 @@ public final class CombatGameTests {
                         new TestData<>(
                                 environment,
                                 Level.OVERWORLD,
-                                FLOOR_STRUCTURE,
+                                IN_CELLS.contains(function.getId().getPath()) ? CELLS_STRUCTURE : FLOOR_STRUCTURE,
                                 SLOW.contains(function.getId().getPath()) ? CHUNK_TICKS : MAX_TICKS,
                                 0,
                                 true,
@@ -398,14 +411,7 @@ public final class CombatGameTests {
         Arena arena = arena(h);
         TestDummy dummy = dummy(h, arena, 4, 7, 180);
         dummy.setPermanentlyInvulnerable(true);
-        M1Demon demon = KimetsuEntities.M1_DEMON.get().create(h.getLevel(), EntitySpawnReason.MOB_SUMMONED);
-        if (demon == null) {
-            throw h.assertionException("no M1 demon");
-        }
-        Vec3 p = h.absoluteVec(new Vec3(4, 1, 2));
-        demon.snapTo(p.x, p.y, p.z, 0, 0);
-        demon.fightIn(arena);
-        h.getLevel().addFreshEntity(demon);
+        M1Demon demon = ownDemon(h, arena, 4, 2);
         int[] strikes = new int[1];
         arena.listen(e -> {
             if (e instanceof Outbox.AttackStarted a && a.attacker() == demon.getId()) {
@@ -427,6 +433,103 @@ public final class CombatGameTests {
                             + (body == null ? "nothing (no body)" : body.target()) + " (the dummy is " + dummy.getId()
                             + "), at " + demon.position() + ", the dummy at " + dummy.position());
             h.assertTrue(mean < 10 * BUDGET_MICROS, "a step took " + mean + " µs on average");
+            h.succeed();
+        });
+    }
+
+    /**
+     * Ten fights in one arena (Performance Budget: 50 µs a tick a fight, 1 ms for ten): each an M1 demon with its own
+     * brain and walk against a dummy, in a walled cell of its own. A demon takes the nearest player it can see within
+     * 24 blocks, so the walls hide every other cell's dummy. Each demon must strike its own dummy while the steps are
+     * timed and never another, and all twenty must still be in combat at the end, or the steps timed weren't ten fights
+     * (code review: ten demons gone quiet after their first string would time cheap). After a warm-up, {@link #MEASURED_STEPS} steps are timed one by one, and the log
+     * has a fight's share of a step: mean, p95 and max. The bound asserted is ten times the budget on the mean, as in
+     * {@code real_demon_fights_in_budget}, for a loaded CI runner.
+     */
+    private static void tenFightsInBudget(GameTestHelper h) {
+        int columns = 5;
+        int fights = 2 * columns;
+        int width = columns * (CELL + 1) + 1;
+        int depth = 2 * (CELL + 1) + 1;
+        floor(h, width, depth);
+        for (int x = 0; x < width; x++) {
+            for (int z = 0; z < depth; z++) {
+                if (x % (CELL + 1) == 0 || z % (CELL + 1) == 0) {
+                    for (int y = 1; y <= WALL_HEIGHT; y++) {
+                        h.setBlock(x, y, z, Blocks.STONE);
+                    }
+                }
+            }
+        }
+        Arena arena = arena(h);
+        Map<Integer, Integer> cellOf = new HashMap<>(); // a demon's or a dummy's entity id → its cell
+        for (int i = 0; i < fights; i++) {
+            double x = 1 + (i % columns) * (CELL + 1);
+            double z = 1 + (i / columns) * (CELL + 1);
+            TestDummy dummy = dummy(h, arena, x + 4.5, z + 4.5, 180); // the cell's centre
+            dummy.setPermanentlyInvulnerable(true);
+            cellOf.put(dummy.getId(), i);
+            cellOf.put(ownDemon(h, arena, x + 4.5, z + 1.5).getId(), i);
+        }
+        int[] own = new int[fights]; // each demon's strikes on its own dummy while the steps are timed
+        int[] timed = {0, 0}; // steps timed, ticks seen
+        List<String> strays = new ArrayList<>();
+        arena.listen(e -> {
+            if (e instanceof Outbox.AttackStarted a) {
+                Integer from = cellOf.get(a.attacker());
+                if (from == null || !from.equals(cellOf.get(a.target()))) {
+                    strays.add(a.attacker() + " struck " + a.target());
+                } else if (timed[0] > 0) {
+                    own[from]++;
+                }
+            }
+        });
+        long[] took = new long[MEASURED_STEPS]; // each timed step's ns
+        long[] last = {0, -1}; // the arena's step ns and step count at the last tick
+        h.onEachTick(() -> {
+            long ns = arena.stepNanos();
+            long steps = arena.steps();
+            if (++timed[1] > WARM_UP_TICKS && last[1] >= 0 && steps - last[1] == 1 && timed[0] < MEASURED_STEPS) {
+                took[timed[0]++] = ns - last[0];
+            }
+            last[0] = ns;
+            last[1] = steps;
+            if (timed[0] < MEASURED_STEPS) {
+                return;
+            }
+            long[] sorted = took.clone();
+            Arrays.sort(sorted);
+            double sum = 0;
+            for (long t : sorted) {
+                sum += t;
+            }
+            double mean = sum / MEASURED_STEPS / 1000.0 / fights;
+            double p95 = sorted[(int) Math.ceil(0.95 * MEASURED_STEPS) - 1] / 1000.0 / fights;
+            double max = sorted[MEASURED_STEPS - 1] / 1000.0 / fights;
+            LOGGER.info(String.format(
+                    Locale.ROOT,
+                    "ten_fights_in_budget: %d fights, %d combatants in combat, a fight's share of a step over %d"
+                            + " steps: mean %.1f µs, p95 %.1f, max %.1f (a step %.1f µs on average); strikes per demon"
+                            + " meanwhile %s",
+                    fights,
+                    arena.fights().open().size(),
+                    MEASURED_STEPS,
+                    mean,
+                    p95,
+                    max,
+                    mean * fights,
+                    Arrays.toString(own)));
+            h.assertTrue(strays.isEmpty(), "a demon struck another cell's dummy: " + strays);
+            for (int i = 0; i < fights; i++) {
+                h.assertTrue(
+                        own[i] > 0,
+                        "cell " + i + "'s demon didn't strike its dummy while the steps were timed: "
+                                + Arrays.toString(own));
+            }
+            h.assertTrue(
+                    arena.fights().open().size() == 2 * fights,
+                    "only " + arena.fights().open().size() + " of the " + 2 * fights + " combatants are in combat");
+            h.assertTrue(mean < 10 * BUDGET_MICROS, "a fight's share of a step took " + mean + " µs on average");
             h.succeed();
         });
     }
@@ -2458,13 +2561,18 @@ public final class CombatGameTests {
      * ({@link #FLOOR_STRUCTURE}) and the runner starts the test only once those chunks tick (D-087).
      */
     private static void floor(GameTestHelper h) {
-        for (int x = 0; x < FLOOR; x++) {
-            for (int z = 0; z < FLOOR; z++) {
+        floor(h, FLOOR, FLOOR);
+    }
+
+    /** {@link #floor(GameTestHelper)}, {@code width} by {@code depth} blocks from the test's corner. */
+    private static void floor(GameTestHelper h, int width, int depth) {
+        for (int x = 0; x < width; x++) {
+            for (int z = 0; z < depth; z++) {
                 h.setBlock(x, 0, z, Blocks.STONE);
             }
         }
         BlockPos a = h.absolutePos(BlockPos.ZERO);
-        BlockPos b = h.absolutePos(new BlockPos(FLOOR - 1, 0, FLOOR - 1));
+        BlockPos b = h.absolutePos(new BlockPos(width - 1, 0, depth - 1));
         for (int cx = Math.min(a.getX(), b.getX()) >> 4; cx <= Math.max(a.getX(), b.getX()) >> 4; cx++) {
             for (int cz = Math.min(a.getZ(), b.getZ()) >> 4; cz <= Math.max(a.getZ(), b.getZ()) >> 4; cz++) {
                 h.assertTrue(
@@ -2538,6 +2646,19 @@ public final class CombatGameTests {
         if (arena != null) {
             d.fightIn(arena);
         }
+        h.getLevel().addFreshEntity(d);
+        return d;
+    }
+
+    /** An M1 demon at {@code x, z} with its own brain and walk, fighting in {@code arena}. */
+    private static M1Demon ownDemon(GameTestHelper h, Arena arena, double x, double z) {
+        M1Demon d = KimetsuEntities.M1_DEMON.get().create(h.getLevel(), EntitySpawnReason.MOB_SUMMONED);
+        if (d == null) {
+            throw h.assertionException("no M1 demon");
+        }
+        Vec3 p = h.absoluteVec(new Vec3(x, 1, z));
+        d.snapTo(p.x, p.y, p.z, 0, 0);
+        d.fightIn(arena);
         h.getLevel().addFreshEntity(d);
         return d;
     }
