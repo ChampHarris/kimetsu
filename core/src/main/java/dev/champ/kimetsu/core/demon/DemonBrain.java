@@ -14,6 +14,7 @@ import dev.champ.kimetsu.core.machine.State;
 import dev.champ.kimetsu.core.strike.PendingStrike;
 import dev.champ.kimetsu.core.strike.Scheduler;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.jspecify.annotations.Nullable;
@@ -42,7 +43,8 @@ import org.jspecify.annotations.Nullable;
  * </ul>
  *
  * <p>Its draws come from its own seeded {@link Rng}: the same seed, the same fight. Its sight tests run on the ticks it's
- * free, for players in range only; the mod's {@code Sight} answers them from vanilla's per-tick sensing cache.
+ * free, for players in range only, and ask the level about each player at most once a step: the step's answers are kept
+ * by player, as vanilla's {@code Sensing} keeps a mob's for an AI step (the mod's demons don't run vanilla's AI).
  */
 public final class DemonBrain implements Brain {
     private static final long NONE = Long.MIN_VALUE;
@@ -64,6 +66,10 @@ public final class DemonBrain implements Brain {
     private long impactMicros = NONE; // its next string's first impact, while one is planned
     private boolean feint;
     private boolean turned; // it has turned to its planned string's target
+    // this step's sight answers, by player id: a line can't change within a step, so the level is asked once
+    private int[] askedIds = new int[8];
+    private boolean[] askedClear = new boolean[8];
+    private int asked;
 
     /**
      * The brain of {@code demon}: its profile's attacks looked up in {@code attacks} (frame data by id), drawing from a
@@ -92,6 +98,7 @@ public final class DemonBrain implements Brain {
 
     @Override
     public void decide(long n, StrikeMob self, CombatWorld w) {
+        asked = 0; // a new step: the last one's answers are stale
         if (d.dead()) {
             return;
         }
@@ -234,7 +241,10 @@ public final class DemonBrain implements Brain {
         return best;
     }
 
-    /** Whether {@code f} is in the fight, within its range and in its sight, its newest pose left in {@code pose}. */
+    /**
+     * Whether {@code f} is in the fight, within its range and in its sight, its newest pose left in {@code pose}. The
+     * level is asked once a step per player; later asks that step get the same answer.
+     */
     private boolean sees(long n, CombatWorld w, @Nullable Fighter f) {
         if (f == null || f.leaving() || f.poses().size() == 0) {
             return false;
@@ -246,7 +256,21 @@ public final class DemonBrain implements Brain {
         if (dx * dx + dz * dz > range * range) {
             return false;
         }
-        return w.sight().clear(d.x(), d.y() + d.eyeHeight(), d.z(), pose.x(), pose.y() + f.eye(), pose.z());
+        int id = f.id();
+        for (int i = 0; i < asked; i++) {
+            if (askedIds[i] == id) {
+                return askedClear[i];
+            }
+        }
+        boolean clear = w.sight().clear(d.x(), d.y() + d.eyeHeight(), d.z(), pose.x(), pose.y() + f.eye(), pose.z());
+        if (asked == askedIds.length) { // more players in range than it has ever had: grows, never shrinks
+            askedIds = Arrays.copyOf(askedIds, 2 * asked);
+            askedClear = Arrays.copyOf(askedClear, 2 * asked);
+        }
+        askedIds[asked] = id;
+        askedClear[asked] = clear;
+        asked++;
+        return clear;
     }
 
     private boolean inReach(Fighter t) {

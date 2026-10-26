@@ -1,5 +1,6 @@
 package dev.champ.kimetsu.core.fight;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.champ.kimetsu.core.Fixtures;
@@ -267,26 +268,45 @@ class FightHotPathTest {
      */
     private static int quietDemonTicks(
             Demon d, Brain brain, java.util.function.LongConsumer before, java.util.function.LongPredicate counted) {
+        return quietDemonTicks(Sight.OPEN, new double[][] {{0, 64, 3}}, d, brain, before, counted);
+    }
+
+    /**
+     * The same in {@code sight}, with players 1, 2, … standing where {@code at} says each tick ({@code before} may move
+     * them in place).
+     */
+    private static int quietDemonTicks(
+            Sight sight,
+            double[][] at,
+            Demon d,
+            Brain brain,
+            java.util.function.LongConsumer before,
+            java.util.function.LongPredicate counted) {
         CombatWorld w = new CombatWorld(
-                Fixtures.hits(), Fixtures.strikes(), Fixtures.timing(), Fixtures.rhythm(), Arena.WATER, Sight.OPEN);
+                Fixtures.hits(), Fixtures.strikes(), Fixtures.timing(), Fixtures.rhythm(), Arena.WATER, sight);
         PulseSchedule pulse = new PulseSchedule(Arena.BEAT);
-        Fighter player = w.add(new Fighter(
-                1,
-                new Timeline(Arena.combatant(pulse, 0), 1),
-                new InputHorizon(Fixtures.timing()),
-                pulse,
-                Fixtures.PLAYER_HALF_WIDTH,
-                Fixtures.PLAYER_HEIGHT,
-                Fixtures.PLAYER_EYE,
-                Micros.ofMillis(300)));
+        Fighter[] players = new Fighter[at.length];
+        for (int i = 0; i < at.length; i++) {
+            players[i] = w.add(new Fighter(
+                    i + 1,
+                    new Timeline(Arena.combatant(pulse, 0), 1),
+                    new InputHorizon(Fixtures.timing()),
+                    pulse,
+                    Fixtures.PLAYER_HALF_WIDTH,
+                    Fixtures.PLAYER_HEIGHT,
+                    Fixtures.PLAYER_EYE,
+                    Micros.ofMillis(300)));
+        }
         d.target(1);
         w.add(d, brain);
         long[] t = {0};
         Runnable tick = () -> {
             long n = ++t[0];
             before.accept(n);
-            player.poses().put(Micros.ofTicks(n), 0, 64, 3, 180, 0);
-            player.horizon().frame(Micros.ofTicks(n), 16_667, Micros.ofTicks(n));
+            for (int i = 0; i < players.length; i++) {
+                players[i].poses().put(Micros.ofTicks(n), at[i][0], at[i][1], at[i][2], 180, 0);
+                players[i].horizon().frame(Micros.ofTicks(n), 16_667, Micros.ofTicks(n));
+            }
             w.tick(n);
         };
         for (int i = 0; i < 50_000; i++) {
@@ -363,6 +383,25 @@ class FightHotPathTest {
         DemonBrain brain = new DemonBrain(d, Fixtures.strikes(), Fixtures.demonAttacks(), 5);
         int quiet = quietDemonTicks(d, brain, n -> {}, n -> true);
         assertTrue(quiet > 5_000, "too few quiet ticks: " + quiet);
+    }
+
+    @Test
+    void aBrainLookingForItsHiddenTargetAllocatesNothing() {
+        // its target and two others stand behind a wall, out of its reach; its target steps out every 100 ticks, so it
+        // never idles. Each step it asks after its target, then after all three for the nearest it can see, the step's
+        // answers kept in fixed arrays: the ticks that record nothing allocate nothing
+        long[] asked = {0};
+        Sight wall = (x0, y0, z0, x1, y1, z1) -> {
+            asked[0]++;
+            return x1 > -1;
+        };
+        double[][] at = {{-4, 64, 6}, {-3, 64, 8}, {-5, 64, 5}};
+        Demon d = new Demon(10, Fixtures.demon(), Fixtures.hits(), 1, 34, 0, 64, 0, 0, 5);
+        DemonBrain brain = new DemonBrain(d, Fixtures.strikes(), Fixtures.demonAttacks(), 5);
+        int quiet = quietDemonTicks(wall, at, d, brain, n -> at[0][0] = n % 100 == 0 ? 0 : -4, n -> true);
+        assertTrue(quiet > 5_000, "too few quiet ticks: " + quiet);
+        assertEquals(1, d.target(), "it kept its target");
+        assertTrue(asked[0] > 100_000, "it asked the level " + asked[0] + " times in 70,000 ticks");
     }
 
     @Test

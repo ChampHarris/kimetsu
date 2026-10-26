@@ -18,6 +18,7 @@ import dev.champ.kimetsu.core.fight.Outbox.PlayerEffect;
 import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.Input;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -309,6 +310,77 @@ class DemonBrainTest {
         assertEquals(-1, d.target());
         assertEquals(
                 new Outbox.Targeting(10, 205, -1), a.all(Outbox.Targeting.class).get(1));
+    }
+
+    /** A wall in the plane x = −1: a line from the demon (at x = 0) to anyone past it is blocked. */
+    private static boolean throughTheWall(double x0, double x1) {
+        return Math.min(x0, x1) < -1 && Math.max(x0, x1) > -1;
+    }
+
+    @Test
+    void itAsksTheLevelAboutEachPlayerAtMostOnceAStep_andAgainTheNext() {
+        // its target goes behind a wall where two others stand, all out of its reach: each step it asks after its
+        // target, then looks for the nearest it can see among all three. A line can't change within a step, so the
+        // first answer stands for it (vanilla's Sensing does the same per AI step); the next step asks again
+        Arena[] in = new Arena[1];
+        Map<String, Integer> asked = new HashMap<>(); // "step x z" of the player's end of the line → times asked
+        Arena a = new Arena((x0, y0, z0, x1, y1, z1) -> {
+            asked.merge(in[0].now + " " + x1 + " " + z1, 1, Integer::sum);
+            return !throughTheWall(x0, x1);
+        });
+        in[0] = a;
+        a.player(1).stand(MIN, 0, 64, 10, 180).stand(60, -4, 64, 10, 180); // behind the wall from tick 60
+        a.player(2).stand(MIN, -3, 64, 12, 180);
+        a.player(3).stand(MIN, -5, 64, 6, 180);
+        Demon d = demon(a, 3);
+        a.through(200);
+        assertEquals(1, d.target(), "it keeps its hidden target until it idles");
+        assertTrue(a.all(AttackStarted.class).isEmpty(), "out of reach: nothing else asks the level");
+        asked.forEach((key, times) -> assertEquals(1, times, "asked twice in one step: " + key));
+        for (long n = 61; n <= 200; n++) {
+            for (String player : new String[] {"-4.0 10.0", "-3.0 12.0", "-5.0 6.0"}) {
+                assertEquals(1, asked.getOrDefault(n + " " + player, 0), "step " + n + ", the player at " + player);
+            }
+        }
+    }
+
+    @Test
+    void withTenPlayersInRangeItStillAsksAboutEachOnceAStep() {
+        // more players than its answers first had room for: the room grows, and each answer stays its player's
+        Arena[] in = new Arena[1];
+        Map<String, Integer> asked = new HashMap<>(); // "step x z" of the player's end of the line → times asked
+        Arena a = new Arena((x0, y0, z0, x1, y1, z1) -> {
+            asked.merge(in[0].now + " " + x1 + " " + z1, 1, Integer::sum);
+            return !throughTheWall(x0, x1);
+        });
+        in[0] = a;
+        a.player(1).stand(MIN, 0, 64, 6, 180).stand(30, -2, 64, 6, 180); // its target, behind the wall at tick 30
+        for (int i = 2; i <= 9; i++) {
+            a.player(i).stand(MIN, -2 - i, 64, 4 + i, 180); // behind the wall
+        }
+        a.player(10).stand(MIN, 3, 64, 20, 180); // the farthest, in sight
+        Demon d = demon(a, 3);
+        a.through(29);
+        assertEquals(1, d.target());
+        a.through(30);
+        assertEquals(10, d.target(), "the one player it can see");
+        for (int i = 1; i <= 10; i++) {
+            double[] s = a.get(i).standAt(30);
+            assertEquals(1, asked.getOrDefault("30 " + s[0] + " " + s[2], 0), "player " + i + " at step 30");
+        }
+        asked.forEach((key, times) -> assertEquals(1, times, "asked twice in one step: " + key));
+    }
+
+    @Test
+    void aWallHidesTheNearestPlayer_soItTargetsOneItCanSee_andLooksAgainNextStep() {
+        Arena a = new Arena((x0, y0, z0, x1, y1, z1) -> !throughTheWall(x0, x1));
+        a.player(1).stand(MIN, -3, 64, 4, 180).stand(40, 0, 64, 4, 180); // behind the wall, out at tick 40
+        a.player(2).stand(MIN, 2, 64, 10, 180).stand(40, -3, 64, 10, 180); // in sight, behind it at tick 40
+        Demon d = demon(a, 3);
+        a.through(39);
+        assertEquals(2, d.target(), "player 1 is nearer, but behind the wall");
+        a.through(40);
+        assertEquals(1, d.target(), "its target went behind the wall as player 1 came out: step 40 asks afresh");
     }
 
     @Test
