@@ -3,9 +3,9 @@ package dev.champ.kimetsu.combat;
 import com.mojang.logging.LogUtils;
 import dev.champ.kimetsu.core.clock.TickRecord;
 import dev.champ.kimetsu.core.fight.FrameGate;
+import dev.champ.kimetsu.core.fight.PlayerIntake;
 import dev.champ.kimetsu.net.NetMessage;
 import java.util.List;
-import net.minecraft.network.chat.Component;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.util.Util;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
@@ -63,11 +63,7 @@ public final class ServerNet {
             case NetMessage.InputFrame f -> {
                 TickRecord r = c.published();
                 if (r != null) {
-                    long at = r.arrivalMicros(now);
-                    boolean frozen = r.frozen() || r.paused(); // pinned at 50·G: no RTT against it
-                    int announced = announced(r, c.epoch());
-                    List<FrameGate.Pass> go = s.gate(
-                            f.frame(), at, frozen, r.sprinting(), r.tickLengthNanos(), now, r.epoch(), announced);
+                    List<FrameGate.Pass> go = gate(c, s, f.frame(), r, now);
                     for (int i = 0; i < go.size(); i++) {
                         FrameGate.Pass p = go.get(i);
                         main(ctx, () -> s.run(p));
@@ -79,6 +75,18 @@ public final class ServerNet {
     }
 
     /**
+     * Frame {@code f} from {@code s}'s client arrived at {@code nowNanos}: stamped against the published record
+     * {@code r} and metered by the session's gate. Returns the frames to run on the main thread, in order (network
+     * thread; a GameTest's seam on the main thread, {@link Sessions#gateForTest}).
+     */
+    static List<FrameGate.Pass> gate(
+            CombatServer c, PlayerSession s, PlayerIntake.Frame f, TickRecord r, long nowNanos) {
+        long at = r.arrivalMicros(nowNanos);
+        boolean frozen = r.frozen() || r.paused(); // pinned at 50·G: no RTT against it
+        return s.gate(f, at, frozen, r.sprinting(), r.tickLengthNanos(), nowNanos, r.epoch(), announced(r, c.epoch()));
+    }
+
+    /**
      * The epoch the server has announced, for the frame gate's flush (D-065): {@code serverEpoch}
      * ({@code CombatServer.epoch}) moves before {@code ClockEpoch} announces it and before the record carrying it,
      * {@code published}, is published, so the later of the two.
@@ -87,12 +95,10 @@ public final class ServerNet {
         return Math.max(published.epoch(), serverEpoch);
     }
 
-    /** If the gate cut the client off, its one disconnect. */
+    /** If the gate cut the client off, its one disconnect, on the main thread (from this one it would block Netty). */
     private static void cut(PlayerSession s, IPayloadContext ctx) {
-        FrameGate.Abuse a = s.cutOff();
-        if (a != null) {
-            LOGGER.warn("Kimetsu: disconnecting {} for input abuse: {}", s.name(), a);
-            main(ctx, () -> ctx.disconnect(Component.literal("Kimetsu: too much input (" + a + ")")));
+        if (s.cutOff()) {
+            main(ctx, s::disconnect);
         }
     }
 

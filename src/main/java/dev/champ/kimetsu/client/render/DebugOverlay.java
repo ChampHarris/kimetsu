@@ -11,7 +11,8 @@ import net.neoforged.neoforge.client.gui.GuiLayer;
 /**
  * The skeleton client's debug overlay (slice 5b): the combat clock, the beat, your meters, the demon's state and each
  * verdict on you with your guard press's offset from its impact, from what the server routed here alone. Its key
- * toggles it (on by default in dev runs); F1 hides it, which vanilla does for its own layers only.
+ * toggles it (it starts as the CLIENT config's {@code debug_overlay}, on in dev runs); F1 hides it, which vanilla does
+ * for its own layers only.
  */
 public final class DebugOverlay implements GuiLayer {
     private static final int TEXT = 0xFFE0E0E0;

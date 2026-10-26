@@ -1,6 +1,7 @@
 package dev.champ.kimetsu.combat;
 
 import com.mojang.logging.LogUtils;
+import dev.champ.kimetsu.config.KimetsuSyncedConfig;
 import dev.champ.kimetsu.core.clock.TickNumber;
 import dev.champ.kimetsu.core.clock.TickRecord;
 import dev.champ.kimetsu.data.CombatData;
@@ -24,7 +25,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Util;
 import net.minecraft.world.level.Level;
-import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.event.TagsUpdatedEvent;
 import net.neoforged.neoforge.event.entity.EntityTeleportEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
@@ -59,7 +59,9 @@ public final class CombatServer {
     private final Sessions sessions = new Sessions(this);
     private volatile int epoch; // the network thread reads it too: it moves before ClockEpoch goes out
     private int generation;
-    private boolean logging; // the fight log: dev runs, until 5d's SYNCED switch
+    private boolean logging; // the fight log
+    private final boolean gameTests; // the GameTest server keeps no file logs: a test logs in memory
+    private final SyncedSwitch syncedLogging; // SYNCED's fight_logging, as last applied
     private final SecondTimer ticks = new SecondTimer(); // its own tick start and end, the arenas' steps among them
     private final SecondTimer frames = new SecondTimer(); // players' input frames, run between ticks
     private final SecondTimer serverTicks = new SecondTimer(); // vanilla's whole tick, Pre to Post: levels, autosaves
@@ -68,7 +70,10 @@ public final class CombatServer {
     private CombatServer(MinecraftServer server, CombatDataBuilder.Result loaded) {
         this.server = server;
         // not the GameTest server: its default arenas run the tests' side effects, and a test logs in memory
-        this.logging = !FMLEnvironment.isProduction() && !(server instanceof GameTestServer);
+        this.gameTests = server instanceof GameTestServer;
+        boolean synced = KimetsuSyncedConfig.synced().fightLogging(); // SYNCED loaded before the server starts
+        this.syncedLogging = new SyncedSwitch(synced);
+        this.logging = synced && !gameTests;
         List<String> problems = problems(loaded);
         if (problems.isEmpty()) {
             take(loaded);
@@ -519,8 +524,35 @@ public final class CombatServer {
     }
 
     /**
-     * The fight log on or off for every dimension's arena until the server stops ({@code /kimetsu debug log}): on
-     * starts each a file for today, appended to if it's there; off closes them. A GameTest's arena keeps its own.
+     * The SYNCED config changed (any thread: the file watcher's, a saving screen's): the running server applies it on
+     * its own thread.
+     */
+    public static void syncedChanged() {
+        CombatServer c = current;
+        if (c != null) {
+            c.server.execute(c::applySynced);
+        }
+    }
+
+    /**
+     * SYNCED's fight-log switch, if it changed since it was last applied (D-104): {@code /kimetsu debug log} overrides
+     * it until then, and a change to another key leaves that choice standing. The GameTest server keeps none.
+     */
+    private void applySynced() {
+        if (!server.isSameThread() || current != this) {
+            return; // stopping: execute then runs it on the caller's thread; or stopped
+        }
+        boolean on = KimetsuSyncedConfig.synced().fightLogging();
+        if (syncedLogging.changed(on) && !gameTests) {
+            logging(on);
+            LOGGER.info("Kimetsu: the fight log is {} (the SYNCED config's fight_logging)", on ? "on" : "off");
+        }
+    }
+
+    /**
+     * The fight log on or off for every dimension's arena until the server stops or the SYNCED config's
+     * {@code fight_logging} changes ({@code /kimetsu debug log}): on starts each a file for today, appended to if it's
+     * there; off closes them. A GameTest's arena keeps its own.
      */
     public void logging(boolean on) {
         checkThread();

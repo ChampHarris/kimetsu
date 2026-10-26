@@ -4,6 +4,7 @@ import com.google.gson.JsonElement;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.TickRecord;
 import dev.champ.kimetsu.core.fight.Audience;
+import dev.champ.kimetsu.core.fight.FrameGate;
 import dev.champ.kimetsu.core.fight.PlayerIntake;
 import dev.champ.kimetsu.data.CombatData;
 import dev.champ.kimetsu.net.NetMessage;
@@ -16,6 +17,7 @@ import java.util.function.Consumer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
+import net.minecraft.util.Util;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.GameType;
@@ -35,6 +37,7 @@ public final class Sessions {
     private final Map<ServerGamePacketListenerImpl, PlayerSession> byListener = new ConcurrentHashMap<>();
     private final List<PlayerSession> all = new ArrayList<>();
     private final List<PlayerSession> viewers = new ArrayList<>(); // reused by viewersIn
+    private final List<PlayerSession> cutting = new ArrayList<>(); // reused by tickStarted
     private final Trackers trackers = new Trackers();
     private NetMessage.@Nullable DataSync sync;
     private int syncGeneration = -1;
@@ -135,6 +138,41 @@ public final class Sessions {
      */
     public void frameForTest(ServerPlayer p, PlayerIntake.Frame f, long arrivalMicros) {
         testSession(p).frameForTest(f, arrivalMicros);
+    }
+
+    /**
+     * The wire's own path for input frame {@code f} from {@code p}'s client (D-104), where {@link #frameForTest}
+     * bypasses the gate: counted toward the flood limit as it arrives now, stamped against the published record and
+     * metered by the session's frame gate; each frame the gate lets through runs at once, where the wire queues it for
+     * the main thread; and a cut-off is disconnected as the wire's is ({@link #disconnectedForTest}). Returns how many
+     * frames the gate let through. GameTests only.
+     */
+    public int gateForTest(ServerPlayer p, PlayerIntake.Frame f) {
+        PlayerSession s = testSession(p);
+        TickRecord r = server.published();
+        if (r == null) {
+            throw new IllegalStateException("no tick record yet");
+        }
+        long now = Util.getNanos();
+        if (!s.arrived(now)) {
+            if (s.cutOff()) {
+                s.disconnect();
+            }
+            return 0;
+        }
+        List<FrameGate.Pass> go = ServerNet.gate(server, s, f, r, now);
+        for (int i = 0; i < go.size(); i++) {
+            s.run(go.get(i));
+        }
+        if (s.cutOff()) {
+            s.disconnect();
+        }
+        return go.size();
+    }
+
+    /** Why {@code p}'s session would have been disconnected for input abuse, or null. GameTests only. */
+    public FrameGate.@Nullable Abuse disconnectedForTest(ServerPlayer p) {
+        return testSession(p).disconnectedFor();
     }
 
     /** The seams run on the main thread of a game GameTests can run in: never a production jar. */
@@ -247,13 +285,23 @@ public final class Sessions {
 
     // ------------------------------------------------------------------------------------------------- the clock
 
-    /** {@code ServerTickEvent.Pre}, once the tick's record is published: record pushes, and merges the gates held. */
+    /**
+     * {@code ServerTickEvent.Pre}, once the tick's record is published: record pushes, and merges the gates held. A
+     * client a merge's debt cut off is disconnected once every session has had its turn: a disconnect whose channel
+     * has already closed logs the player out at once, which would take it out of the list being walked.
+     */
     void tickStarted(TickRecord published, long nowNanos) {
         for (int i = 0; i < all.size(); i++) {
             PlayerSession s = all.get(i);
             s.offer(published, nowNanos);
-            s.tickStarted();
+            if (s.tickStarted()) {
+                cutting.add(s);
+            }
         }
+        for (int i = 0; i < cutting.size(); i++) {
+            cutting.get(i).disconnect();
+        }
+        cutting.clear();
     }
 
     /** The clock crossed epoch {@code epoch}, before the arenas cancel: every client hears first. */

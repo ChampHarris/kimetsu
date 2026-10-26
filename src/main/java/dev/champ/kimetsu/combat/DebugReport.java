@@ -62,7 +62,9 @@ public final class DebugReport {
                 r == null ? "none" : String.format(Locale.ROOT, "%.2f ms", r.tickLengthNanos() / 1e6),
                 g.arrived(),
                 g.merged(),
-                g.abuse() == null ? "no abuse" : "cut off for " + g.abuse());
+                g.abuse() != null
+                        ? "cut off for " + g.abuse()
+                        : g.flooded() ? "flooding (flood_kicks is off: only merged)" : "no abuse");
     }
 
     private static String fighter(Fighter f, @Nullable Arena a, int id) {

@@ -4,14 +4,19 @@ import dev.champ.kimetsu.Kimetsu;
 import dev.champ.kimetsu.client.render.CueMarker;
 import dev.champ.kimetsu.client.render.DebugOverlay;
 import dev.champ.kimetsu.client.render.StandInRenderer;
+import dev.champ.kimetsu.config.KimetsuClientConfig;
 import dev.champ.kimetsu.entity.KimetsuEntities;
 import dev.champ.kimetsu.net.NetMessage;
 import net.minecraft.resources.Identifier;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
+import net.neoforged.neoforge.client.gui.ConfigurationScreen;
+import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 import net.neoforged.neoforge.client.gui.VanillaGuiLayers;
 import net.neoforged.neoforge.client.network.event.RegisterClientPayloadHandlersEvent;
 import net.neoforged.neoforge.common.NeoForge;
@@ -20,7 +25,11 @@ import net.neoforged.neoforge.network.registration.HandlerThread;
 /** The client's entry point: only the physical client loads it, so no client class reaches a dedicated server. */
 @Mod(value = Kimetsu.MOD_ID, dist = Dist.CLIENT)
 public final class KimetsuClient {
-    public KimetsuClient(IEventBus modBus) {
+    public KimetsuClient(IEventBus modBus, ModContainer container) {
+        container.registerConfig(ModConfig.Type.CLIENT, KimetsuClientConfig.SPEC);
+        modBus.addListener(KimetsuClientConfig::onLoading);
+        modBus.addListener(KimetsuClientConfig::onReloading);
+        container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
         modBus.addListener(KimetsuClient::onRegisterPayloads);
         modBus.addListener(KimetsuClient::onRegisterRenderers);
         modBus.addListener(KimetsuKeys::register);

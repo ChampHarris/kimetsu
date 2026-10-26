@@ -6,6 +6,7 @@ import dev.champ.kimetsu.combat.CombatServer;
 import dev.champ.kimetsu.combat.DamagePath;
 import dev.champ.kimetsu.combat.Impulses;
 import dev.champ.kimetsu.command.KimetsuCommand;
+import dev.champ.kimetsu.config.KimetsuSyncedConfig;
 import dev.champ.kimetsu.data.CombatDataLoader;
 import dev.champ.kimetsu.entity.DevSpawns;
 import dev.champ.kimetsu.entity.KimetsuAttachments;
@@ -20,6 +21,8 @@ import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import org.slf4j.Logger;
 
@@ -42,6 +45,9 @@ public final class Kimetsu {
         CombatGameTests.register(modBus);
         DevGameTests.register(modBus);
         modBus.addListener(KimetsuNet::onRegisterPayloads);
+        container.registerConfig(ModConfig.Type.SYNCED, KimetsuSyncedConfig.SPEC);
+        modBus.addListener(KimetsuSyncedConfig::onLoading);
+        modBus.addListener(Kimetsu::onConfigReloading);
 
         IEventBus game = NeoForge.EVENT_BUS;
         game.addListener(CombatDataLoader::onAddReloadListeners);
@@ -69,5 +75,12 @@ public final class Kimetsu {
         game.addListener(CombatServer::onStopTracking);
         game.addListener(KimetsuCommand::onRegisterCommands);
         DevSpawns.register(game); // dev runs only
+    }
+
+    /** A config changed (any thread): SYNCED's new values first, then the running combat server hears of them. */
+    private static void onConfigReloading(ModConfigEvent.Reloading event) {
+        if (KimetsuSyncedConfig.reloaded(event)) {
+            CombatServer.syncedChanged();
+        }
     }
 }

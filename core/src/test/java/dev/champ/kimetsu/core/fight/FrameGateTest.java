@@ -31,7 +31,19 @@ class FrameGateTest {
     private static final int BURST = FrameMeter.Limits.PROPOSED.frameBurst();
 
     private static FrameGate gate() {
-        return new FrameGate(FrameMeter.Limits.PROPOSED);
+        return new FrameGate(FrameMeter.Limits.PROPOSED, true);
+    }
+
+    /** Five seconds of 201 messages a second, one over the flood line, ending just before 5 s. */
+    private static long floodMessages(FrameGate g) {
+        long nanos = 0;
+        for (int s = 0; s < 5; s++) {
+            for (int i = 0; i < 201; i++) {
+                nanos = s * 1_000_000_000L + i * 4_000_000L;
+                g.arrived(nanos);
+            }
+        }
+        return nanos;
     }
 
     /** Frame {@code seq} sent at {@code stamp}, carrying the pose of the client tick 10 ms before it. */
@@ -541,16 +553,48 @@ class FrameGateTest {
     @Test
     void aFloodOfMessagesIsAbuse_andNothingPassesAfterIt() {
         FrameGate g = gate();
-        long nanos = 0;
-        for (int s = 0; s < 5; s++) {
-            for (int i = 0; i < 201; i++) {
-                nanos = s * 1_000_000_000L + i * 4_000_000L;
-                g.arrived(nanos);
-            }
-        }
+        long nanos = floodMessages(g);
         assertEquals(FrameGate.Abuse.FLOOD, g.abuse());
+        assertTrue(g.flooded());
         assertFalse(g.arrived(nanos + 1));
         assertTrue(offer(g, frame(0, 6_000_000, 0, 0), 6_000_000).isEmpty());
+    }
+
+    /**
+     * With {@code input.flood_kicks} off (D-104), a flood is recorded, not a cut-off: messages still arrive, and the
+     * frames go on through the meter, which still merges what's over its limit, so the main thread stays bounded.
+     */
+    @Test
+    void withFloodKicksOff_aFloodIsOnlyRecorded_andTheFramesStayMetered() {
+        FrameGate g = new FrameGate(FrameMeter.Limits.PROPOSED, false);
+        long nanos = floodMessages(g);
+        assertTrue(g.flooded(), "the flood is recorded");
+        assertNull(g.abuse(), "and isn't abuse");
+        assertTrue(g.arrived(nanos + 1), "messages still arrive");
+        long t = 6_000_000;
+        long seq = drain(g, t); // the burst passes as it would without the flood
+        assertTrue(offer(g, frame(seq, t, 0, 0), t).isEmpty(), "the frame past the burst is merged, as ever");
+        assertNull(g.abuse());
+    }
+
+    /** Merge overflow and both debts cut the client off whatever the flood switch says: they bound the main thread. */
+    @Test
+    void withFloodKicksOff_aMergePastWhatTheIntakeHoldsIsStillAbuse() {
+        FrameGate g = new FrameGate(FrameMeter.Limits.PROPOSED, false);
+        floodMessages(g);
+        long t = 6_000_000;
+        long seq = drain(g, t);
+        int held = 0;
+        while (held <= PlayerIntake.MAX_PENDING) {
+            PlayerIntake.Delta[] sixteen = new PlayerIntake.Delta[16];
+            for (int i = 0; i < sixteen.length; i++) {
+                sixteen[i] = PlayerIntake.Delta.press(PlayerIntake.Key.ATTACK, t);
+            }
+            offer(g, frame(seq++, t, 0, 0, sixteen), t);
+            held += sixteen.length;
+        }
+        assertEquals(FrameGate.Abuse.MERGE_OVERFLOW, g.abuse());
+        assertFalse(g.arrived(7_000_000_000L), "nothing arrives after abuse");
     }
 
     @Test

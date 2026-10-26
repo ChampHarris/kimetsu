@@ -33,7 +33,8 @@ public final class FrameMeter {
     private static final long NONE = Long.MIN_VALUE;
 
     /**
-     * The limits (SYNCED config from slice 5d, spec Config; until then {@link #PROPOSED}).
+     * The limits: the SYNCED config's {@code input} section (spec Config, D-104), {@link #PROPOSED} its defaults and
+     * floors.
      *
      * @param framesPerS frames a second, refilled by the frames' stamps
      * @param frameBurst the frames that may come at once

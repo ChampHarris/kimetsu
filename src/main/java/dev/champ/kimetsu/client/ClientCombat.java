@@ -4,6 +4,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.logging.LogUtils;
+import dev.champ.kimetsu.config.KimetsuClientConfig;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.TickRecord;
 import dev.champ.kimetsu.core.data.ClockRules;
@@ -62,7 +63,8 @@ public final class ClientCombat {
     private boolean sentReady;
     private final ClientView view = new ClientView();
     private final Pose pose = new Pose();
-    private final ClientInput input = new ClientInput(this, !FMLEnvironment.isProduction());
+    private final ClientInput input =
+            new ClientInput(this, KimetsuClientConfig.client().debugOverlay());
     private final List<Entity> combatants = new ArrayList<>(); // the hostile ones this client has (M1: the demon)
     private final long loginNanos = Util.getNanos();
 
@@ -132,7 +134,7 @@ public final class ClientCombat {
 
     // ------------------------------------------------------------------------------------------------- drawing
 
-    /** Whether the debug overlay is on (its key toggles it; on by default in dev runs). */
+    /** Whether the debug overlay is on (its key toggles it; it starts as the CLIENT config's {@code debug_overlay}). */
     public static boolean overlayOn() {
         ClientCombat c = current;
         return c != null && c.input.overlay();

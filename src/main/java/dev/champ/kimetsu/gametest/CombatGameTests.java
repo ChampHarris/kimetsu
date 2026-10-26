@@ -8,8 +8,11 @@ import dev.champ.kimetsu.Kimetsu;
 import dev.champ.kimetsu.combat.Arena;
 import dev.champ.kimetsu.combat.CombatServer;
 import dev.champ.kimetsu.combat.DamagePath;
+import dev.champ.kimetsu.combat.DebugReport;
 import dev.champ.kimetsu.combat.FightLog;
 import dev.champ.kimetsu.combat.PlayerSession;
+import dev.champ.kimetsu.combat.Sessions;
+import dev.champ.kimetsu.config.KimetsuSyncedConfig;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.TickRecord;
 import dev.champ.kimetsu.core.data.DemonProfile;
@@ -19,8 +22,10 @@ import dev.champ.kimetsu.core.demon.Demon;
 import dev.champ.kimetsu.core.fight.Audience;
 import dev.champ.kimetsu.core.fight.Fighter;
 import dev.champ.kimetsu.core.fight.Fights;
+import dev.champ.kimetsu.core.fight.FrameGate;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.fight.PlayerIntake;
+import dev.champ.kimetsu.core.judge.FrameMeter;
 import dev.champ.kimetsu.core.judge.InputHorizon;
 import dev.champ.kimetsu.core.machine.Combatant;
 import dev.champ.kimetsu.core.machine.Effect;
@@ -47,6 +52,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.DoubleConsumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import net.minecraft.commands.CommandSource;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -156,7 +162,13 @@ public final class CombatGameTests {
                     "late_tracking_gets_the_strike_once_ready", () -> CombatGameTests::lateTrackingOnceReady),
             FUNCTIONS.register("late_tracking_gets_the_cancel", () -> CombatGameTests::lateTrackingGetsTheCancel),
             FUNCTIONS.register(
-                    "a_circling_demon_aims_at_its_target", () -> CombatGameTests::aCirclingDemonAimsAtItsTarget));
+                    "a_circling_demon_aims_at_its_target", () -> CombatGameTests::aCirclingDemonAimsAtItsTarget),
+            FUNCTIONS.register(
+                    "debt_abuse_disconnects_at_the_tick_start",
+                    () -> CombatGameTests::debtAbuseDisconnectsAtTheTickStart),
+            FUNCTIONS.register(
+                    "a_session_takes_its_limits_at_login", () -> CombatGameTests::aSessionTakesItsLimitsAtLogin),
+            FUNCTIONS.register("flood_kicks_reach_the_gate", () -> CombatGameTests::floodKicksReachTheGate));
 
     /** Tests that wait on chunks generating, with {@link #CHUNK_TICKS} to do it in. */
     private static final List<String> SLOW = List.of("an_unloaded_demon_leaves_alive");
@@ -2667,6 +2679,145 @@ public final class CombatGameTests {
                                     deltas),
                             Micros.ofTicks(n));
             return tickTime;
+        }
+    }
+
+    /**
+     * D-094's nit (D-104): an event debt the frame gate finds at a tick start, where it hands a merge over whatever the
+     * meter holds, disconnects the client from that tick, with no further message from it. The frames take the wire's
+     * own path ({@code Sessions.gateForTest}) under today's limits: the frame burst spent by frames sharing one stamp,
+     * which credit nothing, then four frames of 16 presses a tick, merged (64, all the intake holds). The first merge
+     * handed over leaves the event bucket 24 in debt; the second, 88, past the intake's 64.
+     */
+    private static void debtAbuseDisconnectsAtTheTickStart(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        FrameMeter.Limits limits = FrameMeter.Limits.PROPOSED;
+        ServerPlayer p = withSynced(synced(limits, true), () -> player(h, arena, 4, 4));
+        Sessions sessions = combat(h).sessions();
+        long stamp = Micros.ofTicks(arena.nextTick());
+        long[] seq = {0};
+        for (int i = 0; i < limits.frameBurst(); i++) {
+            h.assertValueEqual(sessions.gateForTest(p, stampedFrame(h, seq[0]++, stamp, 0)), 1, "burst frame " + i);
+        }
+        Runnable merge = () -> {
+            for (int i = 0; i < 4; i++) {
+                h.assertValueEqual(sessions.gateForTest(p, stampedFrame(h, seq[0]++, stamp, 16)), 0, "a merged frame");
+            }
+        };
+        merge.run();
+        h.assertTrue(sessions.disconnectedForTest(p) == null, "cut off before any debt");
+        h.runAfterDelay(
+                1,
+                () -> { // a tick start handed the first merge over: 24 in debt
+                    h.assertTrue(sessions.disconnectedForTest(p) == null, "cut off at a debt of 24");
+                    merge.run();
+                });
+        h.runAfterDelay(
+                2,
+                () -> { // the second, with no message since: 88
+                    FrameGate.Abuse a = sessions.disconnectedForTest(p);
+                    h.assertTrue(
+                            a == FrameGate.Abuse.EVENT_DEBT,
+                            "the tick start that found the debt didn't disconnect the client: " + a);
+                    h.succeed();
+                });
+    }
+
+    /**
+     * A session's frame gate takes SYNCED's input limits at its login (D-104): one opened with a frame burst ten
+     * frames wider lets ten more frames sharing a stamp through, after the override has gone; one opened with
+     * today's limits, the burst. The override is set and cleared around each login, so no other test sees it.
+     */
+    private static void aSessionTakesItsLimitsAtLogin(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        FrameMeter.Limits plain = FrameMeter.Limits.PROPOSED;
+        FrameMeter.Limits wider = new FrameMeter.Limits(
+                plain.framesPerS(),
+                plain.frameBurst() + 10,
+                plain.eventsPerS(),
+                plain.eventBurst(),
+                plain.floodPerS(),
+                plain.floodSeconds());
+        ServerPlayer wide = withSynced(synced(wider, true), () -> player(h, arena, 3, 4));
+        ServerPlayer narrow = withSynced(synced(plain, true), () -> player(h, arena, 5, 4));
+        long stamp = Micros.ofTicks(arena.nextTick());
+        h.assertValueEqual(burst(h, wide, stamp), wider.frameBurst(), "the wider session's frames through");
+        h.assertValueEqual(burst(h, narrow, stamp), plain.frameBurst(), "the plain session's frames through");
+        h.succeed();
+    }
+
+    /**
+     * SYNCED's {@code flood_kicks} reaches a session's gate at its login (D-104), both ways: under a flood line of one
+     * message a second for one second (the override, below any floor the file allows, so the second message floods),
+     * the session that kicks is cut off for the flood at its second frame, and the one that doesn't lets every frame
+     * through and is reported flooding by {@code /kimetsu debug}.
+     */
+    private static void floodKicksReachTheGate(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        FrameMeter.Limits p = FrameMeter.Limits.PROPOSED;
+        FrameMeter.Limits touchy =
+                new FrameMeter.Limits(p.framesPerS(), p.frameBurst(), p.eventsPerS(), p.eventBurst(), 1, 1);
+        ServerPlayer kicked = withSynced(synced(touchy, true), () -> player(h, arena, 3, 4));
+        ServerPlayer reported = withSynced(synced(touchy, false), () -> player(h, arena, 5, 4));
+        Sessions sessions = combat(h).sessions();
+        long stamp = Micros.ofTicks(arena.nextTick());
+        h.assertValueEqual(sessions.gateForTest(kicked, stampedFrame(h, 0, stamp, 0)), 1, "the first message");
+        h.assertValueEqual(sessions.gateForTest(kicked, stampedFrame(h, 1, stamp, 0)), 0, "the flooding message");
+        h.assertTrue(
+                sessions.disconnectedForTest(kicked) == FrameGate.Abuse.FLOOD,
+                "the session that kicks wasn't cut off for the flood: " + sessions.disconnectedForTest(kicked));
+        for (int i = 0; i < 3; i++) {
+            h.assertValueEqual(sessions.gateForTest(reported, stampedFrame(h, i, stamp, 0)), 1, "frame " + i);
+        }
+        h.assertTrue(sessions.disconnectedForTest(reported) == null, "the session that reports was cut off");
+        String report = String.join("\n", DebugReport.of(combat(h), reported));
+        h.assertTrue(report.contains("flooding (flood_kicks is off"), "no flood in its report: " + report);
+        String cut = String.join("\n", DebugReport.of(combat(h), kicked));
+        h.assertTrue(cut.contains("cut off for FLOOD"), "no cut-off in its report: " + cut);
+        h.succeed();
+    }
+
+    /** How many frames sharing {@code stamp} {@code p}'s gate lets through before it merges one. */
+    private static int burst(GameTestHelper h, ServerPlayer p, long stamp) {
+        Sessions sessions = combat(h).sessions();
+        int through = 0;
+        while (sessions.gateForTest(p, stampedFrame(h, through, stamp, 0)) == 1) {
+            through++;
+            h.assertTrue(through < 1000, "the gate never merged");
+        }
+        return through;
+    }
+
+    /**
+     * Input frame {@code seq} sent at {@code stamp} carrying {@code presses} Attack presses: frames that share a stamp
+     * credit the frame meter nothing.
+     */
+    private static PlayerIntake.Frame stampedFrame(GameTestHelper h, long seq, long stamp, int presses) {
+        List<PlayerIntake.Delta> deltas = new ArrayList<>();
+        for (int i = 0; i < presses; i++) {
+            deltas.add(PlayerIntake.Delta.press(PlayerIntake.Key.ATTACK, stamp));
+        }
+        return new PlayerIntake.Frame(
+                seq, stamp, FRAME_MICROS, stamp - FRAME_MICROS, combat(h).epoch(), 0, deltas);
+    }
+
+    /** SYNCED's values as loaded, with {@code limits} and {@code floodKicks}. */
+    private static KimetsuSyncedConfig.Synced synced(FrameMeter.Limits limits, boolean floodKicks) {
+        KimetsuSyncedConfig.Synced s = KimetsuSyncedConfig.synced();
+        return new KimetsuSyncedConfig.Synced(
+                s.assistAllowed(), s.assistMaxLevel(), s.fightLogging(), limits, floodKicks);
+    }
+
+    /** {@code work} under SYNCED values {@code s}, cleared again before any other test's work runs. */
+    private static <T> T withSynced(KimetsuSyncedConfig.Synced s, Supplier<T> work) {
+        KimetsuSyncedConfig.overrideForTest(s);
+        try {
+            return work.get();
+        } finally {
+            KimetsuSyncedConfig.overrideForTest(null);
         }
     }
 

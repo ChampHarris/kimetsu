@@ -21,11 +21,13 @@ import org.jspecify.annotations.Nullable;
  * the epoch only with that record: it then credits stamps against arrivals on the timeline they were stamped on, and
  * never starts a new epoch's baseline on the old one.
  *
- * <p>Abuse, after which nothing passes and the caller disconnects the client: a flood of messages; a merge holding more
- * presses and releases than the intake does ({@link PlayerIntake#MAX_PENDING}); an event debt deeper than that, or a
- * frame debt deeper than the frame burst, so merges handed over at tick starts can't feed the main thread more than
- * the meter allows. An honest client's frame debt stays shallow: a tick start hands over at most one merge, which the
- * refill outpaces while its stamps keep more than half the server's pace.
+ * <p>Abuse, after which nothing passes and the caller disconnects the client: a flood of messages, when floods cut the
+ * client off (the SYNCED config's {@code input.flood_kicks}); a merge holding more presses and releases than the intake
+ * does ({@link PlayerIntake#MAX_PENDING}); an event debt deeper than that, or a frame debt deeper than the frame burst,
+ * so merges handed over at tick starts can't feed the main thread more than the meter allows. An honest client's
+ * frame debt stays shallow: a tick start hands over at most one merge, which the refill outpaces while its stamps keep
+ * more than half the server's pace. A flood that doesn't cut the client off is only recorded ({@link #flooded}): the
+ * meter already merges whatever is over its limit, so the main thread is bounded either way (D-104).
  *
  * <p>For the fight log it keeps three figures, each since the last time they were taken (D-089). Of two frames in a
  * row, A is the time between their arrivals and S the time between the client's own stamps on them, both in combat
@@ -69,6 +71,7 @@ public final class FrameGate {
 
     private final FrameMeter meter;
     private final int maxFrameDebt;
+    private final boolean floodCuts;
     private int epoch = Integer.MIN_VALUE; // the latest announced epoch a frame has reached
     private @Nullable Pass held;
     private int queued; // frames let through that haven't started on the main thread
@@ -86,17 +89,24 @@ public final class FrameGate {
     private long arrivedFrames; // for its lifetime
     private long mergedFrames; // for its lifetime
 
-    public FrameGate(FrameMeter.Limits limits) {
+    /** A gate metering by {@code limits}; a flood cuts the client off if {@code floodCuts}, else it's recorded. */
+    public FrameGate(FrameMeter.Limits limits, boolean floodCuts) {
         this.meter = new FrameMeter(limits);
         this.maxFrameDebt = limits.frameBurst();
+        this.floodCuts = floodCuts;
     }
 
     /** Any message from the client arrived at {@code nowNanos}: false once it's abusing. */
     public boolean arrived(long nowNanos) {
-        if (meter.arrived(nowNanos) && abuse == null) {
+        if (meter.arrived(nowNanos) && floodCuts && abuse == null) {
             abuse = Abuse.FLOOD;
         }
         return abuse == null;
+    }
+
+    /** Whether the client has flooded, cut off for it or not: it stays so. */
+    public boolean flooded() {
+        return meter.flooding();
     }
 
     /**

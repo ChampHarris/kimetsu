@@ -1,6 +1,7 @@
 package dev.champ.kimetsu.combat;
 
 import com.mojang.logging.LogUtils;
+import dev.champ.kimetsu.config.KimetsuSyncedConfig;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.PulseSchedule;
 import dev.champ.kimetsu.core.clock.RecordPush;
@@ -16,7 +17,6 @@ import dev.champ.kimetsu.core.fight.MoveBound;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.fight.PlayerIntake;
 import dev.champ.kimetsu.core.hit.Ground;
-import dev.champ.kimetsu.core.judge.FrameMeter;
 import dev.champ.kimetsu.core.judge.InputHorizon;
 import dev.champ.kimetsu.core.machine.Combatant;
 import dev.champ.kimetsu.core.machine.Effect;
@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -74,9 +75,11 @@ public final class PlayerSession implements ArenaMember {
     private final AtomicLong echoOut = new AtomicLong(Long.MIN_VALUE); // the echo in flight, its send time
     private double pingTokens = PINGS_PER_S;
     private long pingNanos = Long.MIN_VALUE;
-    private final FrameGate gate = new FrameGate(FrameMeter.Limits.PROPOSED); // its own monitor guards it
+    private final FrameGate gate; // its own monitor guards it
     private boolean readySeen; // guarded by gate
     private final AtomicBoolean cut = new AtomicBoolean(); // the one disconnect is queued
+    private final AtomicBoolean floodLogged = new AtomicBoolean(); // a flood that didn't cut it off, logged once
+    private FrameGate.@Nullable Abuse disconnectedFor; // a test's session: the disconnect it would have made
     private volatile long leadMicros; // the stamp check's tolerance ceiling, for the gate
 
     private PlayerIntake intake;
@@ -147,6 +150,8 @@ public final class PlayerSession implements ArenaMember {
         this.sessions = sessions;
         this.testOut = testOut;
         this.chosen = chosen;
+        KimetsuSyncedConfig.Synced synced = KimetsuSyncedConfig.synced(); // its limits as of its login
+        this.gate = new FrameGate(synced.limits(), synced.floodKicks());
         this.name = player.getScoreboardName();
         this.player = player;
         this.push = new RecordPush(data.rules().clock());
@@ -228,11 +233,24 @@ public final class PlayerSession implements ArenaMember {
         return nowNanos - sent;
     }
 
-    /** Any message from the client arrived at {@code nowNanos}: false once the gate has cut it off (network thread). */
+    /**
+     * Any message from the client arrived at {@code nowNanos}: false once the gate has cut it off (network thread). A
+     * flood that doesn't cut it off ({@code input.flood_kicks} off) is logged once.
+     */
     boolean arrived(long nowNanos) {
+        boolean ok;
+        boolean flooded;
         synchronized (gate) {
-            return gate.arrived(nowNanos);
+            ok = gate.arrived(nowNanos);
+            flooded = gate.flooded();
         }
+        if (ok && flooded && floodLogged.compareAndSet(false, true)) {
+            LOGGER.warn(
+                    "Kimetsu: {} is flooding the server with messages; flood_kicks is off, so the input meter only"
+                            + " merges its frames",
+                    name);
+        }
+        return ok;
     }
 
     /** Whether this is the connection's first {@code Ready}: only that one goes to the main thread (network thread). */
@@ -273,23 +291,26 @@ public final class PlayerSession implements ArenaMember {
         }
     }
 
-    /** The frame gate's lifetime counts and its abuse, if any ({@link #gateCounts}). */
-    record GateCounts(long arrived, long merged, FrameGate.@Nullable Abuse abuse) {}
+    /** The frame gate's lifetime counts, whether it flooded and its abuse, if any ({@link #gateCounts}). */
+    record GateCounts(long arrived, long merged, boolean flooded, FrameGate.@Nullable Abuse abuse) {}
 
     /** The frame gate's lifetime counts, read under its lock, for {@code /kimetsu debug} (any thread). */
     GateCounts gateCounts() {
         synchronized (gate) {
-            return new GateCounts(gate.framesArrived(), gate.framesMerged(), gate.abuse());
+            return new GateCounts(gate.framesArrived(), gate.framesMerged(), gate.flooded(), gate.abuse());
         }
     }
 
-    /** Why the gate cut the client off, the first time it's asked after that; else null (network thread). */
-    FrameGate.@Nullable Abuse cutOff() {
-        FrameGate.Abuse a;
+    /**
+     * Whether the gate has cut the client off, the first time it's asked after that (either thread): its one
+     * disconnect ({@link #disconnect}) is then the asker's to make, on the main thread.
+     */
+    boolean cutOff() {
+        boolean abused;
         synchronized (gate) {
-            a = gate.abuse();
+            abused = gate.abuse() != null;
         }
-        return a != null && cut.compareAndSet(false, true) ? a : null;
+        return abused && cut.compareAndSet(false, true);
     }
 
     // ------------------------------------------------------------------------------------------------- main thread
@@ -328,6 +349,27 @@ public final class PlayerSession implements ArenaMember {
         leave();
     }
 
+    /**
+     * The client's one disconnect for input abuse, once {@link #cutOff} said so (main thread: from the network thread
+     * it would block Netty): queued work still runs after a logout, so a closed session makes none. A test's session
+     * records it instead ({@link Sessions#disconnectedForTest}).
+     */
+    void disconnect() {
+        FrameGate.Abuse a;
+        synchronized (gate) {
+            a = gate.abuse();
+        }
+        if (closed || a == null) {
+            return;
+        }
+        LOGGER.warn("Kimetsu: disconnecting {} for input abuse: {}", name, a);
+        if (testOut != null) {
+            disconnectedFor = a;
+        } else {
+            player.connection.disconnect(Component.literal("Kimetsu: too much input (" + a + ")"));
+        }
+    }
+
     /** Its client is ready: live events reach it from now on, and it's caught up on what it already tracks (Step 5). */
     void markReady() {
         ready = true;
@@ -355,9 +397,11 @@ public final class PlayerSession implements ArenaMember {
 
     /**
      * The tick starts: a merge the gate held back goes now, once no frame it let through is still queued ahead, so a
-     * release isn't stranded when the client's frames stop.
+     * release isn't stranded when the client's frames stop. Handing it over may find a debt that cuts the client off,
+     * with no message from it to ask (D-104): returns whether it did, so the caller makes its one disconnect
+     * ({@link #disconnect}) from this tick.
      */
-    void tickStarted() {
+    boolean tickStarted() {
         FrameGate.Pass m;
         synchronized (gate) {
             m = gate.takeMerge();
@@ -365,6 +409,7 @@ public final class PlayerSession implements ArenaMember {
         if (m != null) {
             frame(m.frame(), m.arrivalMicros(), m.frozen());
         }
+        return cutOff();
     }
 
     /** An input frame, in arrival order, its arrival in combat time and whether it was converted while frozen. */
@@ -823,5 +868,10 @@ public final class PlayerSession implements ArenaMember {
     /** A GameTest's frame for this player, as if it arrived at {@code arrivalMicros} ({@link Sessions#frameForTest}). */
     void frameForTest(PlayerIntake.Frame f, long arrivalMicros) {
         frame(f, arrivalMicros, false);
+    }
+
+    /** The disconnect a test's session would have made, or null ({@link Sessions#disconnectedForTest}). */
+    FrameGate.@Nullable Abuse disconnectedFor() {
+        return disconnectedFor;
     }
 }
