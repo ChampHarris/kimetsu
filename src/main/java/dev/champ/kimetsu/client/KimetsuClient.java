@@ -7,12 +7,14 @@ import dev.champ.kimetsu.client.render.StandInRenderer;
 import dev.champ.kimetsu.config.KimetsuClientConfig;
 import dev.champ.kimetsu.entity.KimetsuEntities;
 import dev.champ.kimetsu.net.NetMessage;
+import net.minecraft.client.Minecraft;
 import net.minecraft.resources.Identifier;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
 import net.neoforged.neoforge.client.gui.ConfigurationScreen;
@@ -28,7 +30,7 @@ public final class KimetsuClient {
     public KimetsuClient(IEventBus modBus, ModContainer container) {
         container.registerConfig(ModConfig.Type.CLIENT, KimetsuClientConfig.SPEC);
         modBus.addListener(KimetsuClientConfig::onLoading);
-        modBus.addListener(KimetsuClientConfig::onReloading);
+        modBus.addListener(KimetsuClient::onConfigReloading);
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
         modBus.addListener(KimetsuClient::onRegisterPayloads);
         modBus.addListener(KimetsuClient::onRegisterRenderers);
@@ -50,6 +52,13 @@ public final class KimetsuClient {
         game.addListener(ClientCombat::onLeave);
         game.addListener(ClientCombat::onLevelUnload);
         game.addListener(ClientCombat::onClientCommands);
+    }
+
+    /** A config changed (the screen's thread or the watcher's): the CLIENT one's settings go to the server. */
+    private static void onConfigReloading(ModConfigEvent.Reloading event) {
+        if (KimetsuClientConfig.reloaded(event)) {
+            Minecraft.getInstance().execute(ClientCombat::settingsChanged); // the connection's state is the main's
+        }
     }
 
     private static void onRegisterRenderers(EntityRenderersEvent.RegisterRenderers event) {

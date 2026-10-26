@@ -60,6 +60,7 @@ public final class ServerNet {
                     main(ctx, s::markReady);
                 }
             }
+            case NetMessage.ClientSettings cs -> s.settings(cs); // the main thread takes the latest at a tick's end
             case NetMessage.InputFrame f -> {
                 TickRecord r = c.published();
                 if (r != null) {

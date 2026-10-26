@@ -20,6 +20,7 @@ import dev.champ.kimetsu.data.CombatData;
 import dev.champ.kimetsu.data.CombatDataBuilder;
 import dev.champ.kimetsu.data.SlayerProfile;
 import dev.champ.kimetsu.entity.M1Demon;
+import dev.champ.kimetsu.net.NetCodec;
 import dev.champ.kimetsu.net.NetMessage;
 import java.util.ArrayList;
 import java.util.List;
@@ -306,6 +307,30 @@ public final class ClientCombat {
         current = new ClientCombat();
     }
 
+    /**
+     * The CLIENT config changed (the screen's save, a file edit): the server gets the new settings, once it has had the
+     * first ones, which go just before {@code Ready} (main thread).
+     */
+    static void settingsChanged() {
+        ClientCombat c = current;
+        if (c != null && c.sentReady) {
+            ClientPacketDistributor.sendToServer(settings());
+        }
+    }
+
+    /**
+     * The player's settings as the server takes them (spec Netcode, {@code ClientSettings}), held to the wire's bounds
+     * so a wider config range can't make the client's own encoder throw (netcode review).
+     */
+    private static NetMessage.ClientSettings settings() {
+        KimetsuClientConfig.Client s = KimetsuClientConfig.client();
+        int offset = NetCodec.MAX_OFFSET_MS;
+        return new NetMessage.ClientSettings(
+                Math.clamp(s.assistLevel(), 0, NetCodec.MAX_ASSIST),
+                Math.clamp(s.audioOffsetMs(), -offset, offset),
+                Math.clamp(s.visualOffsetMs(), -offset, offset));
+    }
+
     static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         current = null;
     }
@@ -539,6 +564,7 @@ public final class ClientCombat {
         c.tick(nanos, inCombat(nanos));
         if (!sentReady && c.ready() && data != null && Minecraft.getInstance().player != null) {
             sentReady = true;
+            ClientPacketDistributor.sendToServer(settings()); // first: the fight it joins starts at its level
             ClientPacketDistributor.sendToServer(new NetMessage.Ready());
             LOGGER.info(
                     "Kimetsu: combat clock set {} ms after login (generation {}), {} µs from the newest record",

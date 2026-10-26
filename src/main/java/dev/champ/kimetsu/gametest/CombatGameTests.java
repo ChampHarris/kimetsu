@@ -168,7 +168,9 @@ public final class CombatGameTests {
                     () -> CombatGameTests::debtAbuseDisconnectsAtTheTickStart),
             FUNCTIONS.register(
                     "a_session_takes_its_limits_at_login", () -> CombatGameTests::aSessionTakesItsLimitsAtLogin),
-            FUNCTIONS.register("flood_kicks_reach_the_gate", () -> CombatGameTests::floodKicksReachTheGate));
+            FUNCTIONS.register("flood_kicks_reach_the_gate", () -> CombatGameTests::floodKicksReachTheGate),
+            FUNCTIONS.register(
+                    "assist_changes_only_out_of_combat", () -> CombatGameTests::assistChangesOnlyOutOfCombat));
 
     /** Tests that wait on chunks generating, with {@link #CHUNK_TICKS} to do it in. */
     private static final List<String> SLOW = List.of("an_unloaded_demon_leaves_alive");
@@ -176,13 +178,18 @@ public final class CombatGameTests {
     /** Tests that stand on {@link #CELLS_STRUCTURE}. */
     private static final List<String> IN_CELLS = List.of("ten_fights_in_budget");
 
-    /** Tests that rebuild every arena the server runs: each batch of its own, so no other test's fight is rebuilt. */
+    /**
+     * Tests that rebuild every arena the server runs, or hold a SYNCED override across ticks: each batch of its own, so
+     * no other test's fight is rebuilt or sees the override.
+     */
     private static final List<DeferredHolder<Consumer<GameTestHelper>, Consumer<GameTestHelper>>> ALONE = List.of(
             FUNCTIONS.register("a_reload_keeps_the_demons_wounds", () -> CombatGameTests::aReloadKeepsTheDemonsWounds),
             FUNCTIONS.register("a_reanchor_keeps_open_fights", () -> CombatGameTests::aReanchorKeepsOpenFights),
             FUNCTIONS.register(
                     "the_clock_epoch_goes_before_the_cancels",
-                    () -> CombatGameTests::theClockEpochGoesBeforeTheCancels));
+                    () -> CombatGameTests::theClockEpochGoesBeforeTheCancels),
+            FUNCTIONS.register("the_assist_cap_holds", () -> CombatGameTests::theAssistCapHolds),
+            FUNCTIONS.register("assist_holds_from_the_first_step", () -> CombatGameTests::assistHoldsFromTheFirstStep));
 
     private static final Logger LOGGER = LogUtils.getLogger();
     /**
@@ -2780,6 +2787,266 @@ public final class CombatGameTests {
         h.succeed();
     }
 
+    /**
+     * A client's assist level reaches the judge and changes only out of combat (5d-2, D-104). Asked for 2 before any
+     * fight, a guard pressed 200 ms before a swipe's impact deflects: Rule 2's 150 ms window is ×1.5 on assist 2, where
+     * unassisted the early press whiffs and the guard held through the impact blocks. Asked for 3 once that strike is
+     * decided, mid-fight (four times on four ticks, the audio offset moving), the next swipe's press at the same offset
+     * still deflects, where level 3 would make it a Perfect; the 3 lands once the combat flag drops, and the client
+     * hears it then. The fight log's {@code settings} lines carry the fight's first second (asked 2, at 2, the
+     * offsets), the asks mid-fight in at most one line a second (3, still 2), and the change.
+     */
+    private static void assistChangesOnlyOutOfCombat(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        StringWriter into = new StringWriter();
+        arena.log(FightLog.toMemory("test", into));
+        List<NetMessage> got = new ArrayList<>();
+        ServerPlayer p = player(h, arena, 4, 6.5, got::add);
+        p.connection
+                .markClientLoaded(); // vanilla holds a player invulnerable until its client loads: a mock's never does
+        Sessions sessions = combat(h).sessions();
+        sessions.settingsForTest(p, new NetMessage.ClientSettings(2, 30, -20));
+        FrameData swipe = attack(h, arena.data(), "swipe");
+        long start = arena.nextTick();
+        demon(
+                h,
+                arena,
+                4,
+                4,
+                0,
+                b -> new ScriptedBrain(b, p::getId).at(start + 40, swipe).at(start + 100, swipe));
+        long rtt = Micros.ofMillis(50); // the seam's echo
+        List<Long> impacts = new ArrayList<>();
+        List<Outbox.StrikeResult> results = new ArrayList<>();
+        arena.listen(e -> {
+            if (e instanceof Outbox.AttackStarted a && a.target() == p.getId()) {
+                impacts.add(Micros.ofTicks(a.impactTick()));
+            } else if (e instanceof Outbox.StrikeResult r && r.fighter() == p.getId()) {
+                results.add(r);
+            }
+        });
+        int[] sent = {0, 0}; // the guard presses sent, and their releases
+        int[] asked = {0}; // the settings sent mid-fight: four on four ticks, the offsets moving, as a spammer would
+        long[] combatUntil = {Long.MIN_VALUE}; // where the flag drops once both strikes are decided
+        h.onEachTick(() -> {
+            long now = Micros.ofTicks(arena.nextTick());
+            if (sent[0] < impacts.size()) {
+                long press = impacts.get(sent[0]) - Micros.ofMillis(200);
+                if (now >= press + rtt / 2) {
+                    sessions.frameForTest(p, guardFrame(h, sent[0] + sent[1], press, true), press + rtt / 2);
+                    sent[0]++;
+                }
+            }
+            if (sent[1] < sent[0]) {
+                long release = impacts.get(sent[1]) + Micros.ofMillis(100);
+                if (now >= release + rtt / 2) { // the guard was held through the impact
+                    sessions.frameForTest(p, guardFrame(h, sent[0] + sent[1], release, false), release + rtt / 2);
+                    sent[1]++;
+                }
+            }
+            if (results.size() >= 1 && asked[0] < 4) {
+                int[] audio = {30, 31, 32, 30};
+                sessions.settingsForTest(p, new NetMessage.ClientSettings(3, audio[asked[0]++], -20));
+            }
+            PlayerSession s = sessions.session(p.connection);
+            Fighter f = s != null ? s.fighter() : null;
+            if (results.size() == 2 && combatUntil[0] == Long.MIN_VALUE && f != null) {
+                combatUntil[0] = f.timeline().live().combatUntil();
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(results.size() == 2 && combatUntil[0] != Long.MIN_VALUE, "the strikes so far: " + results);
+            h.assertValueEqual(results.get(0).kind(), Verdict.Kind.DEFLECT, "the first swipe, guarded 200 ms early");
+            h.assertValueEqual(results.get(1).kind(), Verdict.Kind.DEFLECT, "the second, 3 asked for before it");
+            long told = assistTold(got, p, 3);
+            h.assertTrue(
+                    told != Long.MIN_VALUE, "level 3 hasn't reached the client; the fighter is at " + assistOf(h, p));
+            h.assertTrue(
+                    told >= combatUntil[0], "level 3 landed at tick " + told + ", in combat until " + combatUntil[0]);
+            h.assertValueEqual(assistOf(h, p), 3, "the fighter's level");
+            h.assertTrue(assistTold(got, p, 2) != Long.MIN_VALUE, "level 2 never reached the client");
+            List<JsonObject> lines = new ArrayList<>();
+            for (String line : into.toString().lines().toList()) {
+                lines.add(JsonParser.parseString(line).getAsJsonObject()); // throws on a line that isn't JSON
+            }
+            int id = p.getId();
+            h.assertTrue(
+                    has(
+                            lines,
+                            "settings",
+                            "id",
+                            id,
+                            "assistAsked",
+                            2,
+                            "assist",
+                            2,
+                            "audioOffsetMs",
+                            30,
+                            "visualOffsetMs",
+                            -20),
+                    "no settings line in the fight's first second");
+            int mid = count(lines, "settings", "id", id, "assistAsked", 3, "assist", 2);
+            h.assertTrue(mid >= 1 && mid <= 2, mid + " lines for the four asks mid-fight: at most one a second");
+            h.assertTrue(has(lines, "settings", "id", id, "assistAsked", 3, "assist", 3), "none for the change to 3");
+        });
+    }
+
+    /**
+     * SYNCED caps the assist level a client asks for (D-104): asked for 3 with {@code assist.max_level} at 1, a player
+     * fights at 1; with {@code assist.allowed} off, at 0; with the file's values back, at what they allow of the 3. Each
+     * level reaches its fighter and its client, out of combat as soon as the cap changes. Its batch is its own: the
+     * override is the whole server's while it runs.
+     */
+    private static void theAssistCapHolds(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        KimetsuSyncedConfig.Synced file = KimetsuSyncedConfig.synced();
+        clearSyncedAtTheEnd(h);
+        KimetsuSyncedConfig.overrideForTest(assistCap(file, true, 1));
+        List<NetMessage> got = new ArrayList<>();
+        ServerPlayer p = player(h, arena, 4, 4, got::add);
+        combat(h).sessions().settingsForTest(p, new NetMessage.ClientSettings(3, 0, 0));
+        int[] levels = {1, 0, file.assist(3)}; // under each cap in turn
+        int[] reached = {0};
+        h.onEachTick(() -> {
+            int k = reached[0];
+            if (k < levels.length && assistOf(h, p) == levels[k] && assistTold(got, p, levels[k]) != Long.MIN_VALUE) {
+                reached[0]++;
+                if (reached[0] == 1) {
+                    KimetsuSyncedConfig.overrideForTest(assistCap(file, false, 3));
+                } else if (reached[0] == 2) {
+                    KimetsuSyncedConfig.overrideForTest(null);
+                }
+            }
+        });
+        h.succeedWhen(() -> h.assertTrue(
+                reached[0] == levels.length,
+                "levels reached: " + reached[0] + " of " + Arrays.toString(levels) + "; the fighter is at "
+                        + assistOf(h, p)));
+    }
+
+    /**
+     * A player fights at its assist level from its first step (5d-2, D-104): asked for 2 before its client is ready,
+     * its fighter is at 2 as it joins, before any step, and its client hears it; after a re-anchor rebuilds the arena,
+     * the new fighter is at 2 after the rebuild's first step and stays there. That half can't tell the join's seed from
+     * its apply, which lands in the same step (netcode review): a press in that step is {@code CarryTest}'s and the
+     * fresh join's. Its batch is its own: the re-anchor rebuilds every arena the server runs.
+     */
+    private static void assistHoldsFromTheFirstStep(GameTestHelper h) {
+        CombatServer c = combat(h);
+        floor(h);
+        Arena arena = arena(h);
+        List<NetMessage> got = new ArrayList<>();
+        ServerPlayer p = mock(h, 4, 4);
+        Sessions sessions = c.sessions();
+        sessions.openNotReadyForTest(p, arena, got::add, Micros.ofMillis(50));
+        sessions.settingsForTest(p, new NetMessage.ClientSettings(2, 0, 0));
+        sessions.readyForTest(p);
+        PlayerSession s = sessions.session(p.connection);
+        if (s == null) {
+            throw h.assertionException("the seam opened no session");
+        }
+        Fighter[] joined = new Fighter[1];
+        long[] joinedAfter = {Long.MIN_VALUE}; // the last step before its join
+        int[] generation = {Integer.MIN_VALUE};
+        long[] rebuilt = {Long.MIN_VALUE}; // the rebuild's first step
+        h.onEachTick(() -> {
+            Fighter f = s.fighter();
+            if (f == null) {
+                return;
+            }
+            if (joined[0] == null) { // it joined at the last tick's end: no step has run it
+                joined[0] = f;
+                joinedAfter[0] = arena.lastStep();
+                h.assertValueEqual(f.timeline().current(), arena.lastStep(), "its fighter's last tick at its join");
+                h.assertValueEqual(f.timeline().live().assistLevel(), 2, "its fighter's level at its join");
+            } else if (generation[0] == Integer.MIN_VALUE && arena.lastStep() >= joinedAfter[0] + 5) {
+                if (!(h.getLevel().getServer().overworld().getLevelData() instanceof ServerLevelData d)) {
+                    throw h.assertionException("the overworld's level data can't move game time");
+                }
+                generation[0] = c.generation();
+                d.setGameTime(
+                        d.getGameTime() + 2L * arena.data().rules().fights().endTicks()); // rebuilt at Post
+            } else if (rebuilt[0] == Long.MIN_VALUE && f != joined[0]) { // the rebuild and its first step ran at Post
+                rebuilt[0] = arena.lastStep();
+                h.assertTrue(c.generation() > generation[0], "a new fighter with no re-anchor");
+                h.assertValueEqual(f.timeline().live().assistLevel(), 2, "the rebuilt fighter's level");
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(rebuilt[0] != Long.MIN_VALUE, "no rebuild yet");
+            h.assertTrue(arena.lastStep() >= rebuilt[0] + 5, "too few steps since the rebuild");
+            h.assertValueEqual(assistOf(h, p), 2, "the rebuilt fighter's level, steps later");
+            h.assertTrue(assistTold(got, p, 2) != Long.MIN_VALUE, "level 2 never reached the client");
+        });
+    }
+
+    /** The assist level {@code p}'s fighter has now, or −1 while it has none. */
+    private static int assistOf(GameTestHelper h, ServerPlayer p) {
+        PlayerSession s = combat(h).sessions().session(p.connection);
+        Fighter f = s != null ? s.fighter() : null;
+        return f != null ? f.timeline().live().assistLevel() : -1;
+    }
+
+    /** The tick of the first {@code AssistChanged(level)} sent to {@code p}'s client, or {@code Long.MIN_VALUE}. */
+    private static long assistTold(List<NetMessage> got, ServerPlayer p, int level) {
+        for (NetMessage m : got) {
+            if (m instanceof NetMessage.Tick t) {
+                for (Outbox.Event e : t.events()) {
+                    if (e instanceof Outbox.PlayerEffect pe
+                            && pe.fighter() == p.getId()
+                            && pe.effect() instanceof Effect.AssistChanged a
+                            && a.level() == level) {
+                        return pe.tick();
+                    }
+                }
+            }
+        }
+        return Long.MIN_VALUE;
+    }
+
+    /** SYNCED's values {@code s}, assist allowed or not and capped at {@code max}. */
+    private static KimetsuSyncedConfig.Synced assistCap(KimetsuSyncedConfig.Synced s, boolean allowed, int max) {
+        return new KimetsuSyncedConfig.Synced(allowed, max, s.fightLogging(), s.limits(), s.floodKicks());
+    }
+
+    /** A test that holds a SYNCED override across ticks clears it as it ends, whichever way. */
+    private static void clearSyncedAtTheEnd(GameTestHelper h) {
+        h.testInfo.addListener(new GameTestListener() {
+            @Override
+            public void testStructureLoaded(GameTestInfo info) {}
+
+            @Override
+            public void testPassed(GameTestInfo info, GameTestRunner runner) {
+                KimetsuSyncedConfig.overrideForTest(null);
+            }
+
+            @Override
+            public void testFailed(GameTestInfo info, GameTestRunner runner) {
+                KimetsuSyncedConfig.overrideForTest(null);
+            }
+
+            @Override
+            public void testAddedForRerun(GameTestInfo original, GameTestInfo copy, GameTestRunner runner) {}
+        });
+    }
+
+    /**
+     * Input frame {@code seq} sent at {@code stamp}: with {@code press}, a guard press at that stamp, the key held;
+     * without, the key up.
+     */
+    private static PlayerIntake.Frame guardFrame(GameTestHelper h, long seq, long stamp, boolean press) {
+        return new PlayerIntake.Frame(
+                seq,
+                stamp,
+                FRAME_MICROS,
+                InputHorizon.NO_TICK,
+                combat(h).epoch(),
+                press ? PlayerIntake.Key.GUARD.bit() : 0,
+                press ? List.of(PlayerIntake.Delta.press(PlayerIntake.Key.GUARD, stamp)) : List.of());
+    }
+
     /** How many frames sharing {@code stamp} {@code p}'s gate lets through before it merges one. */
     private static int burst(GameTestHelper h, ServerPlayer p, long stamp) {
         Sessions sessions = combat(h).sessions();
@@ -2828,23 +3095,38 @@ public final class CombatGameTests {
 
     private static @Nullable JsonObject first(List<JsonObject> lines, String t, Object... pairs) {
         for (JsonObject o : lines) {
-            if (!o.get("t").getAsString().equals(t)) {
-                continue;
-            }
-            boolean all = true;
-            for (int i = 0; i < pairs.length; i += 2) {
-                JsonElement v = o.get((String) pairs[i]);
-                Object want = pairs[i + 1];
-                all &= v != null
-                        && (want instanceof Integer n
-                                ? v.getAsInt() == n
-                                : v.getAsString().equals(want));
-            }
-            if (all) {
+            if (matches(o, t, pairs)) {
                 return o;
             }
         }
         return null;
+    }
+
+    /** How many lines of type {@code t} have each key-value pair of {@code pairs}. */
+    private static int count(List<JsonObject> lines, String t, Object... pairs) {
+        int n = 0;
+        for (JsonObject o : lines) {
+            if (matches(o, t, pairs)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    private static boolean matches(JsonObject o, String t, Object... pairs) {
+        if (!o.get("t").getAsString().equals(t)) {
+            return false;
+        }
+        boolean all = true;
+        for (int i = 0; i < pairs.length; i += 2) {
+            JsonElement v = o.get((String) pairs[i]);
+            Object want = pairs[i + 1];
+            all &= v != null
+                    && (want instanceof Integer n
+                            ? v.getAsInt() == n
+                            : v.getAsString().equals(want));
+        }
+        return all;
     }
 
     /** Whether the server refuses {@code p}'s click to start breaking the block at {@code at} (relative). */

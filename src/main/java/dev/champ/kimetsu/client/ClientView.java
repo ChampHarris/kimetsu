@@ -32,6 +32,7 @@ final class ClientView {
     private final ArrayDeque<Verdict> verdicts = new ArrayDeque<>();
     private long tick = Long.MIN_VALUE;
     private long combatUntil = Long.MIN_VALUE; // the last snapshot's Rule 13.1 flag, until the level goes
+    private int assist; // the assist level the server gives its player: its last AssistChanged, sent at every join
 
     /**
      * One step's message from the server, in order; returns the newest push it carries on player {@code self}, which
@@ -59,6 +60,8 @@ final class ClientView {
                 case Outbox.PlayerEffect p
                 when p.fighter() == self && p.effect() instanceof Effect.Push push ->
                     pushed = push; // its client moves it (Rule 7.10)
+                case Outbox.PlayerEffect p
+                when p.fighter() == self && p.effect() instanceof Effect.AssistChanged a -> assist = a.level();
                 default -> {} // the presentation's (5d): hits, holds, clashes, the other effects
             }
         }
@@ -77,6 +80,14 @@ final class ClientView {
      */
     boolean inCombat(long tick) {
         return tick < combatUntil;
+    }
+
+    /**
+     * The assist level the server gives its player (SYNCED's cap, changed only out of combat), 0 until its first join:
+     * what the radial's limit (5d-2 Step 3) and the HUD (5d-3) go by.
+     */
+    int assist() {
+        return assist;
     }
 
     /** The tick its combat flag drops at, by the last snapshot; {@code Long.MIN_VALUE} out of combat (the overlay's). */

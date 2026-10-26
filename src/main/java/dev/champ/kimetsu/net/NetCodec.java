@@ -24,6 +24,15 @@ public final class NetCodec {
     /** The deltas one input frame carries at most (Netcode, "Input frames"); the client sends the rest next frame. */
     public static final int MAX_DELTAS = 16;
 
+    /** The highest assist level {@code ClientSettings} carries. */
+    public static final int MAX_ASSIST = 3;
+
+    /**
+     * How far either calibration offset in {@code ClientSettings} may go, in ms: wider than the CLIENT config's ±500, so
+     * that range can move without a wire change.
+     */
+    public static final int MAX_OFFSET_MS = 1000;
+
     static final int MAX_EVENTS = 4096; // a step's events for one player: a handful in a real fight
     static final int MAX_FOLDERS = 16;
     static final int MAX_FILES = 4096;
@@ -95,6 +104,18 @@ public final class NetCodec {
                 buf.writeByte(7);
                 writeFrame(buf, f.frame());
             }
+            case NetMessage.ClientSettings s -> {
+                if (s.assist() < 0
+                        || s.assist() > MAX_ASSIST
+                        || Math.abs(s.audioOffsetMs()) > MAX_OFFSET_MS
+                        || Math.abs(s.visualOffsetMs()) > MAX_OFFSET_MS) {
+                    throw new IllegalArgumentException("settings the wire doesn't carry: " + s);
+                }
+                buf.writeByte(10);
+                buf.writeByte(s.assist());
+                buf.writeShort(s.audioOffsetMs());
+                buf.writeShort(s.visualOffsetMs());
+            }
             case NetMessage.Tick t -> {
                 buf.writeByte(8);
                 Wire.writeLong(buf, t.tick());
@@ -131,8 +152,20 @@ public final class NetCodec {
             case 5 -> new NetMessage.EchoBack(buf.readLong());
             case 6 -> new NetMessage.Ready();
             case 7 -> new NetMessage.InputFrame(readFrame(buf));
+            case 10 -> readSettings(buf);
             default -> throw new DecoderException("unknown client message " + type);
         };
+    }
+
+    /** A client's settings, each value within the wire's bounds: past them, a modified client's message is malformed. */
+    private static NetMessage.ClientSettings readSettings(FriendlyByteBuf buf) {
+        int assist = buf.readUnsignedByte();
+        int audio = buf.readShort();
+        int visual = buf.readShort();
+        if (assist > MAX_ASSIST || Math.abs(audio) > MAX_OFFSET_MS || Math.abs(visual) > MAX_OFFSET_MS) {
+            throw new DecoderException("client settings " + assist + ", " + audio + " ms, " + visual + " ms");
+        }
+        return new NetMessage.ClientSettings(assist, audio, visual);
     }
 
     static NetMessage.ToClient readToClient(FriendlyByteBuf buf) {

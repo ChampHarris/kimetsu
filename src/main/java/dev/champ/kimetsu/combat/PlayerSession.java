@@ -12,6 +12,7 @@ import dev.champ.kimetsu.core.data.Moveset;
 import dev.champ.kimetsu.core.data.TimingRules;
 import dev.champ.kimetsu.core.fight.FallHeight;
 import dev.champ.kimetsu.core.fight.Fighter;
+import dev.champ.kimetsu.core.fight.Fights;
 import dev.champ.kimetsu.core.fight.FrameGate;
 import dev.champ.kimetsu.core.fight.MoveBound;
 import dev.champ.kimetsu.core.fight.Outbox;
@@ -52,8 +53,8 @@ import org.slf4j.Logger;
  * One player's connection to the fight (spec Netcode): its clock's bookkeeping, its input through the intake, and its
  * engine fighter, which it keeps as an {@link ArenaMember} on the test dummy's shape, so a rebuild gives it a fresh
  * fighter and its hits land through the same damage path. One per connection: a respawn's new player object takes
- * over the same session. Main thread only, except {@link #push}, {@link #pingAllowed}, {@link #echoBack} and the
- * frame gate's side ({@link #arrived}, {@link #firstReady}, {@link #gate}, {@link #cutOff}), which the network thread
+ * over the same session. Main thread only, except {@link #push}, {@link #pingAllowed}, {@link #echoBack},
+ * {@link #settings} and the frame gate's side ({@link #arrived}, {@link #firstReady}, {@link #gate}, {@link #cutOff}), which the network thread
  * uses. The gate is guarded by its own monitor, on the network thread where frames arrive and on the main thread where
  * they run and where a merge is handed over at a tick start.
  */
@@ -65,6 +66,7 @@ public final class PlayerSession implements ArenaMember {
     // vanilla's sprint, a transient movement-speed modifier (LivingEntity.SPEED_MODIFIER_SPRINTING): the bound's honest
     // maximum is measured sprinting, so only a bonus on top of it scales the bound
     private static final Identifier SPRINTING = Identifier.withDefaultNamespace("sprinting");
+    private static final NetMessage.ClientSettings NO_SETTINGS = new NetMessage.ClientSettings(0, 0, 0); // none sent
 
     private final Sessions sessions;
     private final @Nullable Consumer<NetMessage> testOut; // a test's session: what it sends goes here, not on the wire
@@ -81,6 +83,12 @@ public final class PlayerSession implements ArenaMember {
     private final AtomicBoolean floodLogged = new AtomicBoolean(); // a flood that didn't cut it off, logged once
     private FrameGate.@Nullable Abuse disconnectedFor; // a test's session: the disconnect it would have made
     private volatile long leadMicros; // the stamp check's tolerance ceiling, for the gate
+    // the client's latest settings, stored on the network thread and taken on the main thread at a tick's end
+    private volatile NetMessage.ClientSettings asked = NO_SETTINGS;
+    private NetMessage.ClientSettings seen = NO_SETTINGS; // the latest the main thread took
+    private int assist; // the effective assist level: its fighter's, and the one a fresh fighter starts at
+    private long settingsFrom = Long.MIN_VALUE; // the fight the fight log last wrote its settings in (its first step)
+    private boolean settingsDue; // asked or offsets changed since the fight log's last settings line
 
     private PlayerIntake intake;
     private TimingRules timing;
@@ -251,6 +259,14 @@ public final class PlayerSession implements ArenaMember {
                     name);
         }
         return ok;
+    }
+
+    /**
+     * The client sent its settings (network thread): only the latest is kept, and the main thread takes it at a tick's
+     * end ({@link #tickEnded}), so a client resending them floods nothing but the flood meter.
+     */
+    void settings(NetMessage.ClientSettings s) {
+        asked = s;
     }
 
     /** Whether this is the connection's first {@code Ready}: only that one goes to the main thread (network thread). */
@@ -561,11 +577,15 @@ public final class PlayerSession implements ArenaMember {
         send(new NetMessage.ClockRecord(r));
     }
 
-    /** After the tick's steps: the echo if one is due, and joining the fight once the client can be judged. */
+    /**
+     * After the tick's steps: the client's settings ({@link #settle}), the echo if one is due, and joining the fight
+     * once the client can be judged, at the level just settled.
+     */
     void tickEnded(long nowNanos) {
         if (closed) {
             return;
         }
+        settle();
         long out = echoOut.get(); // one in flight is waited for, so a round trip over the interval still measures
         if ((lastEchoNanos == Long.MIN_VALUE || nowNanos - lastEchoNanos >= ECHO_NANOS)
                 && (out == Long.MIN_VALUE || nowNanos - out >= ECHO_GIVE_UP_NANOS)) {
@@ -579,6 +599,45 @@ public final class PlayerSession implements ArenaMember {
                 a.add(this);
             }
         }
+    }
+
+    /**
+     * The client's latest settings, as the step's end finds them (5d-2): the effective assist level is the asked one
+     * under SYNCED's cap ({@link KimetsuSyncedConfig.Synced#assist}), and it changes only out of combat (spec Edge
+     * Cases), so a change asked mid-fight, or a cap lowered then, waits for the flag to drop. Compared every tick, as
+     * the flag's drop has no event: a volatile read and a few compares. A change reaches the engine and the client
+     * through {@code CombatWorld.apply}; one out of the fight waits for the next join, which starts at it. While the
+     * player is in a fight, a change of level is written to the fight log at once, and one of the asked level or the
+     * offsets with its next second's line ({@link #second}): a client resending them every tick writes one line a second
+     * (netcode review).
+     */
+    private void settle() {
+        NetMessage.ClientSettings s = asked;
+        if (!s.equals(seen)) {
+            seen = s;
+            settingsDue = true;
+        }
+        int level = KimetsuSyncedConfig.synced().assist(s.assist());
+        if (level != assist && !inCombat()) {
+            assist = level;
+            Arena a = arena;
+            if (a != null && fighter != null) {
+                a.world().apply(combatId(), new Effect.AssistChanged(level));
+            }
+            FightLog log = a != null ? a.log() : null;
+            Fights.Fight fight = a != null ? a.fights().fight(combatId()) : null;
+            if (a != null && log != null && fight != null) {
+                logSettings(log, a.lastStep(), fight);
+            }
+        }
+    }
+
+    /** Its settings to the fight log, in {@code fight}: in force from step {@code n}. */
+    private void logSettings(FightLog log, long n, Fights.Fight fight) {
+        settingsFrom = fight.from();
+        settingsDue = false;
+        NetMessage.ClientSettings s = seen;
+        log.settings(n, combatId(), s.assist(), assist, s.audioOffsetMs(), s.visualOffsetMs());
     }
 
     /** The player went to another dimension: it fights in that dimension's arena from the next tick. */
@@ -709,6 +768,9 @@ public final class PlayerSession implements ArenaMember {
         if (old != null) {
             start.carry(old.timeline().live(), old.timeline().current(), tick - 1); // meters go on (5c-1)
         }
+        // its effective assist level from its first step (5d-2): a change applied would land a step late, and one the
+        // old world still held at a rebuild is gone with it; a level asked mid-fight still waits for the flag to drop
+        start.effect(new Effect.AssistChanged(assist), tick - 1);
         Fighter f = new Fighter(
                 player.getId(),
                 new Timeline(start, tick),
@@ -726,6 +788,7 @@ public final class PlayerSession implements ArenaMember {
         teleportX = Double.NaN; // its first pose is its bound's first reference
         wasSlippery = false;
         a.world().add(f);
+        a.world().apply(combatId(), new Effect.AssistChanged(assist)); // the same level again, which tells its client
         intake.join(f);
         intake.fallProbe(fallProbe(f, moves, a.ground()));
         arena = a;
@@ -839,10 +902,11 @@ public final class PlayerSession implements ArenaMember {
     /**
      * Once a second, from its arena's fight log: the link's measures since the last (the longest gap and silence
      * between its frames, the frames merged: {@link FrameGate}; the records pushed) and the bound's figures, taken
-     * whether or not it fights; written, with its meters and its clock's lag, while it does.
-     * Returns whether it wrote a line.
+     * whether or not it fights; written, with its meters and its clock's lag, while it does ({@code fight}, its fight,
+     * null out of one), after its settings in that fight's first second (5d-2), so a log carries them for every fight
+     * and a day's file never opens on them alone. Returns whether it wrote a line.
      */
-    boolean second(FightLog log, long n, boolean inFight) {
+    boolean second(FightLog log, long n, Fights.@Nullable Fight fight) {
         long gap;
         long silence;
         int merged;
@@ -858,8 +922,11 @@ public final class PlayerSession implements ArenaMember {
             return false;
         }
         MoveBound.Second move = f.takeMoveSecond(); // taken either way, so a fight's first second starts clean
-        if (!inFight) {
+        if (fight == null) {
             return false;
+        }
+        if (fight.from() != settingsFrom || settingsDue) {
+            logSettings(log, n, fight);
         }
         log.second(n, combatId(), f, intake.rttMicros(), gap, silence, merged, intake.clockLagMicros(), pushed, move);
         return true;

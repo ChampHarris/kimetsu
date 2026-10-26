@@ -52,7 +52,7 @@
   "kimetsu.configuration.assist.allowed": "Allowed",
   "kimetsu.configuration.assist.allowed.tooltip": "Whether players may use Rhythm assist at all.",
   "kimetsu.configuration.assist.max_level": "Highest Level",
-  "kimetsu.configuration.assist.max_level.tooltip": "The highest assist level a player may use.",
+  "kimetsu.configuration.assist.max_level.tooltip": "The highest assist level a player may use. A change reaches each player once it is out of combat.",
   "kimetsu.configuration.input": "Input Limits",
   "kimetsu.configuration.input.button": "Edit",
   "kimetsu.configuration.input.tooltip": "Rate limits on each client's input, metered by its own stamps. Each is at least its default, which an honest client never reaches. A player gets them as they log in.",
@@ -69,5 +69,5 @@
   "kimetsu.configuration.input.flood_seconds": "Flood Seconds",
   "kimetsu.configuration.input.flood_seconds.tooltip": "How many such seconds in a row make a flood.",
   "kimetsu.configuration.input.flood_kicks": "Disconnect Floods",
-  "kimetsu.configuration.input.flood_kicks.tooltip": "Whether a flood disconnects the client. Off, it is only logged and shown by /kimetsu debug; the limits still merge what is over them."
+  "kimetsu.configuration.input.flood_kicks.tooltip": "Whether a flood disconnects the client. Off, it is only logged and shown by /kimetsu debug; the limits still merge what is over them, and only vanilla's rate-limit in server.properties (off by default) kicks a raw flood."
 }

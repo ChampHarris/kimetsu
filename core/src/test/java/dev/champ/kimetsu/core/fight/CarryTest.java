@@ -12,6 +12,7 @@ import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.PostureRules;
 import dev.champ.kimetsu.core.demon.Demon;
 import dev.champ.kimetsu.core.machine.Combatant;
+import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.Input;
 import dev.champ.kimetsu.core.machine.State;
 import dev.champ.kimetsu.core.meter.Fixed;
@@ -20,7 +21,7 @@ import org.junit.jupiter.api.Test;
 /**
  * Combatants across a rebuilt world (slice 5c-1, D-061): a data reload, or game time re-anchoring, builds a fresh world
  * whose combatants take over the old ones' meters, so a {@code /reload} no longer heals the demon. A player keeps its
- * Breath, Winded, Posture and Rhythm, and a stagger still running; the demon keeps its HP, Hunger and Posture, the HP
+ * Breath, Winded, Posture and Rhythm, a stagger still running, and its assist level (5d-2); the demon keeps its HP, Hunger and Posture, the HP
  * its wounds took, a regeneration pause, a stagger or a collapse and the Thread they opened, all as they stood, their
  * timers shifted when the ticks were renumbered.
  */
@@ -66,6 +67,20 @@ class CarryTest {
         assertEquals(State.STAGGER, c.state());
         c.advance(5_020);
         assertEquals(State.NEUTRAL, c.state());
+    }
+
+    /**
+     * Its assist level goes on too (slice 5d-2): the mod tells the engine a level only when it changes, so a rebuilt
+     * world that started it at 0 would judge the player unassisted from its first step on.
+     */
+    @Test
+    void aPlayerKeepsItsAssistLevel() {
+        PulseSchedule pulse = new PulseSchedule(Arena.BEAT);
+        Combatant old = player(pulse, 0);
+        old.effect(new Effect.AssistChanged(2), 990);
+        Combatant c = player(pulse, 5_000);
+        c.carry(old, 1_000, 5_000);
+        assertEquals(2, c.assistLevel());
     }
 
     @Test

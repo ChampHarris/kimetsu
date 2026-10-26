@@ -53,6 +53,25 @@ class ClientViewTest {
     }
 
     /**
+     * The assist level the server gives its player (5d-2): its own {@code AssistChanged}, not another player's; 0 until
+     * the first, which every join sends.
+     */
+    @Test
+    void itKeepsItsPlayersAssistLevel_notAnotherPlayers() {
+        ClientView v = new ClientView();
+        assertEquals(0, v.assist());
+        v.accept(
+                new NetMessage.Tick(
+                        122, List.of(new Outbox.PlayerEffect(SELF, 122, new Effect.AssistChanged(2))), null),
+                SELF);
+        assertEquals(2, v.assist());
+        v.accept(
+                new NetMessage.Tick(123, List.of(new Outbox.PlayerEffect(2, 123, new Effect.AssistChanged(3))), null),
+                SELF);
+        assertEquals(2, v.assist(), "another player's level");
+    }
+
+    /**
      * D-055 on the client, as the server counts it (`Arena.hostileWithin`, a review nit): a demon makes the blade only
      * the Attack while the server has it in a fight, which its {@code MobState} says, and no longer once it dies; a
      * demon the server never routed (one in no arena, a GameTest's) counts for nothing.

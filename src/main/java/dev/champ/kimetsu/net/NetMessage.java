@@ -68,6 +68,16 @@ public sealed interface NetMessage extends CustomPacketPayload {
     record InputFrame(PlayerIntake.Frame frame) implements ToServer {}
 
     /**
+     * C→S: the player's own settings (spec Netcode, "Payloads"), before {@code Ready} and when they change. The server
+     * caps the assist level by SYNCED and applies it only out of combat; the offsets only reach the fight log.
+     *
+     * @param assist the Rhythm assist level asked for (0–3)
+     * @param audioOffsetMs the audio calibration offset
+     * @param visualOffsetMs the visual calibration offset
+     */
+    record ClientSettings(int assist, int audioOffsetMs, int visualOffsetMs) implements ToServer {}
+
+    /**
      * S→C: what one engine step did that this player may see, in engine order, and its own state when that changed.
      */
     record Tick(

@@ -152,6 +152,8 @@ class NetCodecTest {
                 new NetMessage.Ready(),
                 new NetMessage.InputFrame(f),
                 new NetMessage.InputFrame(frame(InputHorizon.NO_TICK, 0)),
+                new NetMessage.ClientSettings(2, -480, 35),
+                new NetMessage.ClientSettings(NetCodec.MAX_ASSIST, NetCodec.MAX_OFFSET_MS, -NetCodec.MAX_OFFSET_MS),
                 new NetMessage.Tick(500, List.of(started, effect), snap),
                 new NetMessage.Tick(501, List.of(), null),
                 new NetMessage.DataSync(
@@ -173,6 +175,7 @@ class NetCodecTest {
         assertEquals(NetMessage.ToServer.TYPE, new NetMessage.EchoBack(0).type());
         assertEquals(NetMessage.ToServer.TYPE, new NetMessage.Ready().type());
         assertEquals(NetMessage.ToServer.TYPE, new NetMessage.InputFrame(frame(InputHorizon.NO_TICK, 0)).type());
+        assertEquals(NetMessage.ToServer.TYPE, new NetMessage.ClientSettings(0, 0, 0).type());
         assertEquals(NetMessage.ToClient.TYPE, new NetMessage.ClockPong(0, 0, 0, RECORD).type());
         assertEquals(NetMessage.ToClient.TYPE, new NetMessage.ClockRecord(RECORD).type());
         assertEquals(NetMessage.ToClient.TYPE, new NetMessage.ClockEpoch(0).type());
@@ -291,6 +294,36 @@ class NetCodecTest {
         NetCodec.write(claimed, new NetMessage.InputFrame(frame(InputHorizon.NO_TICK, 1)));
         claimed.setByte(claimed.writerIndex() - 2, 1 | 4); // the delta's flags: down, and the old fall bit
         assertThrows(DecoderException.class, () -> NetCodec.readToServer(claimed));
+    }
+
+    /** {@code ClientSettings} is 6 bytes (spec Netcode, "Payloads"): its type, the assist level and two offsets. */
+    @Test
+    void clientSettingsAreSixBytes() {
+        FriendlyByteBuf b = buf();
+        NetCodec.write(b, new NetMessage.ClientSettings(3, -500, 500));
+        assertEquals(6, b.readableBytes());
+    }
+
+    /**
+     * A client claims its own settings, so the codec bounds them (5d-2, D-104's trust rule): an assist level outside
+     * 0–3 or an offset past ±1,000 ms fails to decode, and the client can't write one.
+     */
+    @Test
+    void clientSettingsOutsideTheirBoundsFailToDecode() {
+        for (int[] bad : List.of(
+                new int[] {NetCodec.MAX_ASSIST + 1, 0, 0},
+                new int[] {-1, 0, 0},
+                new int[] {0, NetCodec.MAX_OFFSET_MS + 1, 0},
+                new int[] {0, 0, -NetCodec.MAX_OFFSET_MS - 1})) {
+            NetMessage.ClientSettings s = new NetMessage.ClientSettings(bad[0], bad[1], bad[2]);
+            assertThrows(IllegalArgumentException.class, () -> NetCodec.write(buf(), s), s.toString());
+            FriendlyByteBuf b = buf(); // as a modified client would write it
+            b.writeByte(10);
+            b.writeByte(bad[0]);
+            b.writeShort(bad[1]);
+            b.writeShort(bad[2]);
+            assertThrows(DecoderException.class, () -> NetCodec.readToServer(b), s.toString());
+        }
     }
 
     @Test

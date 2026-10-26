@@ -5,7 +5,8 @@ fight_report.py — what the mod's fight logs say about a fight, for a designer 
 The fight log (src/main/java/dev/champ/kimetsu/combat/FightLog.java and FightLogJson.java) is JSON lines: an
 `open` header each time a file opens (one file holds many sessions), one line per engine event ("t" is the event's
 name, "n" the arena step, then the record's fields), each fight's start and end, every judged press and every dropped
-one, the game's damage, and once a second each fighting player's link and the server's clock. Times are combat µs,
+one, the game's damage, each player's settings (assist asked and given, calibration offsets: a fight's first second
+and each change, since 5d-2), and once a second each fighting player's link and the server's clock. Times are combat µs,
 steps and ticks are game ticks (1 tick = 50 ms = 50,000 µs), and Long.MIN_VALUE means "none".
 
 Sessions split at each `open` line, since strike ids restart and entity ids are reused; every join (press to
@@ -126,7 +127,8 @@ class Session:
             self.by[r["t"]].append(r)
 
         players = set()
-        for t, key in (("second", "id"), ("press", "id"), ("dropped", "id"), ("PlayerEffect", "fighter"),
+        for t, key in (("second", "id"), ("settings", "id"), ("press", "id"), ("dropped", "id"),
+                       ("PlayerEffect", "fighter"),
                        ("StrikeResult", "fighter"), ("GuardJudged", "fighter"), ("WallSplat", "fighter"),
                        ("PoseClamped", "fighter"), ("HoldStarted", "fighter"), ("ClashStarted", "fighter")):
             players.update(int(num(r, key)) for r in self.of(t))
@@ -158,6 +160,18 @@ class Session:
             ticks.append(num(r, "tick"))
             steps.append(num(r, "step"))
         self.fights = self._fights()
+        self.settings = self._settings()
+
+    def _settings(self) -> dict[int, list[dict]]:
+        """Each player's settings as they changed (since 5d-2): a fight's first second repeats those in force."""
+        out: dict[int, list[dict]] = defaultdict(list)
+        for r in self.of("settings"):
+            c = {"n": num(r, "n"), "asked": num(r, "assistAsked"), "assist": num(r, "assist"),
+                 "audio_ms": num(r, "audioOffsetMs"), "visual_ms": num(r, "visualOffsetMs")}
+            changes = out[int(num(r, "id"))]
+            if not changes or any(changes[-1][k] != c[k] for k in ("asked", "assist", "audio_ms", "visual_ms")):
+                changes.append(c)
+        return out
 
     def _fights(self) -> list[dict]:
         """Each fight_start with the fight_end that closes it (or none: open when the session ended)."""
@@ -309,6 +323,7 @@ def logs_section(paths: list[str], sessions: list[Session]) -> dict:
             "clock": "none" if not clocks else "per-step" if any("stepMicros" in r for r in clocks) else "pre-5c-4a",
             "guardJudged": len(s.of("GuardJudged")),
             "rebuilds": len(s.of("rebuild")),
+            "settings": [{"player": pid, "changes": c} for pid, c in sorted(s.settings.items()) if s.wants(pid)],
         })
     return {"files": paths, "sessions": out, "lines": dict(lines.most_common()),
             "effects": dict(effects.most_common()), "skipped": dict(skipped.most_common())}
@@ -776,11 +791,16 @@ def aim_section(sessions: list[Session]) -> dict:
 
 def flags_section(sessions: list[Session], guard: dict, clashes: dict, opt) -> dict:
     perfect = []
+    assist3 = 0  # strikes judged at assist 3, where every deflect is a Perfect (Rule 2.12): no cheat's sign (5d-2)
     for s in sessions:
         seq: dict[int, list[bool]] = defaultdict(list)
         for g in s.of("GuardJudged"):
             pid = int(num(g, "fighter"))
-            if s.wants(pid) and g["kind"] != "MISS":
+            if not s.wants(pid) or g["kind"] == "MISS":
+                continue
+            if g.get("assist", 0) >= 3:
+                assist3 += 1
+            else:
                 seq[pid].append(g["kind"] == "PERFECT")
         for pid, hits in sorted(seq.items()):
             n, k, w = len(hits), sum(hits), opt.perfect_min
@@ -822,7 +842,8 @@ def flags_section(sessions: list[Session], guard: dict, clashes: dict, opt) -> d
     return {
         "thresholds": {"perfect_share": opt.perfect_share, "perfect_min": opt.perfect_min,
                        "clash_run": opt.clash_run, "clash_ms": opt.clash_ms},
-        "perfect": perfect, "clash": clash, "free_dashes": dashes, "unexplained": unexplained,
+        "perfect": perfect, "assist3_left_out": assist3, "clash": clash, "free_dashes": dashes,
+        "unexplained": unexplained,
         "raised": sum(p["flagged"] for p in perfect) + sum(c["flagged"] for c in clash) + len(unexplained),
     }
 
@@ -830,7 +851,6 @@ def flags_section(sessions: list[Session], guard: dict, clashes: dict, opt) -> d
 def not_logged(sessions: list[Session]) -> list[str]:
     out = [
         "the client's prediction: its predicted result per strike, so no mismatch rate against the server's",
-        "calibration: the client's own calibration; the guard's mean error is the only calibration figure",
         "clock-sync stamps: the ping samples behind each client's combat clock",
         "a strike's colour beyond white (StrikeCommitted.white): red and purple strikes are grouped by attack",
         "players' positions: a strike's aim is measured against its attacker's guard yaw, the server's bearing to "
@@ -845,6 +865,9 @@ def not_logged(sessions: list[Session]) -> list[str]:
         out.append("GuardJudged (written from slice 5c-4a): none in these logs, so the guard section is empty")
     if sessions and not any("stepMicros" in c for s in sessions for c in s.of("clock")):
         out.append("the clock's step figures (written from slice 5c-4a): none in these logs, so no budget")
+    if sessions and not any(s.of("settings") for s in sessions):
+        out.append("settings (written from slice 5d-2): none in these logs, so no assist level asked and no "
+                   "calibration offsets; the guard's mean error is the only calibration figure")
     return out
 
 
@@ -918,6 +941,10 @@ def render(rep: dict) -> str:
         gap = {"split": "split", "mixed": "mixed (pre-split)", "none": "none"}[s["gap"]]
         w(f"      {span}; players {s['players'] or 'none'}; gapMax {gap}; moves {s['move']}; clock {s['clock']}; "
           f"GuardJudged {s['guardJudged']}" + (f"; rebuilds {s['rebuilds']}" if s["rebuilds"] else ""))
+        for p in s["settings"]:
+            w(f"      settings, player {p['player']}: " + "; ".join(
+                f"step {c['n']:,} asked {c['asked']} at {c['assist']}, audio {c['audio_ms']:+} ms, "
+                f"visual {c['visual_ms']:+} ms" for c in p["changes"]))
     w(f"  lines by type: {counts(lg['lines'])}")
     w(f"  PlayerEffect by effect: {counts(lg['effects'])}")
 
@@ -1103,7 +1130,9 @@ def render(rep: dict) -> str:
     w("\n11. Flags (thresholds from the options)")
     perf = [p for p in fx["perfect"] if p["flagged"]]
     w(f"  Perfect share over {pct(fl['perfect_share'])} across {fl['perfect_min']}+ white strikes, or in any "
-      f"{fl['perfect_min']}-strike window: {len(perf) or 'none'}")
+      f"{fl['perfect_min']}-strike window: {len(perf) or 'none'}"
+      + (f" ({fx['assist3_left_out']} strikes judged at assist 3 left out: every deflect there is a Perfect)"
+         if fx["assist3_left_out"] else ""))
     for p in perf:
         w(f"    #{p['session']} player {p['player']}: {p['perfect']}/{p['white']} ({pct(p['share'])}), best "
           f"{fl['perfect_min']}-strike window {fmt(p['best_window'])}/{fl['perfect_min']}")

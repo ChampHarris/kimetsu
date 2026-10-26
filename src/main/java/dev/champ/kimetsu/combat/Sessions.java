@@ -170,6 +170,11 @@ public final class Sessions {
         return go.size();
     }
 
+    /** {@code p}'s client sends its settings {@code s}, as the wire's {@code ClientSettings} does. GameTests only. */
+    public void settingsForTest(ServerPlayer p, NetMessage.ClientSettings s) {
+        testSession(p).settings(s);
+    }
+
     /** Why {@code p}'s session would have been disconnected for input abuse, or null. GameTests only. */
     public FrameGate.@Nullable Abuse disconnectedForTest(ServerPlayer p) {
         return testSession(p).disconnectedFor();

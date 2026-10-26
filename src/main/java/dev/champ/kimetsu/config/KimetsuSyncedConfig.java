@@ -35,7 +35,13 @@ public final class KimetsuSyncedConfig {
             int assistMaxLevel,
             boolean fightLogging,
             FrameMeter.Limits limits,
-            boolean floodKicks) {}
+            boolean floodKicks) {
+
+        /** The assist level a player asking for {@code asked} gets: none unless allowed, and at most the maximum. */
+        public int assist(int asked) {
+            return assistAllowed ? Math.min(asked, assistMaxLevel) : 0;
+        }
+    }
 
     private static final int CEILING = 5; // each input limit's ceiling, in floors (PROPOSED)
 
@@ -66,7 +72,9 @@ public final class KimetsuSyncedConfig {
         ASSIST_ALLOWED = b.comment("Whether players may use Rhythm assist at all.")
                 .translation(key("assist.allowed"))
                 .define("allowed", true);
-        ASSIST_MAX_LEVEL = b.comment("The highest assist level a player may use (0 to 3).")
+        ASSIST_MAX_LEVEL = b.comment(
+                        "The highest assist level a player may use (0 to 3). A change reaches each player once it's out"
+                                + " of combat.")
                 .translation(key("assist.max_level"))
                 .defineInRange("max_level", 3, 0, 3);
         b.pop();
@@ -85,7 +93,8 @@ public final class KimetsuSyncedConfig {
         FLOOD_SECONDS = limit(b, "flood_seconds", "How many such seconds in a row make a flood.", floor.floodSeconds());
         FLOOD_KICKS = b.comment(
                         "Whether a flood disconnects the client. Off, it's only logged and shown by /kimetsu debug: the"
-                                + " limits above still merge what's over them.")
+                                + " limits above still merge what's over them, and only vanilla's rate-limit in"
+                                + " server.properties (off by default) kicks a raw flood.")
                 .translation(key("input.flood_kicks"))
                 .define("flood_kicks", true);
         b.pop();

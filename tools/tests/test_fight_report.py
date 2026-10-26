@@ -76,6 +76,11 @@ def second(n, pid, gap_us=50_000, silence_us=None, free=0, clamps=0, dropped=0, 
     return r
 
 
+def settings(n, pid, asked, assist, audio=0, visual=0):
+    return {"t": "settings", "n": n, "id": pid, "assistAsked": asked, "assist": assist, "audioOffsetMs": audio,
+            "visualOffsetMs": visual}
+
+
 def clock(n, step=None, step_max=None, tick=None, frames=None, fights=None, tbar=5.0e7, server_tick_max_us=None):
     r = {"t": "clock", "n": n, "tbarNanos": tbar, "epoch": 0, "generation": 0}
     if server_tick_max_us is not None:  # since 5d-1
@@ -192,6 +197,35 @@ class LogsTests(Base):
         rep = self.report([OPEN, second(20, 1, gap_us=10_000, silence_us=60_000_000), clock(20, 30, 90, 5, 5, 1)])
         s = rep["logs"]["sessions"][0]
         self.assertEqual((s["gap"], s["move"], s["clock"]), ("split", "5c-3a", "per-step"))
+
+    def test_settings_show_per_session(self):
+        # since 5d-2: the fight's first second carries the settings, then each change; the second session has none
+        lines = [OPEN, settings(20, 1, 2, 2, 30, -20), second(20, 1), settings(30, 1, 3, 2, 30, -20),
+                 settings(400, 1, 3, 3, 30, -20), OPEN, second(20, 1)]
+        rep = self.report(lines)
+        first, other = rep["logs"]["sessions"]
+        self.assertEqual(first["settings"], [{"player": 1, "changes": [
+            {"n": 20, "asked": 2, "assist": 2, "audio_ms": 30, "visual_ms": -20},
+            {"n": 30, "asked": 3, "assist": 2, "audio_ms": 30, "visual_ms": -20},
+            {"n": 400, "asked": 3, "assist": 3, "audio_ms": 30, "visual_ms": -20}]}])
+        self.assertEqual(other["settings"], [])
+        self.assertIn("settings, player 1: step 20 asked 2 at 2, audio +30 ms, visual -20 ms; "
+                      "step 30 asked 3 at 2, audio +30 ms, visual -20 ms; "
+                      "step 400 asked 3 at 3, audio +30 ms, visual -20 ms", self.text(lines))
+
+    def test_a_repeated_settings_line_is_one_entry(self):
+        # a later fight's first second repeats the settings still in force: no change
+        rep = self.report([OPEN, settings(20, 1, 2, 2), settings(1300, 1, 2, 2), settings(1400, 7, 0, 0)])
+        self.assertEqual([(x["player"], [c["n"] for c in x["changes"]]) for x in rep["logs"]["sessions"][0]["settings"]],
+                         [(1, [20]), (7, [1400])])
+        only = self.report([OPEN, settings(20, 1, 2, 2), settings(1400, 7, 0, 0)], "--player", "7")
+        self.assertEqual([x["player"] for x in only["logs"]["sessions"][0]["settings"]], [7])
+
+    def test_logs_without_settings_say_so(self):
+        old = self.report([OPEN, second(20, 1)])["not_logged"]
+        self.assertTrue(any(x.startswith("settings (written from slice 5d-2)") for x in old), old)
+        new = self.report([OPEN, settings(20, 1, 0, 0), second(20, 1)])["not_logged"]
+        self.assertFalse(any("settings" in x or x.startswith("calibration") for x in new), new)
 
     def test_an_empty_log_prints_none_everywhere(self):
         out = self.text([OPEN])
@@ -332,6 +366,16 @@ class FlagTests(Base):
     def test_no_perfect_flag_under_the_minimum(self):
         p = self.report(self.perfect_run(49, 0))["flags"]["perfect"]
         self.assertEqual([(x["share"], x["best_window"], x["flagged"]) for x in p], [(1.0, None, False)])
+
+    def test_assist_3_perfects_are_left_out(self):
+        # since 5d-2 a player can be on assist 3, where every deflect is a Perfect (Rule 2.12): not a cheat's sign
+        lines = [OPEN] + [guard(i, 1, "PERFECT", tick=100 + 20 * i, assist=3) for i in range(50)]
+        flags = self.report(lines)["flags"]
+        self.assertEqual((flags["perfect"], flags["assist3_left_out"]), ([], 50))
+        unassisted = lines + [guard(100 + i, 1, "PERFECT", tick=2000 + 20 * i) for i in range(50)]
+        p = self.report(unassisted)["flags"]["perfect"]
+        self.assertEqual([(x["white"], x["flagged"]) for x in p], [(50, True)])
+        self.assertIn("50 strikes judged at assist 3 left out", self.text(lines))
 
     def test_misses_are_not_white_strikes_that_reached(self):
         p = self.report(self.perfect_run(50, 3, "MISS"))["flags"]["perfect"]

@@ -179,10 +179,12 @@ public final class Combatant {
      * {@code old}'s meters as they stood at {@code oldTick}, as of {@code newTick}, the same moment on this world's
      * ticks: Breath, Winded, Posture and Rhythm, each held to its own maximum, so new rules never heal, their timers
      * running on, and the combat flag with the time it had left (a reload mid-fight doesn't let a player heal or mine).
-     * A stagger still running goes on in STAGGER. Nothing else: its attack in progress went with the old world, and the
-     * new world sets its guard and its drains again.
+     * A stagger still running goes on in STAGGER, and its assist level stays (5d-2: the mod tells the engine a level
+     * only when it changes). Nothing else: its attack in progress went with the old world, and the new world sets its
+     * guard and its drains again.
      */
     public void carry(Combatant old, long oldTick, long newTick) {
+        assistLevel = old.assistLevel;
         breath.carry(old.breath, oldTick, newTick);
         posture.carry(old.posture, oldTick, newTick);
         rhythm.carry(old.rhythm, oldTick, newTick);

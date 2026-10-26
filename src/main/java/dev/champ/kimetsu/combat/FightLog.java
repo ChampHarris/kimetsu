@@ -27,7 +27,7 @@ import org.slf4j.Logger;
 /**
  * One arena's fight log (spec Telemetry, S692–695; D-069): a JSON line for every engine event; each fight's start and
  * end (D-068); every press and release the stamp check judged into a timeline, with what it was judged on, and every
- * one it dropped; the damage the game dealt to its combatants and every engine hit {@code hurtServer} refused; and, once
+ * one it dropped; each player's settings (5d-2: assist asked and given, calibration offsets); the damage the game dealt to its combatants and every engine hit {@code hurtServer} refused; and, once
  * a second, each fighting player's link (RTT, tolerance, hold cap, the longest gap and silence between its frames, the
  * frames merged, its clock's lag, the tick records pushed to it) and meters, then the server's clock and the budget's
  * figures (its tick length and the nominal one, the longest server tick, the arena's steps, the
@@ -218,7 +218,7 @@ public final class FightLog implements Fights.Listener {
         int fighting = 0;
         for (int i = 0; i < members.size(); i++) {
             if (members.get(i) instanceof PlayerSession s
-                    && s.second(this, n, a.fights().fight(s.combatId()) != null)) {
+                    && s.second(this, n, a.fights().fight(s.combatId()))) {
                 fighting++;
             }
         }
@@ -292,6 +292,23 @@ public final class FightLog implements Fights.Listener {
                 .num("clamps", move.clamps())
                 .num("stageDropped", move.dropped())
                 .end());
+    }
+
+    /**
+     * Player {@code id}'s settings from step {@code n} (5d-2): the assist level its client asked for, the one it has
+     * (SYNCED's cap, changed only out of combat) and its client's calibration offsets, in ms. Written in a fight's
+     * first second and when they change during a fight.
+     */
+    void settings(long n, int id, int assistAsked, int assist, int audioOffsetMs, int visualOffsetMs) {
+        if (!off) {
+            write(json.begin("settings", n)
+                    .num("id", id)
+                    .num("assistAsked", assistAsked)
+                    .num("assist", assist)
+                    .num("audioOffsetMs", audioOffsetMs)
+                    .num("visualOffsetMs", visualOffsetMs)
+                    .end());
+        }
     }
 
     /** Flushes what it has written. */

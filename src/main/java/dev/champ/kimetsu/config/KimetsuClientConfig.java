@@ -11,8 +11,9 @@ import net.neoforged.neoforge.common.TranslatableEnum;
 /**
  * The CLIENT config (spec Config, D-104): the player's own, in {@code config/kimetsu-client.toml}. Only client classes
  * read it, and only through {@link #client}: a dedicated server never loads it, where its spec's getters throw. It
- * holds slice 5d-2's options: today only {@code debug_overlay} is read ({@code ClientCombat}); the assist level and
- * the offsets are read from 5d-2's Step 2, lock-on smoothing from Step 4 and the guard mode from Step 5b. Reduced
+ * holds slice 5d-2's options: {@code debug_overlay}, the assist level and the offsets are read ({@code ClientCombat}:
+ * the last three go to the server as {@code ClientSettings}); lock-on smoothing from Step 4 and the guard mode from
+ * Step 5b. Reduced
  * shake, flashing and motion, cue volume and HUD scale come with their consumers (slices 5d-3 to 5d-5).
  */
 public final class KimetsuClientConfig {
@@ -105,16 +106,21 @@ public final class KimetsuClientConfig {
         refresh(event.getConfig());
     }
 
-    /** {@code ModConfigEvent.Reloading}, on the mod bus: the settings changed (the screen's thread or the watcher's). */
-    public static void onReloading(ModConfigEvent.Reloading event) {
-        refresh(event.getConfig());
+    /**
+     * {@code ModConfigEvent.Reloading}, on the mod bus: the settings changed (the screen's thread or the watcher's).
+     * Returns whether it was this config's, so the caller can send the new ones ({@link #client}).
+     */
+    public static boolean reloaded(ModConfigEvent.Reloading event) {
+        return refresh(event.getConfig());
     }
 
     @SuppressWarnings("ReferenceEquality") // the very spec instance: one per config
-    private static void refresh(ModConfig config) {
-        if (config.getSpec() == SPEC) {
-            client = read(false);
+    private static boolean refresh(ModConfig config) {
+        if (config.getSpec() != SPEC) {
+            return false;
         }
+        client = read(false);
+        return true;
     }
 
     /** The record of the loaded values, or of the defaults: called only where the spec's own getters are safe. */
