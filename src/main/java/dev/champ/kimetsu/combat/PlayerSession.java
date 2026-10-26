@@ -299,6 +299,7 @@ public final class PlayerSession implements ArenaMember {
         if (arena != null) {
             leave();
         }
+        buffer.clear(); // a new player object, perhaps in another level: its client tracks everything afresh
     }
 
     /** It became a spectator: out of the fight until it turns back ({@link #tickEnded} rejoins it). */
@@ -321,8 +322,10 @@ public final class PlayerSession implements ArenaMember {
         leave();
     }
 
+    /** Its client is ready: live events reach it from now on, and it's caught up on what it already tracks (Step 5). */
     void markReady() {
         ready = true;
+        sessions.ready(this);
     }
 
     /** An echo came back after {@code rttMicros}, at combat time {@code nowMicros}. */
@@ -532,6 +535,7 @@ public final class PlayerSession implements ArenaMember {
     /** The player went to another dimension: it fights in that dimension's arena from the next tick. */
     void changedDimension() {
         leave();
+        buffer.clear(); // strike ids are per level: the old one's catch-ups stay behind
     }
 
     /**
@@ -565,8 +569,8 @@ public final class PlayerSession implements ArenaMember {
         }
         fighter = null;
         intake.leave();
-        buffer.clear();
-        due = null;
+        due = null; // its buffer stays: between flushes it holds only catch-ups, still true where it stands (netcode
+        // review: a death or a turn to spectator wiped them, and the strike's later events came without their start)
     }
 
     void send(NetMessage m) {
@@ -584,6 +588,17 @@ public final class PlayerSession implements ArenaMember {
     /** An event this player may see, for this step's {@code Tick}. */
     void see(Outbox.Event e) {
         buffer.add(e);
+    }
+
+    /**
+     * A replayed event (a catch-up, slice 5c-4b Step 5), once: a player re-paired before the next flush already holds
+     * it, so the buffer stays as small as the router's cache even under {@code /tick freeze}, where no step flushes and
+     * a {@code Tick} past the codec's 4,096 events would cut the client off (netcode review).
+     */
+    void seeAgain(Outbox.Event e) {
+        if (!buffer.contains(e)) {
+            buffer.add(e);
+        }
     }
 
     /** Step {@code n} is over: its events and any new snapshot go out as one message. */

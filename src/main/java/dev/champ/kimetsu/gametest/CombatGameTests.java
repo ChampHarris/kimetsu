@@ -95,6 +95,7 @@ import net.neoforged.neoforge.common.CommonHooks;
 import net.neoforged.neoforge.common.util.FakePlayer;
 import net.neoforged.neoforge.common.util.FakePlayerFactory;
 import net.neoforged.neoforge.event.RegisterGameTestsEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import org.jspecify.annotations.Nullable;
@@ -146,7 +147,10 @@ public final class CombatGameTests {
             FUNCTIONS.register("a_landing_is_the_servers", () -> CombatGameTests::aLandingIsTheServers),
             FUNCTIONS.register(
                     "the_falling_form_needs_two_blocks", () -> CombatGameTests::theFallingFormNeedsTwoBlocks),
-            FUNCTIONS.register("a_pushed_dummy_is_never_clamped", () -> CombatGameTests::aPushedDummyIsNeverClamped));
+            FUNCTIONS.register("a_pushed_dummy_is_never_clamped", () -> CombatGameTests::aPushedDummyIsNeverClamped),
+            FUNCTIONS.register("late_tracking_gets_the_strike", () -> CombatGameTests::lateTrackingGetsTheStrike),
+            FUNCTIONS.register(
+                    "late_tracking_gets_the_strike_once_ready", () -> CombatGameTests::lateTrackingOnceReady));
 
     /** Tests that wait on chunks generating, with {@link #CHUNK_TICKS} to do it in. */
     private static final List<String> SLOW = List.of("an_unloaded_demon_leaves_alive");
@@ -763,6 +767,239 @@ public final class CombatGameTests {
                     epochAt >= 0 && epochAt < cancelAt,
                     "the new ClockEpoch came at message " + epochAt + ", the strike's cancel at " + cancelAt);
         });
+    }
+
+    /**
+     * Late tracking (slice 5c-4b, Step 5; S534, S672): a session player who starts tracking the demon mid-windup gets,
+     * in its next {@code Tick}, what the demon's live trackers already have: its string's {@code AttackStarted}s and
+     * its latest {@code MobState} (the Thread open: it joined with Hunger 0), {@code GuardYaw} and {@code Targeting};
+     * then each strike's {@code StrikeLocked} after its start, which reaches only whoever got that start. Its catch-up
+     * holds nothing of any other mob, and one copy of each, though it re-paired before the flush (as under {@code /tick
+     * freeze}, where no step flushes) and turned spectator in the same tick, which takes it out of the fight but not out
+     * of sight (netcode review). Tracking the demon again once the string is over, it gets the demon's view and no
+     * strike. A session player that doesn't track the demon gets none of it.
+     */
+    private static void lateTrackingGetsTheStrike(GameTestHelper h) {
+        lateTracking(h, false);
+    }
+
+    /**
+     * {@link #lateTrackingGetsTheStrike} on the ready path, as at a login mid-windup: the late player's session is open
+     * but its client isn't ready when it starts tracking, so it's caught up only as it turns ready, once.
+     */
+    private static void lateTrackingOnceReady(GameTestHelper h) {
+        lateTracking(h, true);
+    }
+
+    /**
+     * Mock players are real joins that vanilla may pair with the demon, so the mod's tracking of it by both players is
+     * ended as the demon arrives and on every tick until the catch-up (the stranger's throughout), and nothing about it
+     * may have reached the late player by then. Both stand 9 blocks clear of the demon's sweep, so its strikes never
+     * involve them (Rule 2.9): a player that sends no frames has a server pose only every 7 ticks, and involvement
+     * reaches that pose's age times the movement bound past the sweep ({@code CombatWorld.slack}), about 5 blocks.
+     */
+    private static void lateTracking(GameTestHelper h, boolean opensLate) {
+        floor(h);
+        Arena arena = arena(h);
+        CombatData data = arena.data();
+        TestDummy dummy = dummy(h, arena, 4, 6.5, 180);
+        List<NetMessage> late = new ArrayList<>();
+        List<NetMessage> stranger = new ArrayList<>();
+        ServerPlayer s = player(h, arena, 14.5, 8.5, stranger::add);
+        ServerPlayer v = opensLate ? mock(h, 14.5, 0.5) : player(h, arena, 14.5, 0.5, late::add);
+        if (opensLate) {
+            combat(h).sessions().openNotReadyForTest(v, arena, late::add, Micros.ofMillis(50));
+        }
+        FrameData swipe = attack(h, data, "swipe");
+        long start = arena.nextTick();
+        M1Demon demon = demon(
+                h,
+                arena,
+                4,
+                4,
+                0,
+                b -> new ScriptedBrain(b, dummy::getId).at(start + 20, swipe, swipe),
+                starved(h, data));
+        stopTracking(s, demon);
+        stopTracking(v, demon);
+        List<Outbox.AttackStarted> strikes = new ArrayList<>();
+        List<Long> over = new ArrayList<>(); // the strikes decided or cancelled
+        Outbox.@Nullable Event[] view = new Outbox.Event[3]; // its latest MobState, GuardYaw and Targeting, as routed
+        arena.listen(e -> {
+            switch (e) {
+                case Outbox.AttackStarted a when a.attacker() == demon.getId() -> strikes.add(a);
+                case Outbox.MobState m when m.mob() == demon.getId() -> view[0] = m;
+                case Outbox.GuardYaw g when g.mob() == demon.getId() -> view[1] = g;
+                case Outbox.Targeting t when t.mob() == demon.getId() -> view[2] = t;
+                case Outbox.StrikeResult r
+                when ofThe(strikes, r.strike()) && !over.contains(r.strike()) -> over.add(r.strike());
+                case Outbox.AttackCancelled c
+                when ofThe(strikes, c.strike()) && !over.contains(c.strike()) -> over.add(c.strike());
+                default -> {}
+            }
+        });
+        int[] from = {-1, -1}; // how many messages the late player had when it started tracking, and when again
+        Outbox.@Nullable Event[] shown = new Outbox.Event[3]; // the view as it stood then
+        Outbox.@Nullable Event[] again = new Outbox.Event[1]; // its MobState when it tracked again
+        h.onEachTick(() -> {
+            stopTracking(s, demon);
+            if (from[0] >= 0) {
+                if (from[1] < 0 && over.size() == strikes.size()) { // the string is over: its step's end pruned it
+                    stopTracking(v, demon);
+                    again[0] = view[0];
+                    CombatServer.onStartTracking(new PlayerEvent.StartTracking(v, demon));
+                    from[1] = late.size();
+                }
+                return;
+            }
+            stopTracking(v, demon);
+            if (strikes.size() < 2) {
+                return; // the string hasn't committed yet
+            }
+            Outbox.AttackStarted second = strikes.get(1);
+            h.assertTrue(
+                    arena.nextTick() <= second.cueTick(),
+                    "the second strike locked at " + second.cueTick() + ", before the late tracking at "
+                            + arena.nextTick());
+            Outbox.Event early = about(late, 0, demon.getId(), strikes);
+            h.assertTrue(early == null, "before it tracked the demon, the late player got " + early);
+            for (int i = 0; i < view.length; i++) {
+                h.assertTrue(view[i] != null, "the demon never sent its view's part " + i);
+                shown[i] = view[i];
+            }
+            CombatServer.onStartTracking(new PlayerEvent.StartTracking(v, demon));
+            if (opensLate) {
+                combat(h).sessions().readyForTest(v);
+            } else {
+                stopTracking(v, demon);
+                CombatServer.onStartTracking(new PlayerEvent.StartTracking(v, demon));
+                v.setGameMode(GameType.SPECTATOR);
+            }
+            from[0] = late.size();
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(from[0] >= 0, "the string never committed");
+            NetMessage.Tick first = null;
+            List<Outbox.Event> after = new ArrayList<>(); // every event it got since, in order
+            for (int i = from[0]; i < late.size(); i++) {
+                if (late.get(i) instanceof NetMessage.Tick t) {
+                    first = first != null ? first : t;
+                    after.addAll(t.events());
+                }
+            }
+            h.assertTrue(first != null, "no Tick since it started tracking");
+            if (first == null) {
+                return;
+            }
+            List<Outbox.Event> caught = first.events();
+            for (Outbox.Event e : caught) {
+                h.assertTrue(
+                        !late(e) || restores(e, demon.getId(), strikes), "its first Tick holds another mob's " + e);
+            }
+            for (Outbox.AttackStarted a : strikes) {
+                int n = 0;
+                for (Outbox.Event e : caught) {
+                    n += a.equals(e) ? 1 : 0;
+                }
+                h.assertValueEqual(n, 1, "strike " + a.strike() + "'s starts in its first Tick (" + caught + ")");
+            }
+            for (Outbox.Event e : shown) {
+                h.assertTrue(e != null && caught.contains(e), "its first Tick lacks " + e + ": " + caught);
+            }
+            if (shown[0] instanceof Outbox.MobState m) {
+                h.assertValueEqual(m.threadUntil(), Long.MAX_VALUE, "the Thread the late player sees closes at");
+            }
+            if (shown[2] instanceof Outbox.Targeting t) {
+                h.assertValueEqual(t.fighter(), dummy.getId(), "the demon's target, as the late player sees it");
+            }
+            for (Outbox.AttackStarted a : strikes) {
+                int lock = -1;
+                for (int i = 0; i < after.size(); i++) {
+                    if (after.get(i) instanceof Outbox.StrikeLocked l && l.strike() == a.strike()) {
+                        lock = i;
+                    }
+                }
+                h.assertTrue(
+                        lock > after.indexOf(a), "strike " + a.strike() + "'s lock didn't follow its start: " + after);
+            }
+            Outbox.Event leak = about(stranger, 0, demon.getId(), strikes);
+            h.assertTrue(leak == null, "the player that doesn't track the demon got " + leak);
+            h.assertTrue(from[1] >= 0, "the string isn't over: " + over.size() + " of " + strikes.size() + " strikes");
+            NetMessage.Tick next = null;
+            for (int i = from[1]; i < late.size() && next == null; i++) {
+                next = late.get(i) instanceof NetMessage.Tick t ? t : null;
+            }
+            h.assertTrue(next != null, "no Tick since it tracked the demon again");
+            if (next == null) {
+                return;
+            }
+            Outbox.Event state = again[0];
+            h.assertTrue(
+                    state != null && next.events().contains(state),
+                    "tracked again, its first Tick lacks " + state + ": " + next.events());
+            for (Outbox.Event e : next.events()) {
+                h.assertFalse(
+                        e instanceof Outbox.AttackStarted a && a.attacker() == demon.getId(),
+                        "tracked again after the string, it got a strike that's over: " + e);
+            }
+        });
+    }
+
+    /** Whether {@code e} is a kind late tracking restores: a mob's view, or a strike's start, lock, party or cancel. */
+    private static boolean late(Outbox.Event e) {
+        return e instanceof Outbox.AttackStarted
+                || e instanceof Outbox.StrikeLocked
+                || e instanceof Outbox.Involved
+                || e instanceof Outbox.AttackCancelled
+                || e instanceof Outbox.MobState
+                || e instanceof Outbox.GuardYaw
+                || e instanceof Outbox.Targeting;
+    }
+
+    /**
+     * The first event in {@code got}'s Ticks, from message {@code from} on, that late tracking restores for
+     * {@code demon}: its own view, or an event of one of its {@code strikes}; or null.
+     */
+    private static Outbox.@Nullable Event about(
+            List<NetMessage> got, int from, int demon, List<Outbox.AttackStarted> strikes) {
+        for (int i = from; i < got.size(); i++) {
+            if (got.get(i) instanceof NetMessage.Tick t) {
+                for (Outbox.Event e : t.events()) {
+                    if (restores(e, demon, strikes)) {
+                        return e;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Whether late tracking restores {@code e} for {@code demon}: its own view, or an event of one of its strikes. */
+    private static boolean restores(Outbox.Event e, int demon, List<Outbox.AttackStarted> strikes) {
+        return switch (e) {
+            case Outbox.AttackStarted a -> a.attacker() == demon;
+            case Outbox.StrikeLocked l -> ofThe(strikes, l.strike());
+            case Outbox.Involved x -> ofThe(strikes, x.strike());
+            case Outbox.AttackCancelled c -> ofThe(strikes, c.strike());
+            case Outbox.MobState m -> m.mob() == demon;
+            case Outbox.GuardYaw g -> g.mob() == demon;
+            case Outbox.Targeting t -> t.mob() == demon;
+            default -> false;
+        };
+    }
+
+    private static boolean ofThe(List<Outbox.AttackStarted> strikes, long strike) {
+        for (Outbox.AttackStarted a : strikes) {
+            if (a.strike() == strike) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The mod's tracking of {@code target} by {@code p} ends, as vanilla's {@code StopTracking} ends it. */
+    private static void stopTracking(ServerPlayer p, Entity target) {
+        CombatServer.onStopTracking(new PlayerEvent.StopTracking(p, target));
     }
 
     /**
@@ -2255,13 +2492,22 @@ public final class CombatGameTests {
     }
 
     /** {@link #player}, its session's messages going to {@code out}. */
-    @SuppressWarnings("removal") // the only helper that logs a player in; vanilla's own tests still use it
     private static ServerPlayer player(GameTestHelper h, Arena arena, double x, double z, Consumer<NetMessage> out) {
+        ServerPlayer p = mock(h, x, z);
+        combat(h).sessions().openForTest(p, arena, out, Micros.ofMillis(50));
+        return p;
+    }
+
+    /**
+     * A mock player in survival at {@code x, z} with no session yet (its connection has no channel); it leaves the
+     * player list when the test ends.
+     */
+    @SuppressWarnings("removal") // the only helper that logs a player in; vanilla's own tests still use it
+    private static ServerPlayer mock(GameTestHelper h, double x, double z) {
         ServerPlayer p = h.makeMockServerPlayerInLevel();
         Vec3 at = h.absoluteVec(new Vec3(x, 1, z));
         p.snapTo(at.x, at.y, at.z, 180, 0);
         p.setGameMode(GameType.SURVIVAL); // a mock player is creative, where the blade can't break blocks
-        combat(h).sessions().openForTest(p, arena, out, Micros.ofMillis(50));
         h.testInfo.addListener(new GameTestListener() {
             @Override
             public void testStructureLoaded(GameTestInfo info) {}
@@ -2298,6 +2544,18 @@ public final class CombatGameTests {
 
     private static M1Demon demon(
             GameTestHelper h, Arena arena, double x, double z, float yaw, Function<Demon, ScriptedBrain> brain) {
+        return demon(h, arena, x, z, yaw, brain, null);
+    }
+
+    /** {@link #demon}, joining with {@code wounds} in its {@code kimetsu:combatant}, as if from a save, if given. */
+    private static M1Demon demon(
+            GameTestHelper h,
+            Arena arena,
+            double x,
+            double z,
+            float yaw,
+            Function<Demon, ScriptedBrain> brain,
+            Demon.@Nullable Wounds wounds) {
         M1Demon d = KimetsuEntities.M1_DEMON.get().create(h.getLevel(), EntitySpawnReason.MOB_SUMMONED);
         if (d == null) {
             throw h.assertionException("no M1 demon");
@@ -2307,8 +2565,20 @@ public final class CombatGameTests {
         d.fightIn(arena);
         d.useBrain(brain::apply);
         d.setNoAi(true); // it stays where the test put it: no walking to the dummy's flank
+        if (wounds != null) {
+            d.setData(KimetsuAttachments.COMBATANT, wounds); // carried at its join: before its first tick
+        }
         h.getLevel().addFreshEntity(d);
         return d;
+    }
+
+    /** An M1 demon's wounds at full HP and Posture with no Hunger: its Thread stays open (Rule 8.3). */
+    private static Demon.Wounds starved(GameTestHelper h, CombatData data) {
+        DemonProfile p = data.demons().get(M1Demon.PROFILE);
+        if (p == null) {
+            throw h.assertionException(M1Demon.PROFILE + " isn't loaded");
+        }
+        return new Demon.Wounds(Fixed.of(p.maxHp()), 0, Fixed.of(p.posture().max()), 0, 0, 0, 0, 0, 0, 0, true);
     }
 
     private static void wear(TestDummy d, EquipmentSlot slot, ItemStack armour, Holder<Enchantment> protection) {

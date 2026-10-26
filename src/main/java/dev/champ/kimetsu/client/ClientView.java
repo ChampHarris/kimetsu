@@ -86,7 +86,7 @@ final class ClientView {
 
     /**
      * The client's entity {@code mob} left its level (out of tracking range, or its chunk unloaded): its state goes with
-     * it. A mob's events reach its trackers alone, and vanilla ends the tracking before the mob leaves, so the {@code
+     * it, and back in tracking the server's catch-up sends it again (slice 5c-4b). A mob's events reach its trackers alone, and vanilla ends the tracking before the mob leaves, so the {@code
      * MobLeft} of a mob that leaves with its chunk reaches nobody (netcode and code reviews).
      */
     void mobGone(int mob) {

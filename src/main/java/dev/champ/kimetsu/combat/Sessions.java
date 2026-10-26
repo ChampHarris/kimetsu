@@ -3,15 +3,14 @@ package dev.champ.kimetsu.combat;
 import com.google.gson.JsonElement;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.TickRecord;
+import dev.champ.kimetsu.core.fight.Audience;
 import dev.champ.kimetsu.core.fight.PlayerIntake;
 import dev.champ.kimetsu.data.CombatData;
 import dev.champ.kimetsu.net.NetMessage;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
@@ -25,9 +24,10 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * The players connected to the combat server (spec Netcode): one session per connection, found by its packet listener,
- * which a respawn keeps; the tracker sets; and the clock's per-tick work for each (record pushes, echoes, joining the
- * fight), driven by the combat server at the points that keep the wire in order: {@code ClockEpoch} before an epoch's
- * cancels, the data before a new generation's first event. Main thread, except {@link #session}.
+ * which a respawn keeps; the tracker sets; every arena's router, which catches a player up on what it starts seeing late
+ * (slice 5c-4b, Step 5); and the clock's per-tick work for each (record pushes, echoes, joining the fight), driven by
+ * the combat server at the points that keep the wire in order: {@code ClockEpoch} before an epoch's cancels, the data
+ * before a new generation's first event. Main thread, except {@link #session}.
  */
 public final class Sessions {
     private final CombatServer server;
@@ -35,7 +35,7 @@ public final class Sessions {
     private final List<PlayerSession> all = new ArrayList<>();
     private final List<PlayerSession> viewers = new ArrayList<>(); // reused by viewersIn
     private final Trackers trackers = new Trackers();
-    private final Set<Arena> routed = Collections.newSetFromMap(new IdentityHashMap<>()); // test arenas with a router
+    private final IdentityHashMap<Arena, Router> routers = new IdentityHashMap<>(); // every arena's that has one
     private NetMessage.@Nullable DataSync sync;
     private int syncGeneration = -1;
 
@@ -65,9 +65,15 @@ public final class Sessions {
         return viewers;
     }
 
-    /** A default arena opened: its events go to the players through a router of its own (strike ids are per world). */
+    /**
+     * A default arena opened (or a test's, at its first session): its events go to the players through a router of its
+     * own (strike ids are per world).
+     */
     void arenaOpened(Arena a) {
-        a.listen(new Router(a, this, trackers));
+        routers.keySet().removeIf(Arena::closed);
+        Router r = new Router(a, this, trackers);
+        a.listen(r);
+        routers.put(a, r);
     }
 
     // ------------------------------------------------------------------------------------------------- players
@@ -93,6 +99,16 @@ public final class Sessions {
      * events to it. Removing the player from the player list ends it, as a logout does. GameTests only.
      */
     public PlayerSession openForTest(ServerPlayer p, Arena arena, Consumer<NetMessage> out, long rttMicros) {
+        PlayerSession s = openNotReadyForTest(p, arena, out, rttMicros);
+        s.markReady();
+        return s;
+    }
+
+    /**
+     * {@link #openForTest}, its client not yet ready, as at a login (slice 5c-4b, Step 5): it's sent no event and joins
+     * no fight until {@link #readyForTest}. GameTests only.
+     */
+    public PlayerSession openNotReadyForTest(ServerPlayer p, Arena arena, Consumer<NetMessage> out, long rttMicros) {
         server.checkThread();
         if (byListener.containsKey(p.connection)) {
             throw new IllegalStateException(p.getScoreboardName() + " already has a session");
@@ -101,13 +117,21 @@ public final class Sessions {
         byListener.put(p.connection, s);
         all.add(s);
         s.send(sync(server.data(), server.generation()));
-        s.markReady();
-        s.echo(Micros.ofTicks(server.nextTick()), rttMicros);
-        routed.removeIf(Arena::closed);
-        if (routed.add(arena)) {
-            arenaOpened(arena);
+        if (!routers.containsKey(arena)) {
+            arenaOpened(arena); // before it's ready: turning ready catches it up through its level's routers
         }
+        s.echo(Micros.ofTicks(server.nextTick()), rttMicros);
         return s;
+    }
+
+    /** {@code p}'s client says it's ready, as the wire's {@code Ready} does on the main thread. GameTests only. */
+    public void readyForTest(ServerPlayer p) {
+        server.checkThread();
+        PlayerSession s = byListener.get(p.connection);
+        if (s == null) {
+            throw new IllegalStateException(p.getScoreboardName() + " has no session");
+        }
+        s.markReady();
     }
 
     /**
@@ -169,14 +193,44 @@ public final class Sessions {
         }
     }
 
+    /**
+     * {@code p} starts tracking {@code target} (vanilla fires this after the spawn bundle): its events reach {@code p}
+     * from now on, and a ready session is caught up on what the target's live trackers already have, through its
+     * arena's router (Step 5). One that isn't ready yet is caught up as it turns ready ({@link #ready}): live events
+     * reach only ready viewers, so a strike's start buffered before then could go out without its cancel.
+     */
     void startTracking(ServerPlayer p, Entity target) {
-        if (target instanceof ArenaMember || target instanceof Player) {
-            trackers.start(p.getId(), target.getId());
+        if (!(target instanceof ArenaMember) && !(target instanceof Player)) {
+            return;
+        }
+        trackers.start(p.getId(), target.getId());
+        PlayerSession s = byListener.get(p.connection);
+        Arena a = target instanceof ArenaMember m ? m.arena() : null;
+        Router r = a != null ? routers.get(a) : null;
+        if (s != null && s.ready() && r != null) {
+            r.catchUp(s, target.getId());
         }
     }
 
     void stopTracking(ServerPlayer p, Entity target) {
         trackers.stop(p.getId(), target.getId());
+    }
+
+    /**
+     * Session {@code s} turned ready: each router of its level catches it up on every mob it already tracks (Step 5),
+     * ahead of the next step's events.
+     */
+    @SuppressWarnings("ReferenceEquality") // the very level instance: one per dimension
+    void ready(PlayerSession s) {
+        if (!s.ready()) {
+            return;
+        }
+        for (Map.Entry<Arena, Router> e : routers.entrySet()) {
+            Arena a = e.getKey();
+            if (!a.closed() && a.level() == s.player().level()) {
+                e.getValue().catchUp(s, Audience.NOBODY);
+            }
+        }
     }
 
     // ------------------------------------------------------------------------------------------------- the clock
