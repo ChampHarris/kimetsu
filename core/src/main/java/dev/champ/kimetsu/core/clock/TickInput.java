@@ -16,9 +16,11 @@ package dev.champ.kimetsu.core.clock;
  * @param lateNanos         how far behind vanilla's own schedule this tick started:
  *                          {@code measuredNanos − (getNextTickTime() − nanosecondsPerTick())}, since vanilla has moved
  *                          its schedule on by one tick before the tick runs; or {@link Long#MIN_VALUE}. A paused
- *                          server keeps its schedule, so its first tick back is on time; a stall, inside a tick or
- *                          between two (packet handling, a GC pause), leaves the next one late, and the fast ticks that
- *                          follow are catch-up.
+ *                          server keeps its schedule, moving it on a tick each paused turn, so its first tick back
+ *                          starts two or more ticks on from the last one on that schedule, late only by its wake-up and
+ *                          what ran before it (a joining player's login); a stall, inside a tick or between two (packet
+ *                          handling, a GC pause), moves it on one tick and leaves the next one late, and the fast ticks
+ *                          that follow are catch-up.
  */
 public record TickInput(
         long tick,

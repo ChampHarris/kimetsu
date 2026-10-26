@@ -39,7 +39,7 @@ final class TickClock {
         this.lastWarning = server.lastOverloadWarningNanos;
     }
 
-    /** A reload changed the clock rules: a fresh schedule on them, which counts an epoch (it re-anchors). */
+    /** A reload changed the clock rules: the schedule carries on under them and counts an epoch (D-100). */
     void rules(ClockRules rules) {
         schedule = schedule.retuned(rules);
     }

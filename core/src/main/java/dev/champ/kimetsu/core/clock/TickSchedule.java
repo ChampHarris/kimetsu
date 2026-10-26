@@ -28,13 +28,22 @@ import dev.champ.kimetsu.core.data.ClockRules;
  * {@code rateRunTicks} consecutive intervals outside it that aren't catch-up and agree within {@code ordinaryHigh} of
  * each other: T̄ takes their mean and steering resumes. A stall is one long interval with catch-up after it, so it
  * never makes a run. Frozen, paused or sprinting, the schedule follows the measured starts, and the first tick after
- * re-anchors it, as does the first tick after a long gap that started on vanilla's schedule (a pause that skipped the
- * tick events). Vanilla dropping its backlog is an epoch only when it moves the schedule by more than the band: under
- * a sustained overload the schedule already tracks the measured starts, and nothing jumps. Re-anchoring, the schedule
- * takes vanilla's start for the tick wherever it's known, so the record an epoch announces is the one the schedule
- * keeps to.
+ * re-anchors it, as does the first tick after paused turns that skipped the tick events (the dedicated server empty,
+ * the integrated server paused): vanilla's schedule moves on a tick each turn of its loop, paused or not, so a tick
+ * whose start on it moved on more than {@link #PAUSED_TURNS} ticks since the last one's, with no backlog drop, came
+ * after paused turns, however late it started; a stall or an overload moves it a tick (D-099). Vanilla dropping its
+ * backlog is an epoch only when it moves the schedule by more than the band: under a sustained overload the schedule
+ * already tracks the measured starts, and nothing jumps. Re-anchoring, the schedule takes vanilla's start for the tick
+ * wherever it's known, so the record an epoch announces is the one the schedule keeps to. New clock rules don't
+ * re-anchor it: it carries on under them ({@link #retuned}).
  */
 public final class TickSchedule {
+    /**
+     * Between one tick and two of vanilla's schedule: consecutive ticks are a tick apart on it, a tick after paused
+     * turns two or more. Structural, not a tuning number: any bound strictly between gives the same verdict.
+     */
+    private static final double PAUSED_TURNS = 1.5;
+
     private final ClockRules rules;
     private final double[] intervals;
     private int count;
@@ -51,6 +60,7 @@ public final class TickSchedule {
     private boolean wasOffPace;
     private boolean wasLate;
     private long lastLate = Long.MIN_VALUE; // the previous tick's lateness, if known
+    private long lastVanilla = Long.MIN_VALUE; // the previous tick's start on vanilla's schedule, if known
 
     public TickSchedule(ClockRules rules) {
         this(rules, 0);
@@ -64,17 +74,40 @@ public final class TickSchedule {
     }
 
     /**
-     * A fresh schedule on new clock rules (a reload): it re-anchors at its first tick, so the clock may step, which is
-     * an epoch (Rule 1.8): it counts one more than this one did.
+     * This schedule carried on under new clock rules (a reload): S, T̄ and the last tick's state as they are, the newest
+     * intervals that fit the new window and the newest of a run under way that leave it a tick to go. It doesn't
+     * re-anchor: a reload blocks the server thread, so its first tick starts late by the reload, and anchored there the
+     * conversion jumped forward up to 0.75 s once vanilla caught up (D-100). It still counts an epoch (Rule 1.8), one
+     * more than this one did (Champ, D-100, call a).
      */
     public TickSchedule retuned(ClockRules newRules) {
-        return new TickSchedule(newRules, epoch + 1);
+        TickSchedule s = new TickSchedule(newRules, epoch + 1);
+        int keep = Math.min(count, s.intervals.length);
+        for (int i = keep; i > 0; i--) { // written oldest first, so the oldest are overwritten first
+            s.intervals[s.count++] = intervals[Math.floorMod(head - i, intervals.length)];
+        }
+        s.head = s.count % s.intervals.length;
+        int run = Math.min(runCount, s.runs.length - 1);
+        System.arraycopy(runs, runCount - run, s.runs, 0, run);
+        s.runCount = run;
+        s.tickLength = tickLength;
+        s.nominal = nominal;
+        s.schedule = schedule;
+        s.lastTick = lastTick;
+        s.lastMeasured = lastMeasured;
+        s.started = started;
+        s.wasOffPace = wasOffPace;
+        s.wasLate = wasLate;
+        s.lastLate = lastLate;
+        s.lastVanilla = lastVanilla;
+        return s;
     }
 
     /** Called at each tick start, before the record is published. */
     public TickRecord onTickStart(TickInput in) {
         boolean nominalChanged = started && in.nominalTickNanos() != nominal;
         double paceBefore = tickLength; // the interval ending now ran at the pace before
+        long nominalBefore = nominal;
         if (!started || nominalChanged) {
             nominal = in.nominalTickNanos();
             tickLength = nominal;
@@ -83,11 +116,13 @@ public final class TickSchedule {
         boolean offPace = in.frozen() || in.paused() || in.sprinting();
         boolean known = in.lateNanos() != Long.MIN_VALUE;
         boolean late = known && in.lateNanos() > rules.lateTicks() * nominal;
-        boolean idleGap = started
-                && !late
-                && in.previousEndNanos() != Long.MIN_VALUE
-                && in.measuredNanos() - in.previousEndNanos() > rules.ordinaryHigh() * tickLength;
-        boolean resumed = in.resumed() || (wasOffPace && !offPace) || idleGap;
+        long vanilla = known ? in.measuredNanos() - in.lateNanos() : Long.MIN_VALUE;
+        boolean pausedTurns = started
+                && known
+                && lastVanilla != Long.MIN_VALUE
+                && !in.backlogDropped()
+                && vanilla - lastVanilla > PAUSED_TURNS * Math.max(nominal, nominalBefore);
+        boolean resumed = in.resumed() || (wasOffPace && !offPace) || pausedTurns;
         wasOffPace = offPace;
         double predicted = schedule + (nominalChanged ? paceBefore : tickLength);
         boolean jumped = started
@@ -136,6 +171,7 @@ public final class TickSchedule {
         lastMeasured = in.measuredNanos();
         wasLate = late;
         lastLate = in.lateNanos();
+        lastVanilla = vanilla;
         return new TickRecord(in.tick(), schedule, tickLength, in.frozen(), in.paused(), in.sprinting(), epoch);
     }
 

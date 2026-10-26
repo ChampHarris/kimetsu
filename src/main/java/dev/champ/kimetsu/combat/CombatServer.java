@@ -352,7 +352,7 @@ public final class CombatServer {
             sessions.generationSwapped(generation, fresh); // the clients' data before the rebuild's cancels
             long cutoff = c.epochCutoffMicros();
             if (!fresh.rules().clock().equals(old.rules().clock())) {
-                c.rules(fresh.rules().clock()); // an epoch: the fresh schedule re-anchors
+                c.rules(fresh.rules().clock()); // an epoch: the schedule carries on under the new rules
                 epoch = c.epoch();
                 sessions.epochMoved(epoch, cutoff); // ClockEpoch before the rebuild's cancels
             }

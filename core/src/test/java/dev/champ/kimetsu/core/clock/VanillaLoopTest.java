@@ -6,8 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import dev.champ.kimetsu.core.Fixtures;
 import dev.champ.kimetsu.core.clock.VanillaLoop.Model;
 import dev.champ.kimetsu.core.clock.VanillaLoop.Run;
+import dev.champ.kimetsu.core.data.ClockRules;
 import java.util.Arrays;
 import java.util.Random;
+import java.util.function.IntPredicate;
 import java.util.function.IntToDoubleFunction;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -38,7 +40,7 @@ class VanillaLoopTest {
      * The worst error (ms) over arrivals inside ticks [from, to): against wall time in step from {@code stallTick} for
      * ticks inside [stallTick, catchUpEnd), against game time elsewhere.
      */
-    private static double worst(Run r, int from, int to, int stallTick, int catchUpEnd) {
+    static double worst(Run r, int from, int to, int stallTick, int catchUpEnd) {
         long[] pre = r.pre();
         double worst = 0;
         for (int g = from; g < to && g + 1 < pre.length; g++) {
@@ -59,7 +61,7 @@ class VanillaLoopTest {
      * start for tick g): game time while vanilla keeps up, and wall time in step through a stall and its catch-up,
      * since vanilla's schedule moves on a tick length a tick through both.
      */
-    private static double worstOnSchedule(Run r, int from, int to) {
+    static double worstOnSchedule(Run r, int from, int to) {
         long[] pre = r.pre();
         double worst = 0;
         for (int g = from; g < to && g + 1 < pre.length; g++) {
@@ -231,6 +233,31 @@ class VanillaLoopTest {
     }
 
     /**
+     * A {@code /tick rate} speed-up moves vanilla's start on by the old length on the change tick, more than 1.5 of the
+     * new one: scaled by the new length alone, that read as paused turns. Mid-overload, with vanilla a second behind, the
+     * false resume re-anchored on vanilla's start and stepped the conversion back seconds inside an epoch (D-100's
+     * review). Scaled by the longer of the two, the change tick predicts at the old pace, as any rate change does.
+     */
+    @Test
+    void aTickRateSpeedUpMidOverloadIsNotAResume() {
+        TickSchedule schedule = new TickSchedule(Fixtures.clock());
+        long slow = 80_000_000L; // an overload: vanilla falls 30 ms further behind each tick
+        TickRecord before = null;
+        int g = 0;
+        for (; g < 40; g++) {
+            long at = g * slow;
+            long end = g == 0 ? Long.MIN_VALUE : at - 1_000_000L; // back to back
+            before = schedule.onTickStart(new TickInput(g, at, N, false, false, false, false, false, end, at - g * N));
+        }
+        long at = g * slow;
+        TickRecord r = schedule.onTickStart(
+                new TickInput(g, at, 25_000_000L, false, false, false, false, false, at - 1_000_000L, at - g * N));
+        assertTrue(at - g * N > 1000 * MS, "vanilla " + (at - g * N) / MS + " ms behind");
+        assertEquals(before.startNanos() + before.tickLengthNanos(), r.startNanos(), 1.0);
+        assertEquals(0, r.epoch());
+    }
+
+    /**
      * When an overload ends, vanilla runs off its backlog in fast ticks far behind its schedule, each less late than the
      * one before: catch-up, left out of T̄ and not steered (Rule 1.2). Only a tick within {@code late_ticks} of
      * vanilla's schedule (a whole tick, D-098) is on schedule.
@@ -379,6 +406,368 @@ class VanillaLoopTest {
         assertTrue(worst <= 1, "worst after the pause " + worst + " ms");
     }
 
+    static Stream<Arguments> lateResumes() {
+        Stream.Builder<Arguments> out = Stream.builder();
+        for (double lateTicks : new double[] {0.75, 1.0}) {
+            for (double ms : new double[] {30, 45, 60, 80}) {
+                out.add(Arguments.of(lateTicks, ms));
+            }
+        }
+        return out.build();
+    }
+
+    /**
+     * The first tick back may start well behind vanilla's schedule: a dedicated server's first tick after its pause
+     * when empty is the joining player's, after the login's work, and a park that misses interrupts wakes up to 62.5 ms
+     * late (D-098). A long gap that ended on a late tick read as a stall, so the schedule moved on by a tick and stayed
+     * the whole pause behind, halving in over the ticks after (the netcode reviews, D-099). Paused turns move vanilla's
+     * schedule on, a tick each, and a stall or an overload doesn't: a resume re-anchors on vanilla's start however late
+     * its first tick is, at either {@code late_ticks} Champ weighs (D-099, call b).
+     */
+    @ParameterizedTest
+    @MethodSource("lateResumes")
+    void aResumeReanchorsOnVanillasScheduleHoweverLate(double lateTicks, double lateMs) {
+        Run r = VanillaLoop.run(
+                60,
+                (end, deadline) -> deadline + 15 * MS,
+                g -> 1.2,
+                g -> g == 30 ? lateMs - 15 : 0, // the login's work before the first tick back
+                g -> 0,
+                turn -> turn >= 30 && turn < 130,
+                new TickSchedule(VanillaLoop.clock(lateTicks))::onTickStart);
+        assertEquals(lateMs * MS, (double) r.late()[30], 1.0);
+        String what = "first tick back " + lateMs + " ms late, late_ticks " + lateTicks;
+        TickRecord back = r.rec()[30];
+        assertEquals((double) r.sched()[30], back.startNanos(), 0.0, what);
+        assertEquals(0, back.epoch(), what);
+        double worst = worstOnSchedule(r, 30, 59);
+        assertTrue(worst <= 1, what + ": worst after the pause " + worst + " ms");
+    }
+
+    /**
+     * One paused turn is enough (the integrated server pauses while a menu is open, for a frame or longer): vanilla's
+     * start for the first tick back is two ticks on from the last tick's, so it re-anchors there. Taken as on schedule,
+     * it would count a 100 ms interval as 50 and steer halfway across the turn, a seam in each record after.
+     */
+    @ParameterizedTest
+    @EnumSource(Model.class)
+    void onePausedTurnIsAResume(Model model) {
+        for (long seed = 1; seed <= 5; seed++) {
+            Run r = VanillaLoop.run(
+                    60,
+                    model.wake(seed),
+                    g -> 1.2,
+                    g -> 0,
+                    g -> 0,
+                    turn -> turn == 30,
+                    new TickSchedule(Fixtures.clock())::onTickStart);
+            String what = model + " seed " + seed;
+            assertEquals(2.0 * N, (double) (r.sched()[30] - r.sched()[29]), 1.0, what);
+            assertEquals((double) r.sched()[30], r.rec()[30].startNanos(), 0.0, what);
+            assertEquals(0, r.rec()[30].epoch(), what);
+            double worst = worstOnSchedule(r, 30, 59);
+            assertTrue(worst <= 1, what + ": worst after the turn " + worst + " ms");
+        }
+    }
+
+    /** The largest step back (ms) of the conversion where the records of ticks g and g + 1 meet, for g in [from, to). */
+    static double stepBack(Run r, int from, int to) {
+        double back = 0;
+        for (int g = from; g < to && g + 1 < r.pre().length; g++) {
+            if (r.rec()[g].epoch() == r.rec()[g + 1].epoch()) {
+                double at = r.pre()[g + 1];
+                back = Math.max(back, (unrounded(r.rec()[g], at) - unrounded(r.rec()[g + 1], at)) / 1000.0);
+            }
+        }
+        return back;
+    }
+
+    /** The largest step (ms) of the conversion, either way, where the records of ticks g and g + 1 meet in one epoch. */
+    static double step(Run r, int from, int to) {
+        double step = 0;
+        for (int g = from; g < to && g + 1 < r.pre().length; g++) {
+            if (r.rec()[g].epoch() == r.rec()[g + 1].epoch()) {
+                double at = r.pre()[g + 1];
+                step = Math.max(step, Math.abs(unrounded(r.rec()[g], at) - unrounded(r.rec()[g + 1], at)) / 1000.0);
+            }
+        }
+        return step;
+    }
+
+    /**
+     * A reload's new clock rules: the client's sync interval in combat changed, which the schedule doesn't read. The
+     * combat server swaps the schedule only when the clock rules changed ({@code CombatServer.tickStart}).
+     */
+    private static final ClockRules RELOADED = VanillaLoop.clock(
+            500, Fixtures.clock().tickWindow(), Fixtures.clock().lateTicks());
+
+    /** A run with the schedule's own rules throughout. */
+    private static Run plain(
+            int ticks,
+            Model model,
+            long seed,
+            IntToDoubleFunction workMs,
+            IntToDoubleFunction packetsMs,
+            IntPredicate paused) {
+        return VanillaLoop.run(
+                ticks,
+                model.wake(seed),
+                workMs,
+                packetsMs,
+                g -> 0,
+                paused,
+                new TickSchedule(Fixtures.clock())::onTickStart);
+    }
+
+    /** The same run with the clock rules reloaded at tick {@code at}. */
+    private static Run reloaded(
+            int ticks,
+            Model model,
+            long seed,
+            IntToDoubleFunction workMs,
+            IntToDoubleFunction packetsMs,
+            IntPredicate paused,
+            int at) {
+        return VanillaLoop.run(
+                ticks, model.wake(seed), workMs, packetsMs, g -> 0, paused, VanillaLoop.reloadingAt(at, RELOADED));
+    }
+
+    /**
+     * Tick by tick, the reloaded run's records are the plain run's, one epoch on from tick {@code at}: the reload there
+     * cost nothing beyond its epoch (D-100). Both runs wake alike, since a seed draws the same wake-ups whatever the
+     * clock says.
+     */
+    private static void assertCarried(Run plain, Run reloaded, int at, String what) {
+        for (int g = 0; g < reloaded.rec().length; g++) {
+            TickRecord p = plain.rec()[g];
+            TickRecord c = reloaded.rec()[g];
+            String tick = what + ", tick " + g;
+            assertEquals(p.startNanos(), c.startNanos(), 0.0, tick);
+            assertEquals(p.tickLengthNanos(), c.tickLengthNanos(), 0.0, tick);
+            assertEquals(p.epoch() + (g >= at ? 1 : 0), c.epoch(), tick);
+        }
+    }
+
+    static Stream<Arguments> reloadStalls() {
+        Stream.Builder<Arguments> out = Stream.builder();
+        for (Model m : Model.values()) {
+            for (double ms : new double[] {150, 500, 1500, 2500}) { // 2,500: vanilla drops its backlog after it
+                out.add(Arguments.of(m, ms));
+            }
+        }
+        return out.build();
+    }
+
+    /**
+     * {@code /reload} blocks the server thread until the new data is in ({@code MinecraftServer.java:1577–1578}) and the
+     * combat server swaps the clock rules at the next tick start, so that tick starts late by the reload's own stall,
+     * 150 to 1,500 ms. A fresh schedule anchored there sat the stall behind vanilla's schedule and steered back to it
+     * once vanilla caught up: the conversion jumped forward 51–726 ms inside the new epoch (D-100's review). Carried,
+     * the schedule takes the reload's stall as any other, in step with vanilla's schedule, and its records agree where
+     * they meet (Champ, D-100, call a).
+     */
+    @ParameterizedTest
+    @MethodSource("reloadStalls")
+    void aReloadAfterItsOwnStallCostsNothingBeyondItsEpoch(Model model, double stallMs) {
+        int at = 300;
+        for (long seed = 1; seed <= 5; seed++) {
+            IntToDoubleFunction packets = g -> g == at ? stallMs : 0.2;
+            Run r = reloaded(400, model, seed, g -> 10, packets, turn -> false, at);
+            double jump = step(r, at, 399);
+            String what = model + " " + stallMs + " ms reload, seed " + seed + ": its tick " + r.late()[at] / MS
+                    + " ms late, the conversion steps up to " + jump + " ms inside its epoch";
+            assertTrue(r.late()[at] >= stallMs * MS, what);
+            assertTrue(jump <= 0.001, what);
+            assertCarried(plain(400, model, seed, g -> 10, packets, turn -> false), r, at, what);
+            double worst = worstOnSchedule(r, at, 399);
+            assertTrue(worst <= 10, what + "; worst " + worst + " ms");
+        }
+    }
+
+    /**
+     * When the first combat data load failed, the clock starts at the reload that fixes it ({@code CombatServer.take}),
+     * so a fresh schedule's first tick may start late by that reload's stall. It anchors on vanilla's start, as every
+     * re-anchor does, and the conversion holds still as vanilla catches up; anchored on the measured start (D-099's
+     * call b, which Champ's carry replaced), it jumped forward as a reload's did (D-100).
+     */
+    @ParameterizedTest
+    @MethodSource("reloadStalls")
+    void aScheduleStartedByAReloadAnchorsOnVanillasSchedule(Model model, double stallMs) {
+        int at = 300;
+        for (long seed = 1; seed <= 5; seed++) {
+            TickSchedule[] schedule = {new TickSchedule(Fixtures.clock())};
+            Run r = VanillaLoop.run(
+                    400, model.wake(seed), g -> 10, g -> g == at ? stallMs : 0.2, g -> 0, turn -> false, in -> {
+                        if (in.tick() == at) {
+                            schedule[0] = new TickSchedule(Fixtures.clock()); // its records before don't count
+                        }
+                        return schedule[0].onTickStart(in);
+                    });
+            double jump = step(r, at, 399);
+            String what =
+                    model + " " + stallMs + " ms reload, seed " + seed + ": the conversion steps up to " + jump + " ms";
+            assertEquals((double) r.sched()[at], r.rec()[at].startNanos(), 0.0, what);
+            assertTrue(jump <= 0.001, what);
+            double worst = worstOnSchedule(r, at, 399);
+            assertTrue(worst <= 10, what + "; worst " + worst + " ms");
+        }
+    }
+
+    /** Reloads where vanilla is this far behind (ms): before its first backlog drop, and long after it. */
+    static Stream<Arguments> reloadsMidOverload() {
+        Stream.Builder<Arguments> out = Stream.builder();
+        for (Model m : Model.values()) {
+            for (double behind : new double[] {700, 1500, 4000}) {
+                out.add(Arguments.of(m, behind));
+            }
+        }
+        return out.build();
+    }
+
+    /**
+     * A clock-rules reload mid-overload, where vanilla is up to seconds behind its own schedule, since it drops its
+     * backlog only 2 s behind and at most every 15 s. A fresh schedule anchored on vanilla's start then steered out
+     * toward the measured starts, and the conversion stepped back 0.6–0.8 s inside the new epoch (D-099's review);
+     * anchored on the measured start, it paid the overload's onset again, up to 70 ms back (D-100). Carried, the
+     * schedule follows the overload as it would have with no reload, an epoch on (Champ, D-100, call a): within
+     * {@link #aSustainedSlowerRateIsFollowed}'s bar from the reload on, settled within 10 ms. The same holds when the
+     * reload's own stall comes on top, which the overload doesn't catch up (that stall's cost is the plain run's).
+     */
+    @ParameterizedTest
+    @MethodSource("reloadsMidOverload")
+    void aClockRulesReloadMidOverloadCostsNothingBeyondItsEpoch(Model model, double behindMs) {
+        double ms = 80;
+        for (long seed = 1; seed <= 5; seed++) {
+            Random spread = new Random(40 + seed);
+            double[] work = new double[600];
+            for (int g = 0; g < 600; g++) {
+                work[g] = g >= 200 ? ms + 3 * spread.nextGaussian() : 10;
+            }
+            long[] lateness =
+                    VanillaLoop.run(600, model, g -> work[g], g -> 0.2, seed).late(); // a reload moves none
+            int at = 200;
+            while (lateness[at] < behindMs * MS) {
+                at++;
+            }
+            int reloadAt = at;
+            Run r = reloaded(600, model, seed, g -> work[g], g -> 0.2, turn -> false, reloadAt);
+            double behind = r.late()[reloadAt] / MS;
+            double back = stepBack(r, reloadAt - 1, 599);
+            double transition = worst(r, reloadAt, reloadAt + 15, -1, -1);
+            double settled = worst(r, reloadAt + 15, 599, -1, -1);
+            String what = model + " reload at tick " + reloadAt + " seed " + seed + ", vanilla " + Math.round(behind)
+                    + " ms behind: the conversion steps back up to " + Math.round(back * 10) / 10.0 + " ms, transition "
+                    + Math.round(transition) + " ms, settled " + Math.round(settled * 10) / 10.0 + " ms";
+            System.out.println(what);
+            assertTrue(reloadAt + 15 < 599, what);
+            assertTrue(back <= 3.5 * (ms - 50), what);
+            assertTrue(transition <= 3.5 * (ms - 50), what);
+            assertTrue(settled <= 10, what);
+            assertCarried(plain(600, model, seed, g -> work[g], g -> 0.2, turn -> false), r, reloadAt, what);
+            IntToDoubleFunction stall = g -> g == reloadAt ? 1500 : 0.2;
+            assertCarried(
+                    plain(600, model, seed, g -> work[g], stall, turn -> false),
+                    reloaded(600, model, seed, g -> work[g], stall, turn -> false, reloadAt),
+                    reloadAt,
+                    what + ", with its own 1,500 ms stall");
+        }
+    }
+
+    /**
+     * A reload whose rules change what the schedule reads: a shorter or longer {@code tick_window} re-averages T̄ from
+     * the intervals it keeps, and a smaller {@code late_ticks} judges the next ticks by it. Mid-overload the conversion
+     * then steps up to 4.6 ms where records meet in the new epoch, against 4.2 ms with no reload (the overload's own
+     * steering); D-100 reopens the carry past 5 ms.
+     */
+    @ParameterizedTest
+    @MethodSource("reloadsMidOverload")
+    void aReloadThatChangesTheScheduleRulesMidOverloadStepsUnderFiveMs(Model model, double behindMs) {
+        double ms = 80;
+        ClockRules[] rules = {
+            VanillaLoop.clock(1000, 4, 1.0), VanillaLoop.clock(1000, 20, 1.0), VanillaLoop.clock(1000, 10, 0.75)
+        };
+        for (long seed = 1; seed <= 5; seed++) {
+            Random spread = new Random(40 + seed);
+            double[] work = new double[600];
+            for (int g = 0; g < 600; g++) {
+                work[g] = g >= 200 ? ms + 3 * spread.nextGaussian() : 10;
+            }
+            long[] lateness =
+                    VanillaLoop.run(600, model, g -> work[g], g -> 0.2, seed).late();
+            int at = 200;
+            while (lateness[at] < behindMs * MS) {
+                at++;
+            }
+            int reloadAt = at;
+            for (ClockRules c : rules) {
+                Run r = VanillaLoop.run(
+                        600,
+                        model.wake(seed),
+                        g -> work[g],
+                        g -> 0.2,
+                        g -> 0,
+                        turn -> false,
+                        VanillaLoop.reloadingAt(reloadAt, c));
+                double step = step(r, reloadAt - 1, 599);
+                String what = model + " seed " + seed + ", reload at tick " + reloadAt + " to window " + c.tickWindow()
+                        + ", late_ticks " + c.lateTicks() + ": steps up to " + step + " ms";
+                assertEquals(r.rec()[reloadAt - 1].epoch() + 1, r.rec()[reloadAt].epoch(), what);
+                assertTrue(step <= 5, what);
+                assertTrue(worst(r, reloadAt + 15, 599, -1, -1) <= 10, what);
+            }
+        }
+    }
+
+    /**
+     * A reload while vanilla keeps up: the carried schedule stays on vanilla's, and the records of the new epoch agree
+     * where they meet. A fresh schedule anchored on the measured start (up to 62.5 ms late on Windows) would walk back
+     * to vanilla's in halves under on-schedule steering, a seam at each record.
+     */
+    @ParameterizedTest
+    @EnumSource(
+            value = Model.class,
+            names = {"WINDOWS_UNIFORM", "WINDOWS_TIMER", "WINDOWS_MISSED"})
+    void aClockRulesReloadWhileVanillaKeepsUpStaysOnItsSchedule(Model model) {
+        for (long seed = 1; seed <= 5; seed++) {
+            for (int reloadAt = 300; reloadAt < 340; reloadAt += 7) {
+                int at = reloadAt;
+                Run r = reloaded(400, model, seed, g -> 1.2, g -> 0, turn -> false, at);
+                String what =
+                        model + " seed " + seed + ", reload at tick " + at + ", " + r.late()[at] / MS + " ms late";
+                assertEquals(1, r.rec()[at].epoch(), what);
+                assertEquals((double) r.sched()[at], r.rec()[at].startNanos(), 0.0, what);
+                for (int g = at; g < 399; g++) {
+                    double meet = r.pre()[g + 1];
+                    assertEquals(unrounded(r.rec()[g], meet), unrounded(r.rec()[g + 1], meet), 1.0, what);
+                }
+                assertCarried(plain(400, model, seed, g -> 1.2, g -> 0, turn -> false), r, at, what);
+            }
+        }
+    }
+
+    /**
+     * The schedule carries the last tick's state across a reload on any tick (D-100): through a stall and its catch-up
+     * (the last tick late), paused turns (its start on vanilla's schedule), an overload's onset (a run of slow intervals
+     * under way, the last tick's lateness) and the catch-up after it. A reload on any of these ticks costs nothing beyond
+     * its epoch.
+     */
+    @ParameterizedTest
+    @EnumSource(Model.class)
+    void aReloadOnAnyTickCarriesTheLastTicksState(Model model) {
+        int ticks = 420;
+        IntToDoubleFunction work = g -> g >= 280 && g < 340 ? 90 : 10;
+        IntToDoubleFunction packets = g -> g == 100 ? 1500 : 0.2;
+        IntPredicate paused = turn -> turn >= 200 && turn < 260; // the first tick back is tick 200
+        for (long seed = 1; seed <= 3; seed++) {
+            Run p = plain(ticks, model, seed, work, packets, paused);
+            assertTrue(p.late()[101] > 1000 * MS && p.sched()[200] - p.sched()[199] > 50 * N, "the script");
+            for (int at = 95; at < ticks; at++) {
+                Run r = reloaded(ticks, model, seed, work, packets, paused, at);
+                assertCarried(p, r, at, model + " seed " + seed + ", reload at tick " + at);
+            }
+        }
+    }
+
     /**
      * Rule 1.2's old check, a ping handled during tick n converts into [50n, 50n + 50), can't hold on vanilla's
      * schedule: an arrival in the lead-in of a tick that started late converts up to its lateness past 50n + 50 (D-096's
@@ -423,7 +812,7 @@ class VanillaLoopTest {
         }
     }
 
-    private static double unrounded(TickRecord r, double atNanos) {
+    static double unrounded(TickRecord r, double atNanos) {
         return TickRecord.combatMicros(r.tick(), r.startNanos(), r.tickLengthNanos(), atNanos);
     }
 

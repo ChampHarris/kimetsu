@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.champ.kimetsu.core.Fixtures;
+import dev.champ.kimetsu.core.data.ClockRules;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -20,6 +21,9 @@ class TickScheduleTest {
     private static final double MS = 1_000_000.0;
     private static final long NOMINAL = 50_000_000L;
     private static final double[] FRACTIONS = {0.0, 0.25, 0.5, 0.75, 0.999};
+    /** A reload's new clock rules: the client's sync interval in combat changed, which the schedule doesn't read. */
+    private static final ClockRules RELOADED = VanillaLoop.clock(
+            500, Fixtures.clock().tickWindow(), Fixtures.clock().lateTicks());
 
     /** Measured tick starts (ns), what each tick is, and the nominal tick length in force. */
     @SuppressWarnings("ArrayRecordComponent") // a scenario's series, read by index; never compared or hashed
@@ -294,26 +298,178 @@ class TickScheduleTest {
     }
 
     /**
-     * New clock rules start a fresh schedule, which re-anchors at its first tick, so the clock may step: an epoch, one
-     * more than the schedule it replaces counted (slice 5c-1; the swap used to keep the epoch, so no ClockEpoch went).
+     * New clock rules count an epoch, one more than the schedule they replace counted (slice 5c-1; the swap used to keep
+     * the epoch, so no ClockEpoch went). The schedule carries on under them, steered as it would have been: it no longer
+     * re-anchors, which a reload's own stall turned into a step inside that epoch (Champ, D-100, call a).
      */
     @Test
     void aRulesSwapIsAnEpoch() {
         TickSchedule schedule = new TickSchedule(Fixtures.clock());
+        TickSchedule kept = new TickSchedule(Fixtures.clock());
         long t = 0;
         for (int g = 0; g < 30; g++) {
             schedule.onTickStart(TickInput.normal(g, t));
+            kept.onTickStart(TickInput.normal(g, t));
             t += NOMINAL;
         }
         t += 3_000_000_000L; // a backlog drop first: epoch 1
-        schedule.onTickStart(new TickInput(30, t, NOMINAL, false, false, false, true, false));
+        TickInput drop = new TickInput(30, t, NOMINAL, false, false, false, true, false);
+        schedule.onTickStart(drop);
+        kept.onTickStart(drop);
         assertEquals(1, schedule.epoch());
-        TickSchedule retuned = schedule.retuned(Fixtures.clock());
+        TickSchedule retuned = schedule.retuned(RELOADED);
         assertEquals(2, retuned.epoch());
-        t += NOMINAL + 7_000_000L; // the steered schedule would have predicted 7 ms earlier
+        t += NOMINAL + 7_000_000L; // the steered schedule predicts 7 ms earlier
         TickRecord r = retuned.onTickStart(TickInput.normal(31, t));
+        TickRecord same = kept.onTickStart(TickInput.normal(31, t));
         assertEquals(2, r.epoch());
-        assertEquals((double) t, r.startNanos(), 0.0); // it re-anchors: the step the epoch announces
+        assertEquals(same.startNanos(), r.startNanos(), 0.0); // steered halfway, not re-anchored on t
+        assertEquals((double) t - 3_500_000L, r.startNanos(), 1.0);
+        assertEquals(same.tickLengthNanos(), r.tickLengthNanos(), 0.0);
+    }
+
+    /**
+     * New clock rules keep the newest intervals that fit their {@code tick_window}, the oldest dropped first, and T̄ as
+     * it was until the next ordinary interval (D-100). Here twelve intervals of 41 to 52 ms, of which the window of 10
+     * holds 43 to 52 (T̄ 47.5 ms); then a stall, outside the band, so T̄ holds and the schedule moves on by it; then
+     * 60 ms intervals, each averaged with what the window still holds.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = {4, 10, 20})
+    void aRulesSwapKeepsTheNewestIntervalsThatFitTheNewWindow(int window) {
+        TickSchedule schedule = new TickSchedule(Fixtures.clock());
+        long t = 0;
+        TickRecord last = schedule.onTickStart(TickInput.normal(0, t));
+        List<Double> held = new ArrayList<>();
+        for (int g = 1; g <= 12; g++) {
+            t += (40 + g) * 1_000_000L;
+            last = schedule.onTickStart(TickInput.normal(g, t));
+            held.add(40.0 + g);
+        }
+        assertEquals(47.5 * MS, last.tickLengthNanos(), 1e-3);
+        TickSchedule retuned = schedule.retuned(
+                VanillaLoop.clock(1000, window, Fixtures.clock().lateTicks()));
+        t += 200_000_000L;
+        TickRecord stalled = retuned.onTickStart(TickInput.normal(13, t));
+        assertEquals(last.tickLengthNanos(), stalled.tickLengthNanos(), 0.0);
+        assertEquals(last.startNanos() + last.tickLengthNanos(), stalled.startNanos(), 0.0);
+        List<Double> ring = new ArrayList<>(held.subList(held.size() - Math.min(window, 10), held.size()));
+        for (int g = 14; g < 14 + 2 * window; g++) {
+            t += 60_000_000L;
+            TickRecord r = retuned.onTickStart(TickInput.normal(g, t));
+            ring.add(60.0);
+            if (ring.size() > window) {
+                ring.remove(0);
+            }
+            double sum = 0;
+            for (double x : ring) {
+                sum += x;
+            }
+            assertEquals(sum / ring.size() * MS, r.tickLengthNanos(), 1e-3, "window " + window + ", tick " + g);
+        }
+    }
+
+    /**
+     * A run of slow intervals under way crosses new clock rules too: its newest intervals, as many as leave the new
+     * {@code rate_run_ticks} one to go, so the next agreeing interval makes the new rate (D-100). Here an overload
+     * starts with intervals of 81 and 82 ms, then rules that take two for a run: 82 and the next, 83, make it.
+     */
+    @Test
+    void aRulesSwapKeepsTheNewestOfARunUnderWay() {
+        TickSchedule schedule = new TickSchedule(Fixtures.clock());
+        long t = 0;
+        for (int g = 0; g < 30; g++) { // on vanilla's schedule, 1 ms late
+            t = g * NOMINAL + 1_000_000L;
+            schedule.onTickStart(
+                    new TickInput(g, t, NOMINAL, false, false, false, false, false, t - 45_000_000L, 1_000_000L));
+        }
+        for (int g = 30; g < 32; g++) { // back to back, each later than the one before
+            t += (51 + g) * 1_000_000L;
+            schedule.onTickStart(
+                    new TickInput(g, t, NOMINAL, false, false, false, false, false, t - 1_000_000L, t - g * NOMINAL));
+        }
+        TickSchedule retuned =
+                schedule.retuned(VanillaLoop.clock(1000, 10, 2, Fixtures.clock().lateTicks()));
+        t += 83_000_000L;
+        TickRecord r = retuned.onTickStart(
+                new TickInput(32, t, NOMINAL, false, false, false, false, false, t - 1_000_000L, t - 32 * NOMINAL));
+        assertEquals(82.5 * MS, r.tickLengthNanos(), 1e-3);
+    }
+
+    /**
+     * Whether the last tick was late crosses new clock rules too (D-101's review). Under a sustained overload vanilla's
+     * 15 s gate can hold its backlog drop back until a short tick: that tick isn't on schedule (it dropped) and isn't
+     * late, but it follows a late one, so its short interval is catch-up and stays out of T̄. Forgotten across a reload
+     * on that tick, it counted as ordinary: T̄ 49 ms and the schedule steered toward the measured start.
+     */
+    @Test
+    void aRulesSwapRemembersTheLastTickWasLate() {
+        TickSchedule schedule = new TickSchedule(Fixtures.clock());
+        TickSchedule kept = new TickSchedule(Fixtures.clock());
+        long t = 0;
+        for (int g = 0; g < 30; g++) { // on vanilla's schedule, 1 ms late
+            t = g * NOMINAL + 1_000_000L;
+            TickInput in = new TickInput(g, t, NOMINAL, false, false, false, false, false, t - 45_000_000L, 1_000_000L);
+            schedule.onTickStart(in);
+            kept.onTickStart(in);
+        }
+        t += 110_000_000L; // a long tick: 61 ms late
+        TickInput late = new TickInput(30, t, NOMINAL, false, false, false, false, false, t - 1_000_000L, 61_000_000L);
+        schedule.onTickStart(late);
+        kept.onTickStart(late);
+        TickSchedule retuned = schedule.retuned(RELOADED);
+        t += 40_000_000L; // a short one, on which vanilla drops its backlog: 1 ms late on its new schedule
+        TickInput dropped = new TickInput(31, t, NOMINAL, false, false, false, true, false, t - 1_000_000L, 1_000_000L);
+        TickRecord r = retuned.onTickStart(dropped);
+        TickRecord same = kept.onTickStart(dropped);
+        assertEquals((double) NOMINAL, same.tickLengthNanos(), 0.0); // the scenario: catch-up, left out of T̄
+        assertEquals(same.startNanos(), r.startNanos(), 0.0);
+        assertEquals(same.tickLengthNanos(), r.tickLengthNanos(), 0.0);
+        assertEquals(same.epoch() + 1, r.epoch());
+    }
+
+    /**
+     * The last tick's state crosses new clock rules too (D-100): the first tick after a freeze or a sprint still
+     * re-anchors, and the tick of a {@code /tick rate} change still predicts at the old pace. A reload on any tick of
+     * the script leaves every record as it was, an epoch on. ({@link VanillaLoopTest} carries the rest across a reload:
+     * a stall, paused turns, an overload's onset and its end.)
+     */
+    @Test
+    void aRulesSwapOnAnyTickCarriesTheLastTicksState() {
+        Random jitter = new Random(7);
+        List<TickInput> script = new ArrayList<>();
+        long t = 0;
+        int g = 0;
+        for (int i = 0; i < 100; i++) {
+            boolean frozen = i >= 20 && i < 25; // game time stands while frozen
+            boolean sprinting = i >= 70 && i < 80;
+            long nominal = i < 45 ? NOMINAL : 66_666_667L; // /tick rate 15
+            t += (sprinting ? 2_000_000L : nominal) + Math.round(jitter.nextGaussian() * 1_000_000L);
+            script.add(new TickInput(g, t, nominal, frozen, false, sprinting, false, false));
+            g += frozen ? 0 : 1;
+        }
+        List<TickRecord> plain = new ArrayList<>();
+        TickSchedule kept = new TickSchedule(Fixtures.clock());
+        for (TickInput in : script) {
+            plain.add(kept.onTickStart(in));
+        }
+        for (int at = 1; at < script.size(); at++) {
+            TickSchedule schedule = new TickSchedule(Fixtures.clock());
+            for (int i = 0; i < script.size(); i++) {
+                if (i == at) {
+                    schedule = schedule.retuned(RELOADED);
+                }
+                TickRecord r = schedule.onTickStart(script.get(i));
+                String what = "reload at script tick " + at + ", tick " + i;
+                assertEquals(plain.get(i).startNanos(), r.startNanos(), 0.0, what);
+                assertEquals(plain.get(i).tickLengthNanos(), r.tickLengthNanos(), 0.0, what);
+                assertEquals(plain.get(i).epoch() + (i >= at ? 1 : 0), r.epoch(), what);
+            }
+        }
+        // the script: the ticks after the freeze and the sprint re-anchor, and the rate change takes its length
+        assertEquals((double) script.get(25).measuredNanos(), plain.get(25).startNanos(), 0.0);
+        assertEquals((double) script.get(80).measuredNanos(), plain.get(80).startNanos(), 0.0);
+        assertEquals(66_666_667.0, plain.get(45).tickLengthNanos(), 0.0);
     }
 
     @Test
