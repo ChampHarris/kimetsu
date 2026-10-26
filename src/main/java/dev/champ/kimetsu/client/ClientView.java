@@ -129,6 +129,14 @@ final class ClientView {
         return mobs.get(id);
     }
 
+    /**
+     * Whether the server has mob {@code id} in a fight, as far as this client was told: from its first {@code MobState}
+     * (every demon in an arena sends one on its first tick, and late tracking replays it) until it dies or goes.
+     */
+    boolean fights(int id) {
+        return mobs.containsKey(id);
+    }
+
     /** The strikes in flight, by id. */
     Long2ObjectOpenHashMap<Outbox.AttackStarted> strikes() {
         return strikes;

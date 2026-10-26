@@ -101,6 +101,11 @@ final class BoxDummy implements StrikeMob {
     }
 
     @Override
+    public int knockbackTicks() {
+        return Fixtures.demon().knockbackTicks(); // the M1 demon's, whose body it stands in for
+    }
+
+    @Override
     public void pose(long tick, Pose out) {
         if (world != null && world.strikePose(id, tick, out)) {
             return;

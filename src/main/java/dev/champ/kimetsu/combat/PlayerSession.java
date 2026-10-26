@@ -160,6 +160,11 @@ public final class PlayerSession implements ArenaMember {
         return player;
     }
 
+    /** Whether a test's seam opened it ({@link Sessions#openForTest}), not a client's login. */
+    boolean forTest() {
+        return testOut != null;
+    }
+
     public boolean ready() {
         return ready && !closed;
     }

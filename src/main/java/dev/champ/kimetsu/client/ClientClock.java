@@ -92,13 +92,21 @@ final class ClientClock {
         }
     }
 
-    /**
-     * Each client tick: the ping due, if any, a second after the last in combat and five out of it (S524); a fight that
-     * starts shortens the wait at once.
-     */
+    /** Each client tick: the ping due, if any ({@link #pingDue}). */
     void tick(long nowNanos, boolean inCombat) {
+        if (pingDue(nowNanos, inCombat)) {
+            ClientPacketDistributor.sendToServer(new NetMessage.ClockPing(nowNanos));
+        }
+    }
+
+    /**
+     * Whether a ping goes on the client tick at {@code nowNanos}, counted as sent if so: a second after the last in
+     * combat and five out of it (S524), so a fight that starts shortens the wait at once; the burst's one a tick; and
+     * after an unpause, one every tick until a record from after it comes (the server allows 4/s).
+     */
+    boolean pingDue(long nowNanos, boolean inCombat) {
         if (newest == null || paused) {
-            return;
+            return false;
         }
         long interval = (inCombat ? rules.syncIntervalCombatMs() : rules.syncIntervalIdleMs()) * 1_000_000L;
         if (burst > 0) {
@@ -106,13 +114,13 @@ final class ClientClock {
         } else if (resumeAfter == Long.MIN_VALUE
                 && lastPingNanos != Long.MIN_VALUE
                 && nowNanos - lastPingNanos < interval) {
-            return; // after an unpause, a ping every tick until a record from after it comes (the server allows 4/s)
+            return false;
         }
         if (lastPingNanos != Long.MIN_VALUE) {
             intervalNanos = nowNanos - lastPingNanos;
         }
         lastPingNanos = nowNanos;
-        ClientPacketDistributor.sendToServer(new NetMessage.ClockPing(nowNanos));
+        return true;
     }
 
     /** The time between the last two pings, in ms (0 before the second): the overlay shows it. */

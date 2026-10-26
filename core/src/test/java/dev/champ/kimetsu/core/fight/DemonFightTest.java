@@ -24,6 +24,7 @@ import dev.champ.kimetsu.core.hit.SwingTrack;
 import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.Input;
 import dev.champ.kimetsu.core.machine.State;
+import dev.champ.kimetsu.core.meter.Fixed;
 import dev.champ.kimetsu.core.strike.Scheduler;
 import dev.champ.kimetsu.core.strike.Verdict.Kind;
 import java.util.ArrayList;
@@ -253,6 +254,40 @@ class DemonFightTest {
         landed.through(115);
         assertEquals(292 + 0.6 * 8, b.posture(115), 1e-9); // 12/s from the block on
         assertEquals(297, l.posture(115), 1e-9); // the 3 s delay restarted at 107
+    }
+
+    /**
+     * Clients extrapolate a {@code MobState}'s Posture with no max to hold it at (D-094: the overlay ran to 343.8 of
+     * 300), so what it sends is what it has on every tick until the next: a full guard is sent with no recovery rate,
+     * and a recovery that fills is sent once more as it tops out, held from the tick it got there.
+     */
+    @Test
+    void whatItTellsClientsOfItsPostureIsWhatItHas_everyTick() {
+        Arena a = new Arena();
+        a.player(1); // its target, in front
+        chain(a.player(2).stand(MIN, 0, 64, -2, 0), 104); // lands from behind at 107: 297, recovering from 167
+        Demon d = a.demon(10, guarding(1));
+        long full = Long.MAX_VALUE; // the tick the recovery tops out
+        List<Outbox.MobState> since = new ArrayList<>(); // the MobStates sent from then on
+        for (long t = 1; t <= 220; t++) {
+            a.through(t);
+            Outbox.MobState m = null;
+            for (Outbox.MobState s : a.all(Outbox.MobState.class)) {
+                m = s; // the latest, sent at or before t
+            }
+            assertTrue(m != null, "no MobState by tick " + t);
+            long shown = m.posture() + m.postureRate() * Math.max(0, t - m.postureFrom());
+            assertEquals(d.posture(t), Fixed.toUnits(shown), 1e-9, "tick " + t + ": " + m);
+            if (full == Long.MAX_VALUE && t > 167 && d.posture(t) == 300) {
+                full = t;
+            }
+            if (t >= full && a.tickOf(m) == t) {
+                since.add(m);
+            }
+        }
+        assertEquals(297, d.posture(167), 1e-9);
+        assertTrue(full > 172 && full < 180, "it filled at " + full); // a little under 0.6 a tick: 2 HP taken
+        assertEquals(List.of(new Outbox.MobState(10, full, State.GUARD, MIN, Fixed.of(300), 0, full, 0)), since);
     }
 
     @Test

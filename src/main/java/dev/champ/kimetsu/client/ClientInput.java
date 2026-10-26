@@ -717,7 +717,11 @@ final class ClientInput {
 
     // ------------------------------------------------------------------------------------------------- the dev hook
 
-    /** Arms a guard press {@code offsetMs} from the next white-cued impact on this player (negative: before it). */
+    /**
+     * Arms a guard press {@code offsetMs} from the next white-cued impact on this player (negative: before it), timed
+     * from the impact tick, which the judge measures from too; if the strike goes before the press (a feint), the next
+     * one gets it.
+     */
     void arm(int offsetMs) {
         armed = true;
         armOffsetMicros = offsetMs * 1000L;
@@ -744,6 +748,13 @@ final class ClientInput {
             return;
         }
         long now = clock.micros(nanos);
+        if (pressAt != Long.MIN_VALUE && !combat.view().strikes().containsKey(armedStrike)) {
+            // its strike went before the press (a feint cancelled it, D-091): the next white-cued one gets it instead
+            p.sendSystemMessage(Component.literal("Kimetsu dev: strike #" + armedStrike + " went, armed for the next"));
+            armedStrike = Long.MIN_VALUE;
+            pressAt = Long.MIN_VALUE;
+            releaseAt = Long.MIN_VALUE;
+        }
         if (armedStrike == Long.MIN_VALUE) {
             Outbox.AttackStarted s = next(p.getId(), now);
             if (s == null) {

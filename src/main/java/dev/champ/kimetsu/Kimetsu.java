@@ -1,6 +1,7 @@
 package dev.champ.kimetsu;
 
 import com.mojang.logging.LogUtils;
+import dev.champ.kimetsu.combat.ArenaMember;
 import dev.champ.kimetsu.combat.CombatServer;
 import dev.champ.kimetsu.combat.DamagePath;
 import dev.champ.kimetsu.combat.Impulses;
@@ -9,7 +10,6 @@ import dev.champ.kimetsu.data.CombatDataLoader;
 import dev.champ.kimetsu.entity.DevSpawns;
 import dev.champ.kimetsu.entity.KimetsuAttachments;
 import dev.champ.kimetsu.entity.KimetsuEntities;
-import dev.champ.kimetsu.entity.M1Demon;
 import dev.champ.kimetsu.gametest.CombatGameTests;
 import dev.champ.kimetsu.gametest.DevGameTests;
 import dev.champ.kimetsu.gametest.ScopeGameTests;
@@ -57,7 +57,7 @@ public final class Kimetsu {
         game.addListener(EventPriority.LOWEST, Impulses::onKnockBack); // last: as it applies
         game.addListener(EventPriority.LOWEST, Impulses::onExplosionKnockback);
         game.addListener(EventPriority.HIGHEST, DamagePath::onDeath); // first: nothing acts on a death it cancels
-        game.addListener(M1Demon::onMount);
+        game.addListener(ArenaMember::onMount);
         game.addListener(CombatServer::onLogin);
         game.addListener(CombatServer::onLogout);
         game.addListener(CombatServer::onRespawn);

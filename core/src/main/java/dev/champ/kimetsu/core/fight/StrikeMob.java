@@ -24,6 +24,9 @@ public interface StrikeMob {
 
     double maxPosture();
 
+    /** How many ticks a push on it runs over: a hit's, and a clash tie's (its profile's {@code knockback_ticks}). */
+    int knockbackTicks();
+
     /** It joined {@code world}, whose outbox carries what it tells clients. */
     default void joined(CombatWorld world) {}
 

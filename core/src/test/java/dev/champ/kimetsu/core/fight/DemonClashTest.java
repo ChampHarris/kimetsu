@@ -47,6 +47,11 @@ class DemonClashTest {
 
     /** The M1 demon with Posture that doesn't recover, and a reaction of exactly {@code sdMs} = 0 when asked. */
     private static DemonProfile profile(double reactionMs, double sdMs) {
+        return profile(reactionMs, sdMs, Fixtures.demon().knockbackTicks());
+    }
+
+    /** The same, a push on it running over {@code knockbackTicks}. */
+    private static DemonProfile profile(double reactionMs, double sdMs, int knockbackTicks) {
         DemonProfile d = DemonProfiles.with(STILL);
         return new DemonProfile(
                 d.id(),
@@ -61,7 +66,7 @@ class DemonClashTest {
                 d.collapse(),
                 d.outsideFloor(),
                 d.knockdown(),
-                d.knockbackTicks(),
+                knockbackTicks,
                 d.guard(),
                 d.strings(),
                 d.senses(),
@@ -322,8 +327,9 @@ class DemonClashTest {
         Arena a = new Arena();
         Arena.Player p = a.player(1);
         form(p, 0, 111);
-        // a quick demon (120 ms), so the tie comes while the heavy's recovery would still carry it (to 138)
-        held = a.demon(10, profile(120, 0), DemonFightTest.guarding(1, new Arena.Script().at(100, 1, HEAVY)));
+        // a quick demon (120 ms), so the tie comes while the heavy's recovery would still carry it (to 138), and a
+        // push on it runs over 6 ticks, its own, where a player's runs over the strikes' 4
+        held = a.demon(10, profile(120, 0, 6), DemonFightTest.guarding(1, new Arena.Script().at(100, 1, HEAVY)));
         a.through(117);
         long flash = started(a).flashMicros();
         p.press(Input.of(Input.Kind.ATTACK, flash + 110_000));
@@ -338,7 +344,7 @@ class DemonClashTest {
         assertNear(0, mob.dirX(), 1e-9);
         assertNear(-1, mob.dirZ(), 1e-9);
         assertNear(1.5, mob.distance(), 1e-9);
-        assertEquals(4, mob.ticks());
+        assertEquals(6, mob.ticks(), "a push on the demon runs over its profile's knockback_ticks, as a hit's does");
         assertFalse(mob.splats());
 
         Effect.Push push = null; // the player, away from the demon, from when its client can live it

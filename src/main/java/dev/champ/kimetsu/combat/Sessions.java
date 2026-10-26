@@ -8,7 +8,6 @@ import dev.champ.kimetsu.core.fight.PlayerIntake;
 import dev.champ.kimetsu.data.CombatData;
 import dev.champ.kimetsu.net.NetMessage;
 import java.util.ArrayList;
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -20,12 +19,14 @@ import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.GameType;
+import net.neoforged.neoforge.gametest.GameTestHooks;
 import org.jspecify.annotations.Nullable;
 
 /**
  * The players connected to the combat server (spec Netcode): one session per connection, found by its packet listener,
- * which a respawn keeps; the tracker sets; every arena's router, which catches a player up on what it starts seeing late
- * (slice 5c-4b, Step 5); and the clock's per-tick work for each (record pushes, echoes, joining the fight), driven by
+ * which a respawn keeps; the tracker sets; each arena's router, kept by its arena while it's open, which catches a
+ * player up on what it starts seeing late (slice 5c-4b, Step 5); and the clock's per-tick work for each (record pushes,
+ * echoes, joining the fight), driven by
  * the combat server at the points that keep the wire in order: {@code ClockEpoch} before an epoch's cancels, the data
  * before a new generation's first event. Main thread, except {@link #session}.
  */
@@ -35,7 +36,6 @@ public final class Sessions {
     private final List<PlayerSession> all = new ArrayList<>();
     private final List<PlayerSession> viewers = new ArrayList<>(); // reused by viewersIn
     private final Trackers trackers = new Trackers();
-    private final IdentityHashMap<Arena, Router> routers = new IdentityHashMap<>(); // every arena's that has one
     private NetMessage.@Nullable DataSync sync;
     private int syncGeneration = -1;
 
@@ -67,13 +67,10 @@ public final class Sessions {
 
     /**
      * A default arena opened (or a test's, at its first session): its events go to the players through a router of its
-     * own (strike ids are per world).
+     * own (strike ids are per world), which goes when it closes.
      */
     void arenaOpened(Arena a) {
-        routers.keySet().removeIf(Arena::closed);
-        Router r = new Router(a, this, trackers);
-        a.listen(r);
-        routers.put(a, r);
+        a.routeThrough(new Router(a, this, trackers));
     }
 
     // ------------------------------------------------------------------------------------------------- players
@@ -96,20 +93,23 @@ public final class Sessions {
      * The seam GameTests reach the session code through (slice 5c-2): a session for {@code p}, a mock player whose
      * connection has no channel, that sends to {@code out} instead of the wire, is ready as if its client had said so,
      * has echoed once at {@code rttMicros}, and joins {@code arena} (a test's own) at the next tick end, which routes its
-     * events to it. Removing the player from the player list ends it, as a logout does. GameTests only.
+     * events to it. Removing the player from the player list ends it, as a logout does. GameTests only: the seams refuse
+     * a production jar, a player with a client, and a session they didn't open.
      */
-    public PlayerSession openForTest(ServerPlayer p, Arena arena, Consumer<NetMessage> out, long rttMicros) {
-        PlayerSession s = openNotReadyForTest(p, arena, out, rttMicros);
-        s.markReady();
-        return s;
+    public void openForTest(ServerPlayer p, Arena arena, Consumer<NetMessage> out, long rttMicros) {
+        openNotReadyForTest(p, arena, out, rttMicros);
+        testSession(p).markReady();
     }
 
     /**
      * {@link #openForTest}, its client not yet ready, as at a login (slice 5c-4b, Step 5): it's sent no event and joins
      * no fight until {@link #readyForTest}. GameTests only.
      */
-    public PlayerSession openNotReadyForTest(ServerPlayer p, Arena arena, Consumer<NetMessage> out, long rttMicros) {
-        server.checkThread();
+    public void openNotReadyForTest(ServerPlayer p, Arena arena, Consumer<NetMessage> out, long rttMicros) {
+        checkTesting();
+        if (p.connection.hasChannel(NetMessage.ToClient.TYPE) || p.connection.hasChannel(NetMessage.ToServer.TYPE)) {
+            throw new IllegalStateException(p.getScoreboardName() + " has a client: its session comes from its login");
+        }
         if (byListener.containsKey(p.connection)) {
             throw new IllegalStateException(p.getScoreboardName() + " already has a session");
         }
@@ -117,21 +117,15 @@ public final class Sessions {
         byListener.put(p.connection, s);
         all.add(s);
         s.send(sync(server.data(), server.generation()));
-        if (!routers.containsKey(arena)) {
+        if (arena.router() == null) {
             arenaOpened(arena); // before it's ready: turning ready catches it up through its level's routers
         }
         s.echo(Micros.ofTicks(server.nextTick()), rttMicros);
-        return s;
     }
 
     /** {@code p}'s client says it's ready, as the wire's {@code Ready} does on the main thread. GameTests only. */
     public void readyForTest(ServerPlayer p) {
-        server.checkThread();
-        PlayerSession s = byListener.get(p.connection);
-        if (s == null) {
-            throw new IllegalStateException(p.getScoreboardName() + " has no session");
-        }
-        s.markReady();
+        testSession(p).markReady();
     }
 
     /**
@@ -140,12 +134,28 @@ public final class Sessions {
      * GameTests only.
      */
     public void frameForTest(ServerPlayer p, PlayerIntake.Frame f, long arrivalMicros) {
+        testSession(p).frameForTest(f, arrivalMicros);
+    }
+
+    /** The seams run on the main thread of a game GameTests can run in: never a production jar. */
+    private void checkTesting() {
         server.checkThread();
+        if (!GameTestHooks.isGametestEnabled()) {
+            throw new IllegalStateException("a GameTest seam outside GameTests");
+        }
+    }
+
+    /** {@code p}'s session, which a seam opened (a client's never is), for a seam to drive. */
+    private PlayerSession testSession(ServerPlayer p) {
+        checkTesting();
         PlayerSession s = byListener.get(p.connection);
         if (s == null) {
             throw new IllegalStateException(p.getScoreboardName() + " has no session");
         }
-        s.frameForTest(f, arrivalMicros);
+        if (!s.forTest()) {
+            throw new IllegalStateException(p.getScoreboardName() + "'s session is its client's, not a test's");
+        }
+        return s;
     }
 
     void logout(ServerPlayer p) {
@@ -206,7 +216,7 @@ public final class Sessions {
         trackers.start(p.getId(), target.getId());
         PlayerSession s = byListener.get(p.connection);
         Arena a = target instanceof ArenaMember m ? m.arena() : null;
-        Router r = a != null ? routers.get(a) : null;
+        Router r = a != null ? a.router() : null;
         if (s != null && s.ready() && r != null) {
             r.catchUp(s, target.getId());
         }
@@ -225,10 +235,12 @@ public final class Sessions {
         if (!s.ready()) {
             return;
         }
-        for (Map.Entry<Arena, Router> e : routers.entrySet()) {
-            Arena a = e.getKey();
-            if (!a.closed() && a.level() == s.player().level()) {
-                e.getValue().catchUp(s, Audience.NOBODY);
+        List<Arena> open = server.arenas();
+        for (int i = 0; i < open.size(); i++) {
+            Arena a = open.get(i);
+            Router r = a.router();
+            if (r != null && a.level() == s.player().level()) {
+                r.catchUp(s, Audience.NOBODY);
             }
         }
     }

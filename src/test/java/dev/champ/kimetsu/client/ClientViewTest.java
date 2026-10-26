@@ -52,6 +52,27 @@ class ClientViewTest {
         assertNull(v.accept(new NetMessage.Tick(123, List.of(new Outbox.PlayerEffect(2, 123, theirs)), null), SELF));
     }
 
+    /**
+     * D-055 on the client, as the server counts it (`Arena.hostileWithin`, a review nit): a demon makes the blade only
+     * the Attack while the server has it in a fight, which its {@code MobState} says, and no longer once it dies; a
+     * demon the server never routed (one in no arena, a GameTest's) counts for nothing.
+     */
+    @Test
+    void aDemonFightsOnlyFromItsFirstMobStateToItsDeath() {
+        ClientView v = new ClientView();
+        assertFalse(v.fights(DEMON), "a demon the server never said was in a fight");
+        v.accept(
+                new NetMessage.Tick(
+                        120,
+                        List.of(new Outbox.MobState(DEMON, 120, State.NEUTRAL, Long.MIN_VALUE, 100, 0, 120, 0)),
+                        null),
+                SELF);
+        assertTrue(v.fights(DEMON));
+        assertFalse(v.fights(DEMON + 1), "another demon");
+        v.accept(new NetMessage.Tick(121, List.of(new Outbox.MobDied(DEMON, 121, SELF)), null), SELF);
+        assertFalse(v.fights(DEMON), "a dead demon");
+    }
+
     @Test
     void aMobLeftThatReachesTheClientForgetsTheMobToo() {
         ClientView v = seeing();

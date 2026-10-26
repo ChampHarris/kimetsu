@@ -1482,8 +1482,9 @@ public final class CombatWorld {
 
     /**
      * A tie's shockwave (Rule 10.3), found in tick {@code n} for tick {@code tick}: the heavy's carry ends there, and each
-     * side is pushed away from the other by {@code tie_push_blocks} over {@code knockback_ticks}, splatting nobody: the
-     * mob from now, as the server moves it, and the player from when its client can live it. Only the reactions' tie
+     * side is pushed away from the other by {@code tie_push_blocks} over its own {@code knockback_ticks} (the mob's
+     * profile's, the player's in the strike rules), splatting nobody: the mob from now, as the server moves it, and the
+     * player from when its client can live it. Only the reactions' tie
      * pushes: a side leaving or stopping ends the clash with nobody to push.
      */
     private void tiePush(Clash c, long tick, long n) {
@@ -1505,7 +1506,7 @@ public final class CombatWorld {
         double ux = dx / len;
         double uz = dz / len;
         ClashRules r = strikes.clash();
-        outbox.publish(new Outbox.Pushed(m.body.id(), n, ux, uz, r.tiePushBlocks(), strikes.knockbackTicks(), false));
+        outbox.publish(new Outbox.Pushed(m.body.id(), n, ux, uz, r.tiePushBlocks(), m.body.knockbackTicks(), false));
         long from = pushFrom(c.f);
         Effect.Push p = new Effect.Push(
                 -ux,

@@ -2,6 +2,7 @@ package dev.champ.kimetsu.combat;
 
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.data.CombatData;
+import net.neoforged.neoforge.event.entity.EntityMountEvent;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -35,5 +36,17 @@ public interface ArenaMember {
     /** Whether it's a hostile combatant to players (a demon; D-055: the blade near one is only ever the Attack). */
     default boolean hostile() {
         return false;
+    }
+
+    /**
+     * Rule 8.8: no mounting, forced ({@code /ride}) or not: a combatant (the demon, the dummy) is never a rider or a
+     * mount. Players still ride.
+     */
+    static void onMount(EntityMountEvent event) {
+        if (event.isMounting()
+                && (event.getEntityMounting() instanceof ArenaMember
+                        || event.getEntityBeingMounted() instanceof ArenaMember)) {
+            event.setCanceled(true);
+        }
     }
 }

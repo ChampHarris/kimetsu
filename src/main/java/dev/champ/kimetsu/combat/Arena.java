@@ -47,6 +47,7 @@ public final class Arena {
     private CombatWorld world;
     private final Fights fights;
     private @Nullable FightLog log;
+    private @Nullable Router router; // what takes its events to the players, while it's open
     private boolean closed;
     private boolean sprinting;
     private long stepNanos;
@@ -193,6 +194,21 @@ public final class Arena {
     /** {@code listener} sees every event this arena's world sends, before its members do. */
     public void listen(Listener listener) {
         listeners.add(listener);
+    }
+
+    /**
+     * Its events go to the players through {@code r} from now on (a default arena from its opening, a test's from its
+     * first session); closing it drops the router with its other listeners.
+     */
+    void routeThrough(Router r) {
+        listen(r);
+        router = r;
+    }
+
+    /** The router that takes its events to the players, or null: none yet, or it's closed. */
+    @Nullable
+    Router router() {
+        return router;
     }
 
     /**
@@ -365,6 +381,7 @@ public final class Arena {
     void close() {
         closed = true;
         listeners.clear();
+        router = null;
         log(null);
         int n = snap();
         members.clear();

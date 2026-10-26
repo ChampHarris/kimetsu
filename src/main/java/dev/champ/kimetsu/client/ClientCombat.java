@@ -113,13 +113,17 @@ public final class ClientCombat {
                 && (inCombat(nanos) || hostileWithin(p, d.rules().fights().engageBlocks()));
     }
 
-    /** Whether a hostile combatant the client has is within {@code blocks} of {@code p}, in its level. */
+    /**
+     * Whether a hostile combatant the client has, which the server has in a fight, is within {@code blocks} of
+     * {@code p}, in its level: the server's own count ({@code Arena.hostileWithin}), so a demon in no arena never makes
+     * the blade only the Attack.
+     */
     @SuppressWarnings("ReferenceEquality") // the very level instance: the client has one at a time
     boolean hostileWithin(Player p, double blocks) {
         double limit = blocks * blocks;
         for (int i = 0; i < combatants.size(); i++) {
             Entity e = combatants.get(i);
-            if (e.isAlive() && e.level() == p.level() && e.distanceToSqr(p) <= limit) {
+            if (e.isAlive() && view.fights(e.getId()) && e.level() == p.level() && e.distanceToSqr(p) <= limit) {
                 return true;
             }
         }

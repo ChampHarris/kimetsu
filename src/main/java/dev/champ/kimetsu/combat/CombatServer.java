@@ -128,6 +128,11 @@ public final class CombatServer {
         return sessions;
     }
 
+    /** The open arenas, in the order they opened (main thread). */
+    List<Arena> arenas() {
+        return arenas;
+    }
+
     /** Whether {@code p} is in combat (Rule 13.1), as its fighter's flag stood at the last step; false out of the fight. */
     public static boolean inCombat(ServerPlayer p) {
         CombatServer c = of(p.level().getServer());

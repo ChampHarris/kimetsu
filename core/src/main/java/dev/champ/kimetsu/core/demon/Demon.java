@@ -78,7 +78,9 @@ public final class Demon implements StrikeMob {
     // what it last told clients
     private @Nullable State sentState;
     private long sentThread = NONE;
-    private @Nullable Segment sentPosture;
+    private long sentPosture = -1; // its Posture as sent: the value, its rate a tick, the tick it runs from
+    private long sentPostureRate;
+    private long sentPostureFrom;
     private long sentStake = -1;
     private int sentYaw = -1;
 
@@ -237,6 +239,11 @@ public final class Demon implements StrikeMob {
     @Override
     public double maxPosture() {
         return profile.posture().max();
+    }
+
+    @Override
+    public int knockbackTicks() {
+        return profile.knockbackTicks();
     }
 
     @Override
@@ -809,7 +816,11 @@ public final class Demon implements StrikeMob {
         };
     }
 
-    /** Tells clients what changed: its state, its Thread, its Posture and stake (CombatantState, posture_view). */
+    /**
+     * Tells clients what changed: its state, its Thread, its Posture and stake (CombatantState, posture_view). Its
+     * Posture goes as clients extrapolate it, with no max to hold it at (D-094: the overlay read 343.8 of 300): a
+     * recovery that has filled it goes as full, held from the tick it filled, so it's sent once more as it tops out.
+     */
     private void publish(long tick) {
         CombatWorld w = world;
         if (w == null) {
@@ -818,15 +829,24 @@ public final class Demon implements StrikeMob {
         State st = shown(tick);
         long thread = live.threadUntil(tick);
         Segment ps = live.posture.segment();
-        if (st == sentState && thread == sentThread && ps.equals(sentPosture) && live.stake == sentStake) {
+        boolean full = ps.ratePerTick() > 0 && ps.at(tick) == ps.max();
+        long posture = full ? ps.max() : ps.value();
+        long rate = full ? 0 : ps.ratePerTick();
+        long from = full ? ps.fromTick() + Math.ceilDiv(ps.max() - ps.value(), ps.ratePerTick()) : ps.fromTick();
+        if (st == sentState
+                && thread == sentThread
+                && posture == sentPosture
+                && rate == sentPostureRate
+                && from == sentPostureFrom
+                && live.stake == sentStake) {
             return;
         }
         sentState = st;
         sentThread = thread;
-        sentPosture = ps;
+        sentPosture = posture;
+        sentPostureRate = rate;
+        sentPostureFrom = from;
         sentStake = live.stake;
-        w.outbox()
-                .publish(new Outbox.MobState(
-                        id, tick, st, thread, ps.value(), ps.ratePerTick(), ps.fromTick(), live.stake));
+        w.outbox().publish(new Outbox.MobState(id, tick, st, thread, posture, rate, from, live.stake));
     }
 }

@@ -16,6 +16,7 @@ import dev.champ.kimetsu.core.data.DemonProfile;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.MoveRules;
 import dev.champ.kimetsu.core.demon.Demon;
+import dev.champ.kimetsu.core.fight.Audience;
 import dev.champ.kimetsu.core.fight.Fighter;
 import dev.champ.kimetsu.core.fight.Fights;
 import dev.champ.kimetsu.core.fight.Outbox;
@@ -153,6 +154,7 @@ public final class CombatGameTests {
             FUNCTIONS.register("late_tracking_gets_the_strike", () -> CombatGameTests::lateTrackingGetsTheStrike),
             FUNCTIONS.register(
                     "late_tracking_gets_the_strike_once_ready", () -> CombatGameTests::lateTrackingOnceReady),
+            FUNCTIONS.register("late_tracking_gets_the_cancel", () -> CombatGameTests::lateTrackingGetsTheCancel),
             FUNCTIONS.register(
                     "a_circling_demon_aims_at_its_target", () -> CombatGameTests::aCirclingDemonAimsAtItsTarget));
 
@@ -1140,6 +1142,95 @@ public final class CombatGameTests {
                         "tracked again after the string, it got a strike that's over: " + e);
             }
         });
+    }
+
+    /**
+     * Late tracking, then a cancel (D-093's review nit): a session player caught up on the demon's strike mid-windup
+     * gets that strike's cancel when the demon dies before the impact, after the start, and the demon's death, so its
+     * client keeps no phantom strike. The catch-up's start enrols it for the strike's rest. It asserts only what holds
+     * whichever way the start came, since vanilla can pair a mock player with the demon between the test's
+     * {@code stopTracking}s (D-102: {@code late_tracking_gets_the_strike} sees that in about 1 run in 20).
+     */
+    private static void lateTrackingGetsTheCancel(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        TestDummy dummy = dummy(h, arena, 4, 6.5, 180);
+        List<NetMessage> late = new ArrayList<>();
+        ServerPlayer v = player(h, arena, 14.5, 0.5, late::add); // clear of the sweep, as in lateTracking
+        FrameData swipe = attack(h, arena.data(), "swipe");
+        long start = arena.nextTick();
+        M1Demon demon = demon(h, arena, 4, 4, 0, b -> new ScriptedBrain(b, dummy::getId).at(start + 20, swipe));
+        stopTracking(v, demon);
+        long[] strike = {Long.MIN_VALUE};
+        boolean[] locked = {false};
+        arena.listen(e -> {
+            if (e instanceof Outbox.AttackStarted a && a.attacker() == demon.getId()) {
+                strike[0] = a.strike();
+            } else if (e instanceof Outbox.StrikeLocked l && l.strike() == strike[0]) {
+                locked[0] = true;
+            }
+        });
+        int[] from = {-1}; // how many messages the late player had when it started tracking
+        boolean[] killed = {false};
+        h.onEachTick(() -> {
+            if (from[0] < 0) {
+                stopTracking(v, demon);
+                if (strike[0] != Long.MIN_VALUE) {
+                    CombatServer.onStartTracking(new PlayerEvent.StartTracking(v, demon));
+                    from[0] = late.size();
+                }
+                return;
+            }
+            if (!killed[0] && locked[0] && indexOf(events(late, from[0]), Outbox.AttackStarted.class, strike[0]) >= 0) {
+                killed[0] = true;
+                demon.kill(h.getLevel()); // after the catch-up reached it, before the impact
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(from[0] >= 0, "the strike never started");
+            h.assertTrue(killed[0], "the demon wasn't killed: the catch-up never reached the player, or no lock");
+            NetMessage.Tick first = null;
+            for (int i = Math.max(from[0], 0); i < late.size() && first == null; i++) {
+                first = late.get(i) instanceof NetMessage.Tick t ? t : null;
+            }
+            h.assertTrue(
+                    first != null && indexOf(first.events(), Outbox.AttackStarted.class, strike[0]) >= 0,
+                    "its first Tick since it started tracking lacks the strike's start: " + first);
+            List<Outbox.Event> after = events(late, Math.max(from[0], 0));
+            int started = indexOf(after, Outbox.AttackStarted.class, strike[0]);
+            int cancelled = indexOf(after, Outbox.AttackCancelled.class, strike[0]);
+            h.assertTrue(
+                    cancelled > started,
+                    "strike " + strike[0] + "'s cancel came at " + cancelled + ", its start at " + started + ": "
+                            + after);
+            boolean died = false;
+            for (Outbox.Event e : after) {
+                died |= e instanceof Outbox.MobDied d && d.mob() == demon.getId();
+            }
+            h.assertTrue(died, "the late player never heard the demon died: " + after);
+        });
+    }
+
+    /** The events of {@code got}'s Ticks from message {@code from} on, in order. */
+    private static List<Outbox.Event> events(List<NetMessage> got, int from) {
+        List<Outbox.Event> out = new ArrayList<>();
+        for (int i = from; i < got.size(); i++) {
+            if (got.get(i) instanceof NetMessage.Tick t) {
+                out.addAll(t.events());
+            }
+        }
+        return out;
+    }
+
+    /** The index in {@code events} of the first {@code type} event of strike {@code strike}, or −1. */
+    private static int indexOf(List<Outbox.Event> events, Class<? extends Outbox.Event> type, long strike) {
+        for (int i = 0; i < events.size(); i++) {
+            Outbox.Event e = events.get(i);
+            if (type.isInstance(e) && Audience.strike(e) == strike) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /** Whether {@code e} is a kind late tracking restores: a mob's view, or a strike's start, lock, party or cancel. */

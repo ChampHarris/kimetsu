@@ -19,8 +19,8 @@ package dev.champ.kimetsu.core.data;
  * @param pommelStunTicks how long a Pommel Strike that interrupts a strike stuns its attacker (Rule 5.2: 10 ticks)
  * @param grabHoldBeats how many of the grabbed player's beats a grab holds before the grabber throws (Rule 6.3: 6)
  * @param throwDamage the throw's damage (Rule 6.3: 1.0)
- * @param knockbackTicks how many ticks a hit's push on a player runs over, and a clash tie's on both sides (Rule 7.10:
- *     4, PROPOSED); at most {@link #MAX_KNOCKBACK_TICKS}
+ * @param knockbackTicks how many ticks a hit's push on a player runs over, and a clash tie's (Rule 7.10: 4, PROPOSED);
+ *     at most {@link #MAX_KNOCKBACK_TICKS}. A push on a demon runs over its profile's {@code knockback_ticks}
  * @param launchUp the upward speed a launch gives a player on its push's first tick, in blocks a tick (Rule 9.4: 0.42,
  *     vanilla's jump, PROPOSED)
  * @param splatWindowTicks how long after its push starts a wall the pushed player meets splats it (Rule 9.4: 10)

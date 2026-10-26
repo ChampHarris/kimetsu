@@ -41,7 +41,6 @@ import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.phys.Vec3;
-import net.neoforged.neoforge.event.entity.EntityMountEvent;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -456,17 +455,6 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
     @Override
     protected boolean canAddPassenger(Entity passenger) {
         return false; // Rule 8.8: nobody rides it
-    }
-
-    /**
-     * Rule 8.8: no mounting, forced ({@code /ride}) or not: a combatant is never a rider or a mount. Players still ride.
-     */
-    public static void onMount(EntityMountEvent event) {
-        if (event.isMounting()
-                && (event.getEntityMounting() instanceof ArenaMember
-                        || event.getEntityBeingMounted() instanceof ArenaMember)) {
-            event.setCanceled(true);
-        }
     }
 
     /**
