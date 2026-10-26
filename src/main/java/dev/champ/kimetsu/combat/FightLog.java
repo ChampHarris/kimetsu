@@ -29,7 +29,8 @@ import org.slf4j.Logger;
  * end (D-068); every press and release the stamp check judged into a timeline, with what it was judged on, and every
  * one it dropped; the damage the game dealt to its combatants and every engine hit {@code hurtServer} refused; and, once
  * a second, each fighting player's link (RTT, tolerance, hold cap, the longest gap and silence between its frames, the
- * frames merged) and meters, then the server's clock and the budget's figures (its tick length, the arena's steps, the
+ * frames merged, its clock's lag, the tick records pushed to it) and meters, then the server's clock and the budget's
+ * figures (its tick length and the nominal one, the longest server tick, the arena's steps, the
  * server's own tick work and the players' frames, each over the last second, and its players in a fight). Local files
  * only; {@code tools/fight_report.py} reads them (slice 5c-4), and raises the spec's two cheat flags from them (Champ).
  *
@@ -226,6 +227,8 @@ public final class FightLog implements Fights.Listener {
             TickRecord r = c.published();
             write(json.begin("clock", n)
                     .num("tbarNanos", r != null ? r.tickLengthNanos() : 0)
+                    .num("nominalNanos", c.nominalTickNanos())
+                    .num("serverTickMaxMicros", c.serverTickMaxMicros())
                     .num("epoch", c.epoch())
                     .num("generation", c.generation())
                     .num("stepMicros", a.stepMeanMicros())
@@ -240,9 +243,10 @@ public final class FightLog implements Fights.Listener {
 
     /**
      * Player {@code id}'s second: its link (the longest gap and silence between its frames, in combat µs, and the
-     * frames merged: {@code FrameGate}), its fighter {@code f}'s meters now, and its movement bound's figures for the
-     * poses it settled in the second ({@code move}: the fastest window and its rise, the free dashes, the clamps and
-     * the poses the stage dropped).
+     * frames merged: {@code FrameGate}; how far behind the server's clock its client's stamps read, {@code
+     * PlayerIntake.clockLagMicros}, NaN with no frames; the tick records pushed to it in the second), its fighter
+     * {@code f}'s meters now, and its movement bound's figures for the poses it settled in the second ({@code move}:
+     * the fastest window and its rise, the free dashes, the clamps and the poses the stage dropped).
      */
     void second(
             long n,
@@ -252,6 +256,8 @@ public final class FightLog implements Fights.Listener {
             long gapMicros,
             long silenceMicros,
             int merged,
+            double clockLagMicros,
+            int pushes,
             MoveBound.Second move) {
         if (off) {
             return;
@@ -270,6 +276,8 @@ public final class FightLog implements Fights.Listener {
                 .num("gapMax", gapMicros)
                 .num("silence", silenceMicros)
                 .num("merged", merged)
+                .num("clockLag", clockLagMicros)
+                .num("pushes", pushes)
                 .name("state", c.state())
                 .num("breath", Fixed.toUnits(breath.at(now)))
                 .num("breathMax", Fixed.toUnits(breath.max()))

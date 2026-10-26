@@ -47,6 +47,10 @@ GUARD_FAILED = ("BLOCK", "HIT", "GRAB", "LAUNCH")
 DODGE_BEFORE_US = 1_000_000  # a Step or Jump up to 1 s before a red or purple impact counts as its dodge
 DODGE_AFTER_US = 250_000  # or, failing that, up to 250 ms after it (a late one)
 GUARD_OUTSIDE_US = 250_000  # a Guard press this near a white impact no press claimed is its early or late guard
+# A server tick (Pre to Post) over 1.1 tick lengths starts the next one back to back and later, which enters T̄
+# (Rule 1.2, D-096): about 2 pushes, one as it enters T̄'s 10 ticks and one as it leaves, so the next second too.
+SPIKE_TICKS = 1.1
+NOMINAL_NS = 50_000  # T̄ within 0.05 ms of the nominal length reads nominal (5d-1's dedicated-server recheck)
 
 # docs/design/specs/m1-combat-core.md: Success Criteria (lines 22-28) and the netcode test's pass line (Tests).
 # Reference only: no flag reads these.
@@ -241,7 +245,7 @@ def short(attack: str) -> str:
 def references() -> dict:
     """The sims' and the datapack's numbers the sections are set against; any missing source reads as None."""
     ref: dict = {"parity": None, "dodge_windows_ms": {}, "sigma_ms": None, "clash_profiles": None,
-                 "false_start_ms": None}
+                 "false_start_ms": None, "tolerance_min_ms": None}
     try:
         parity = json.loads(PARITY.read_text(encoding="utf-8"))
         ref["parity"] = parity.get("profiles")
@@ -266,6 +270,10 @@ def references() -> dict:
     try:
         rules = json.loads(COMBAT_RULES.read_text(encoding="utf-8"))
         ref["false_start_ms"] = rules["strikes"]["clash"]["false_start_ms"]
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    try:
+        ref["tolerance_min_ms"] = json.loads(COMBAT_RULES.read_text(encoding="utf-8"))["timing"]["tolerance_min_ms"]
     except (OSError, ValueError, KeyError, TypeError):
         pass
     return ref
@@ -593,17 +601,28 @@ def movement_section(sessions: list[Session]) -> dict:
             "excess_blocks": stats(excess)}
 
 
-def link_section(sessions: list[Session]) -> dict:
-    rtt, tol, cap, silence, delay = [], [], [], [], []
+def spiked(c: dict) -> bool:
+    """Whether a clock line's second held a server tick over SPIKE_TICKS tick lengths (none logged before 5d-1)."""
+    return ("serverTickMaxMicros" in c and "nominalNanos" in c
+            and num(c, "serverTickMaxMicros") * 1000 > SPIKE_TICKS * num(c, "nominalNanos"))
+
+
+def link_section(sessions: list[Session], ref: dict) -> dict:
+    rtt, tol, cap, silence, delay, lag = [], [], [], [], [], []
     gaps: dict[str, list] = {"split": [], "mixed": []}
     merged = merged_seconds = presses = held = 0
+    floor = ref.get("tolerance_min_ms")
+    at_floor = 0
+    pushes = {"seconds": 0, "pushes": 0, "quiet_seconds": 0, "quiet_pushes": 0}
     dropped: Counter = Counter()
     for s in sessions:
+        spikes = {num(c, "n") for c in s.of("clock") if spiked(c)}
         for r in s.of("second"):
             if not s.wants(int(num(r, "id"))):
                 continue
             rtt.append(num(r, "rtt") / 1000)
             tol.append(num(r, "tolerance") / 1000)
+            at_floor += floor is not None and num(r, "tolerance") <= floor * 1000
             cap.append(num(r, "holdCap") / 1000)
             gaps["split" if "silence" in r else "mixed"].append(num(r, "gapMax") / 1000)
             if "silence" in r:
@@ -611,6 +630,16 @@ def link_section(sessions: list[Session]) -> dict:
             m = num(r, "merged")
             merged += m
             merged_seconds += m > 0
+            if r.get("clockLag") is not None:  # null with no frames in the window; absent before 5d-1
+                lag.append(num(r, "clockLag") / 1000)
+            if "pushes" in r:
+                p = num(r, "pushes")
+                pushes["seconds"] += 1
+                pushes["pushes"] += p
+                n = num(r, "n")
+                if n not in spikes and n - 20 not in spikes:  # the second after a spike sees it leave T̄
+                    pushes["quiet_seconds"] += 1
+                    pushes["quiet_pushes"] += p
         for p in s.of("press"):
             if s.wants(int(num(p, "id"))):
                 presses += 1
@@ -625,6 +654,8 @@ def link_section(sessions: list[Session]) -> dict:
     bracket = SPEC["stall_bracket_ms"]
     return {
         "rtt_ms": stats(rtt), "tolerance_ms": stats(tol), "hold_cap_ms": stats(cap),
+        "tolerance_floor_ms": floor, "at_floor_share": share(at_floor, len(tol)) if floor is not None else None,
+        "clock_lag_ms": stats(lag), "clock_error_ms": stats([abs(v) for v in lag]), "pushes": pushes,
         "gap": {k: {"ms": stats(v), "over_100ms": sum(g > 100 for g in v), f"over_{bracket}ms":
                     sum(g > bracket for g in v)} for k, v in gaps.items() if v},
         "silence_ms": stats(silence), "merged": merged, "merged_seconds": merged_seconds,
@@ -635,11 +666,19 @@ def link_section(sessions: list[Session]) -> dict:
 
 def budget_section(sessions: list[Session]) -> dict:
     step, step_max, per_fight, total, tick, frames, tbar, ten = [], [], [], [], [], [], [], []
+    server_tick, spikes = [], 0
+    with_nominal = at_nominal = 0
     old = 0
     for s in sessions:
         for c in s.of("clock"):
             if num(c, "tbarNanos") > 0:
                 tbar.append(num(c, "tbarNanos") / 1e6)
+                if "nominalNanos" in c:  # since 5d-1
+                    with_nominal += 1
+                    at_nominal += abs(num(c, "tbarNanos") - num(c, "nominalNanos")) <= NOMINAL_NS
+            if "serverTickMaxMicros" in c and num(c, "serverTickMaxMicros") > 0:
+                server_tick.append(num(c, "serverTickMaxMicros") / 1000)
+                spikes += spiked(c)
             if "stepMicros" not in c:
                 old += 1
                 continue
@@ -663,6 +702,8 @@ def budget_section(sessions: list[Session]) -> dict:
         "per_fight_step_us": stats(per_fight), "per_fight_total_us": tot, "tick_us": stats(tick),
         "frames_us": stats(frames), "ten_fight_seconds": len(ten), "ten_fight_total_us": stats(ten),
         "ten_fight_extrapolated_us": 10 * tot["p95"] if tot else None, "tick_length_ms": stats(tbar),
+        "tick_length_at_nominal_share": share(at_nominal, with_nominal), "server_tick_max_ms": stats(server_tick),
+        "spike_seconds": spikes,
         "targets": {"per_fight_us": SPEC["step_us_per_fight"], "ten_fights_us": SPEC["step_us_ten_fights"]},
     }
 
@@ -755,7 +796,7 @@ def analyze(paths: list[str], sessions: list[Session], opt) -> dict:
         "splats": splats_section(sessions),
         "holds": holds_section(sessions),
         "movement": movement_section(sessions),
-        "link": link_section(sessions),
+        "link": link_section(sessions, ref),
         "budget": budget_section(sessions),
         "flags": flags_section(sessions, guard, clashes, opt),
         "not_logged": not_logged(sessions),
@@ -934,6 +975,17 @@ def render(rep: dict) -> str:
         w(f"  RTT {st_line(lk['rtt_ms'], ' ms', 1)}")
         w(f"  tolerance {st_line(lk['tolerance_ms'], ' ms', 0, ('p50', 'max'))}; hold cap "
           f"{st_line(lk['hold_cap_ms'], ' ms', 0, ('p50', 'max'))}")
+        if lk["at_floor_share"] is not None:
+            w(f"  tolerance at its {lk['tolerance_floor_ms']} ms floor in {pct(lk['at_floor_share'])} of seconds")
+        if lk["clock_error_ms"] is not None:
+            w(f"  the client's clock, behind the server's (negative: ahead): "
+              f"{st_line(lk['clock_lag_ms'], ' ms', 1, ('p50', 'min', 'max'))}; its error "
+              f"{st_line(lk['clock_error_ms'], ' ms', 1, ('p50', 'p95', 'max'))}")
+        pu = lk["pushes"]
+        if pu["seconds"]:
+            w(f"  tick records pushed: {pu['pushes']:,} in {pu['seconds']:,} seconds; {pu['quiet_pushes']:,} in the "
+              f"{pu['quiet_seconds']:,} without a server tick over {SPIKE_TICKS} tick lengths in it or the second "
+              f"before")
         bracket = SPEC["stall_bracket_ms"]
         for k, v in lk["gap"].items():
             label = ("network lateness" if k == "split"
@@ -970,6 +1022,13 @@ def render(rep: dict) -> str:
         w(f"  server tick start and end, the steps among them, {st_line(b['tick_us'], ' µs', 0, ('p50', 'max'))}; "
           f"players' frames {st_line(b['frames_us'], ' µs', 0, ('p50', 'max'))}")
     w(f"  tick length: {st_line(b['tick_length_ms'], ' ms', 2, ('p50', 'max'))}")
+    if b["tick_length_at_nominal_share"] is not None:
+        w(f"  tick length within {NOMINAL_NS / 1e6:g} ms of the nominal one in "
+          f"{pct(b['tick_length_at_nominal_share'])} of clock lines")
+    if b["server_tick_max_ms"] is not None:
+        w(f"  the second's longest server tick (Pre to Post): "
+          f"{st_line(b['server_tick_max_ms'], ' ms', 1, ('p50', 'p95', 'max'))}; seconds with one over "
+          f"{SPIKE_TICKS} tick lengths {b['spike_seconds']:,}")
 
     fx = rep["flags"]
     w("\n11. Flags (thresholds from the options)")

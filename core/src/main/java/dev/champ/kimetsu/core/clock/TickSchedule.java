@@ -5,15 +5,24 @@ import dev.champ.kimetsu.core.data.ClockRules;
 /**
  * The server's own tick schedule (Rule 1.2). Vanilla's {@code getNextTickTime()} can't serve: it advances one tick
  * length per tick whether or not the tick ran on time, so under sustained lag arrivals converted against it run up to
- * 2 s ahead of game time. This schedule puts tick G at S_G = S_{G−1} + T̄ and steers it toward the measured tick
- * starts on ordinary ticks only, so it follows a change of tick rate but not a stall.
+ * 2 s ahead of game time. This schedule puts tick G at S_G = S_{G−1} + T̄ and steers it toward the tick starts on
+ * ordinary ticks only, so it follows a change of tick rate but not a stall.
  *
- * <p>T̄ is the mean of the last few ordinary intervals between tick starts. A mean, not a median: start-time jitter
- * cancels in a mean of consecutive intervals, and a median's error drifts the schedule through the catch-up after a
- * stall (12 to 18 ms after a 2 s stall in the design sim, against 4 ms for the mean). An interval is ordinary when it
- * follows the previous tick directly, lies within {@code ordinaryLow}–{@code ordinaryHigh} × T̄, and isn't catch-up:
- * shorter than the nominal length with vanilla behind its own schedule at either end. Through a stall and its
- * catch-up the schedule just moves on by T̄ a tick, in step with wall time, as vanilla's own schedule does.
+ * <p>While vanilla keeps up, its own schedule is the truth (D-096). A tick is on schedule when its lateness against
+ * vanilla's schedule is known and within {@code lateTicks} of a tick (but not ahead of it), it follows the previous
+ * tick directly, vanilla didn't drop its backlog on it, and it isn't a back-to-back tick (the previous one ended after
+ * this one was due) that started later than the one before, which is an overload growing. On schedule, the interval
+ * counts as the nominal length and S steers toward vanilla's scheduled start, the measured start less its lateness.
+ * A headless server on Windows keeps the default 15.6 ms timer, so its ticks wake 0–15.6 ms late: counting the
+ * measured intervals, T̄ read 52.4 ms against a true 50 (D-095).
+ *
+ * <p>Otherwise T̄ is the mean of the last few ordinary intervals between tick starts. A mean, not a median: start-time
+ * jitter cancels in a mean of consecutive intervals, and a median's error drifts the schedule through the catch-up
+ * after a stall (12 to 18 ms after a 2 s stall in the design sim, against 4 ms for the mean). An interval is ordinary
+ * when it follows the previous tick directly, lies within {@code ordinaryLow}–{@code ordinaryHigh} × T̄, and isn't
+ * catch-up: shorter than the nominal length with vanilla more than {@code lateTicks} behind its own schedule at either
+ * end. Through a stall and its catch-up the schedule just moves on by T̄ a tick, in step with wall time, as vanilla's
+ * own schedule does. Ticks that start ahead of vanilla's schedule (the GameTest server never waits) take this path.
  *
  * <p>A slower rate the band can't reach in one step (ticks going from 50 to 80 ms) shows as a run of
  * {@code rateRunTicks} consecutive intervals outside it that aren't catch-up and agree within {@code ordinaryHigh} of
@@ -21,7 +30,9 @@ import dev.champ.kimetsu.core.data.ClockRules;
  * never makes a run. Frozen, paused or sprinting, the schedule follows the measured starts, and the first tick after
  * re-anchors it, as does the first tick after a long gap that started on vanilla's schedule (a pause that skipped the
  * tick events). Vanilla dropping its backlog is an epoch only when it moves the schedule by more than the band: under
- * a sustained overload the schedule already tracks the measured starts, and nothing jumps.
+ * a sustained overload the schedule already tracks the measured starts, and nothing jumps. Re-anchoring, the schedule
+ * takes vanilla's start for the tick wherever it's known, so the record an epoch announces is the one the schedule
+ * keeps to.
  */
 public final class TickSchedule {
     private final ClockRules rules;
@@ -39,6 +50,7 @@ public final class TickSchedule {
     private boolean started;
     private boolean wasOffPace;
     private boolean wasLate;
+    private long lastLate = Long.MIN_VALUE; // the previous tick's lateness, if known
 
     public TickSchedule(ClockRules rules) {
         this(rules, 0);
@@ -81,11 +93,13 @@ public final class TickSchedule {
         boolean jumped = started
                 && in.backlogDropped()
                 && Math.abs(in.measuredNanos() - predicted) > rules.ordinaryHigh() * tickLength;
+        boolean behind = known && in.lateNanos() >= 0;
+        double vanillaStart = behind ? in.measuredNanos() - in.lateNanos() : in.measuredNanos();
         if (!started || resumed || jumped) {
             if (jumped) {
                 epoch++;
             }
-            schedule = in.measuredNanos();
+            schedule = vanillaStart;
             runCount = 0;
             started = true;
         } else if (offPace) {
@@ -94,10 +108,17 @@ public final class TickSchedule {
         } else {
             double interval = in.measuredNanos() - lastMeasured;
             boolean consecutive = in.tick() == lastTick + 1 && !nominalChanged;
+            boolean backToBack = in.previousEndNanos() != Long.MIN_VALUE && in.previousEndNanos() >= vanillaStart;
+            boolean growing = backToBack && lastLate != Long.MIN_VALUE && in.lateNanos() > lastLate;
+            boolean onSchedule = behind && !late && consecutive && !in.backlogDropped() && !growing;
             boolean catchUp = (late || wasLate) && interval < nominal; // behind at either end: shortened
             boolean inBand =
                     interval >= rules.ordinaryLow() * tickLength && interval <= rules.ordinaryHigh() * tickLength;
-            if (consecutive && !catchUp && inBand) {
+            if (onSchedule) { // vanilla keeps up: its own schedule is the tick length
+                runCount = 0;
+                addInterval((double) nominal);
+                schedule = predicted + rules.steerGain() * (vanillaStart - predicted);
+            } else if (consecutive && !catchUp && inBand) {
                 runCount = 0;
                 addInterval(interval);
                 schedule = predicted + rules.steerGain() * (in.measuredNanos() - predicted);
@@ -114,6 +135,7 @@ public final class TickSchedule {
         lastTick = in.tick();
         lastMeasured = in.measuredNanos();
         wasLate = late;
+        lastLate = in.lateNanos();
         return new TickRecord(in.tick(), schedule, tickLength, in.frozen(), in.paused(), in.sprinting(), epoch);
     }
 

@@ -60,20 +60,26 @@ def press(n, pid, kind, judged_us, held=False):
             "holdCap": 320050}
 
 
-def second(n, pid, gap_us=50_000, silence_us=None, free=0, clamps=0, dropped=0, move=True):
-    r = {"t": "second", "n": n, "id": pid, "tick": n, "rtt": 100, "tolerance": 20000, "holdCap": 320050,
+def second(n, pid, gap_us=50_000, silence_us=None, free=0, clamps=0, dropped=0, move=True, tolerance=20000,
+           lag_us="absent", pushes=None):
+    r = {"t": "second", "n": n, "id": pid, "tick": n, "rtt": 100, "tolerance": tolerance, "holdCap": 320050,
          "gapMax": gap_us}
     if silence_us is not None:
         r["silence"] = silence_us
-    r.update({"merged": 0, "state": "NEUTRAL", "breath": 100.0, "breathMax": 100.0, "grey": 0.0, "posture": 100.0,
+    r["merged"] = 0
+    if lag_us != "absent":  # since 5d-1; None is the log's null (no frames in the window)
+        r.update({"clockLag": lag_us, "pushes": pushes or 0})
+    r.update({"state": "NEUTRAL", "breath": 100.0, "breathMax": 100.0, "grey": 0.0, "posture": 100.0,
               "rhythm": 0, "tier": 0, "combatUntil": n + 300})
     if move:
         r.update({"moveFastest": 0.0, "moveRise": 0.0, "freeDashes": free, "clamps": clamps, "stageDropped": dropped})
     return r
 
 
-def clock(n, step=None, step_max=None, tick=None, frames=None, fights=None):
-    r = {"t": "clock", "n": n, "tbarNanos": 5.0e7, "epoch": 0, "generation": 0}
+def clock(n, step=None, step_max=None, tick=None, frames=None, fights=None, tbar=5.0e7, server_tick_max_us=None):
+    r = {"t": "clock", "n": n, "tbarNanos": tbar, "epoch": 0, "generation": 0}
+    if server_tick_max_us is not None:  # since 5d-1
+        r.update({"nominalNanos": 50_000_000, "serverTickMaxMicros": server_tick_max_us})
     if step is not None:
         r.update({"stepMicros": step, "stepMaxMicros": step_max, "tickMicros": tick, "framesMicros": frames,
                   "fights": fights})
@@ -484,6 +490,32 @@ class OtherSectionTests(Base):
                                  b["per_fight_total_us"]["max"]]), [6.0, 30.0, 40.0])
         self.assertEqual((b["ten_fight_seconds"], b["ten_fight_total_us"]["max"]), (1, 400))
         self.assertEqual(b["tick_length_ms"]["p50"], 50.0)
+
+    def test_the_clock_figures(self):
+        # 5d-1's recheck: the tolerance on its floor, the client's clock error, and the records pushed outside the
+        # seconds a long server tick moved T̄ (a spike at n=40 counts there and at n=60, as it leaves T̄)
+        lines = [OPEN,
+                 second(20, 1, tolerance=20000, lag_us=3000, pushes=0), clock(20, tbar=5.0e7, server_tick_max_us=1500),
+                 second(40, 1, tolerance=24000, lag_us=-1000, pushes=2), clock(40, tbar=5.05e7,
+                                                                                server_tick_max_us=60_000),
+                 second(60, 1, tolerance=20000, lag_us=None, pushes=1), clock(60, tbar=5.0e7, server_tick_max_us=1400),
+                 second(80, 1, tolerance=20000, lag_us=5000, pushes=1), clock(80, tbar=5.004e7,
+                                                                              server_tick_max_us=54_000),
+                 second(100, 1), clock(100)]  # a pre-5d-1 second and clock line
+        rep = self.report(lines)
+        lk, b = rep["link"], rep["budget"]
+        self.assertEqual(lk["tolerance_floor_ms"], 20)
+        self.assertEqual(lk["at_floor_share"], 0.8)
+        self.assertEqual((lk["clock_lag_ms"]["min"], lk["clock_lag_ms"]["max"]), (-1.0, 5.0))
+        self.assertEqual((lk["clock_error_ms"]["n"], lk["clock_error_ms"]["p50"]), (3, 3.0))
+        self.assertEqual(lk["pushes"], {"seconds": 4, "pushes": 4, "quiet_seconds": 2, "quiet_pushes": 1})
+        self.assertEqual(b["tick_length_at_nominal_share"], 0.75)
+        self.assertEqual((b["server_tick_max_ms"]["n"], b["server_tick_max_ms"]["max"]), (4, 60.0))
+        self.assertEqual(b["spike_seconds"], 1)
+        text = self.text(lines)
+        self.assertIn("tolerance at its 20 ms floor in 80.0% of seconds", text)
+        self.assertIn("tick records pushed: 4 in 4 seconds; 1 in the 2 without a server tick over 1.1", text)
+        self.assertIn("tick length within 0.05 ms of the nominal one in 75.0% of clock lines", text)
 
     def test_player_filter(self):
         lines = [OPEN, second(20, 1), second(20, 2), guard(1, 1, "PERFECT"), guard(2, 2, "HIT", "NONE"),

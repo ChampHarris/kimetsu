@@ -73,7 +73,7 @@ public final class Fixtures {
                 5000, // Clock sync interval otherwise
                 10, // Tick length (T̄): the last 10 ordinary intervals
                 3, // Tick length (T̄): 3 agreeing intervals outside the band are a new rate
-                0.2, // Tick length (T̄): late = more than a fifth of a tick behind vanilla's schedule
+                1.0, // Tick length (T̄): on schedule = up to a whole tick behind vanilla's (D-098); late past that
                 0.5, 1.5, // Tick length (T̄): ordinary = 0.5–1.5 × T̄
                 0.5); // Tick length (T̄): steered halfway
     }

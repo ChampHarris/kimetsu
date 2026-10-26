@@ -62,6 +62,8 @@ public final class CombatServer {
     private boolean logging; // the fight log: dev runs, until 5d's SYNCED switch
     private final SecondTimer ticks = new SecondTimer(); // its own tick start and end, the arenas' steps among them
     private final SecondTimer frames = new SecondTimer(); // players' input frames, run between ticks
+    private final SecondTimer serverTicks = new SecondTimer(); // vanilla's whole tick, Pre to Post: levels, autosaves
+    private long startNanos = Long.MIN_VALUE; // this tick's Pre
 
     private CombatServer(MinecraftServer server, CombatDataBuilder.Result loaded) {
         this.server = server;
@@ -254,6 +256,7 @@ public final class CombatServer {
         CombatServer c = of(event.getServer());
         if (c != null) {
             long began = Util.getNanos();
+            c.startNanos = began;
             c.tickStart();
             c.ticks.add(Util.getNanos() - began);
         }
@@ -263,13 +266,18 @@ public final class CombatServer {
         CombatServer c = of(event.getServer());
         if (c != null) {
             long began = Util.getNanos();
+            if (c.startNanos != Long.MIN_VALUE) {
+                c.serverTicks.add(began - c.startNanos);
+            }
             long step = c.tickEnd();
             c.ticks.add(Util.getNanos() - began);
             if (step != NO_STEP) {
                 c.ticks.tick(step);
                 c.frames.tick(step); // frames that came while no fight stepped count toward this step
+                c.serverTicks.tick(step);
             } else {
                 c.ticks.skip(); // frozen or held: no fight's tick (a single-player pause fires no tick event)
+                c.serverTicks.skip();
             }
         }
     }
@@ -423,6 +431,32 @@ public final class CombatServer {
      */
     public double framesMeanMicros() {
         return frames.meanMicros();
+    }
+
+    /**
+     * The last second's longest server tick, from its {@code ServerTickEvent.Pre} to its Post, in µs (0 before a
+     * second has passed): the levels' work and an autosave run there, and a GC pause may. A tick over 1.1 tick lengths
+     * starts the next one back to back and later, which enters T̄ (Rule 1.2), so the fight log shows it beside T̄.
+     */
+    public double serverTickMaxMicros() {
+        return serverTicks.maxMicros();
+    }
+
+    /** The tick length the server is set to ({@code /tick rate}), in ns. */
+    public long nominalTickNanos() {
+        return server.tickRateManager().nanosecondsPerTick();
+    }
+
+    /**
+     * The client ticks one combat tick holds: T̄ over the tick length the server is set to, or 1 before the first
+     * record. A server that can't keep up at 20 TPS runs 15, and the client still runs 20, so 4/3 of a client's
+     * movement lands in each; under {@code /tick rate} the client follows the server and it's 1. The movement bound's
+     * scale ({@code MoveRules.scale}) takes it, for every session and for the GameTests that size their claims by it.
+     */
+    public double clientTicks() {
+        TickRecord rec = published;
+        long nominal = nominalTickNanos();
+        return rec != null && nominal > 0 ? rec.tickLengthNanos() / nominal : 1;
     }
 
     /** A player's input frame took {@code nanos} on the main thread, outside the tick's events. */

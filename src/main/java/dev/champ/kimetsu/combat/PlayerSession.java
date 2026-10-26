@@ -86,6 +86,7 @@ public final class PlayerSession implements ArenaMember {
     private boolean ready;
     private boolean echoed;
     private boolean recordSent;
+    private int pushes; // records the push sent since the last second's line
     private boolean dead;
     private boolean closed;
     private long lastEchoNanos = Long.MIN_VALUE;
@@ -431,10 +432,7 @@ public final class PlayerSession implements ArenaMember {
         if (p.isPassenger() || p.isFallFlying() || p.isAutoSpinAttack() || p.getAbilities().flying) {
             return Double.POSITIVE_INFINITY;
         }
-        TickRecord rec = sessions.server().published();
-        long nominal = p.level().getServer().tickRateManager().nanosecondsPerTick();
-        double clientTicks = rec != null && nominal > 0 ? rec.tickLengthNanos() / nominal : 1;
-        return r.scale(clientTicks, speedBonus(p), jumpRatio(p), stillSlick);
+        return r.scale(sessions.server().clientTicks(), speedBonus(p), jumpRatio(p), stillSlick);
     }
 
     /**
@@ -501,6 +499,7 @@ public final class PlayerSession implements ArenaMember {
             push.sentInPong(r);
             send(new NetMessage.ClockRecord(r));
         } else if (push.offer(r, nowNanos)) {
+            pushes++;
             send(new NetMessage.ClockRecord(r));
         }
     }
@@ -789,8 +788,8 @@ public final class PlayerSession implements ArenaMember {
 
     /**
      * Once a second, from its arena's fight log: the link's measures since the last (the longest gap and silence
-     * between its frames, the frames merged: {@link FrameGate}) and the bound's figures, taken whether or not it
-     * fights; written, with its meters, while it does.
+     * between its frames, the frames merged: {@link FrameGate}; the records pushed) and the bound's figures, taken
+     * whether or not it fights; written, with its meters and its clock's lag, while it does.
      * Returns whether it wrote a line.
      */
     boolean second(FightLog log, long n, boolean inFight) {
@@ -802,6 +801,8 @@ public final class PlayerSession implements ArenaMember {
             silence = gate.takeLongestSilenceMicros();
             merged = gate.takeMerged();
         }
+        int pushed = pushes;
+        pushes = 0;
         Fighter f = fighter;
         if (f == null) {
             return false;
@@ -810,7 +811,7 @@ public final class PlayerSession implements ArenaMember {
         if (!inFight) {
             return false;
         }
-        log.second(n, combatId(), f, intake.rttMicros(), gap, silence, merged, move);
+        log.second(n, combatId(), f, intake.rttMicros(), gap, silence, merged, intake.clockLagMicros(), pushed, move);
         return true;
     }
 

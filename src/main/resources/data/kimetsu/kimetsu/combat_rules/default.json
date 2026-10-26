@@ -33,7 +33,7 @@
     "sync_interval_idle_ms": 5000,
     "tick_window": 10,
     "rate_run_ticks": 3,
-    "late_ticks": 0.2,
+    "late_ticks": 1.0,
     "ordinary_low": 0.5,
     "ordinary_high": 1.5,
     "steer_gain": 0.5

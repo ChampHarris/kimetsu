@@ -1579,6 +1579,7 @@ public final class CombatGameTests {
             h.assertTrue(second != null, "no second of the player's");
             if (second != null) { // the frames here skip the gate, so both are 0: only their keys are checked
                 h.assertTrue(second.has("gapMax") && second.has("silence"), "the link's gap and silence: " + second);
+                h.assertTrue(second.has("clockLag") && second.has("pushes"), "the clock's lag and pushes: " + second);
             }
             JsonObject clock = first(lines, "clock");
             h.assertTrue(
@@ -1598,6 +1599,14 @@ public final class CombatGameTests {
                             l.get("tickMicros").getAsDouble()
                                     >= l.get("stepMicros").getAsDouble(),
                             "the tick work under the steps it holds: " + l);
+                    h.assertTrue(
+                            l.get("nominalNanos").getAsLong()
+                                            == h.getLevel()
+                                                    .getServer()
+                                                    .tickRateManager()
+                                                    .nanosecondsPerTick()
+                                    && l.get("serverTickMaxMicros").getAsDouble() > 0,
+                            "the nominal tick length and the second's longest tick: " + l);
                 }
             }
             h.assertTrue(timed > 0, "no clock line after a second of steps had passed");
@@ -2009,12 +2018,12 @@ public final class CombatGameTests {
             return scales[i];
         }
 
-        /** The scale of a pose staged this tick: {@code PlayerSession.moveScale}'s for a player with no effects. */
+        /**
+         * The scale of a pose staged this tick: {@code PlayerSession.moveScale}'s for a player with no effects, from
+         * the same {@link CombatServer#clientTicks}.
+         */
         private double tickScale() {
-            TickRecord r = combat(h).published();
-            long nominal = h.getLevel().getServer().tickRateManager().nanosecondsPerTick();
-            double clientTicks = r != null && nominal > 0 ? r.tickLengthNanos() / nominal : 1;
-            return rules.scale(clientTicks, 0, 1, false);
+            return rules.scale(combat(h).clientTicks(), 0, 1, false);
         }
     }
 

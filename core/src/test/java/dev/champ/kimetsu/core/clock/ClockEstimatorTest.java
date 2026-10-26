@@ -306,6 +306,24 @@ class ClockEstimatorTest {
             m[g] = starts.get(g);
             rec[g] = schedule.onTickStart(new TickInput(g, m[g], nominals.get(g), false, false, false, false, false));
         }
+        return errors(m, rec, lognormal, hold, rng);
+    }
+
+    /**
+     * {@link #errors(String, boolean, boolean, long)} against a server whose ticks come from a model of vanilla's loop
+     * waking as {@code model} says, 1.2 ms of work a tick ({@link VanillaLoop}): the schedule gets each tick's lateness
+     * and the previous tick's end, as the mod gives it.
+     */
+    private static double[] errors(VanillaLoop.Model model, boolean lognormal, long seed) {
+        VanillaLoop.Run r = VanillaLoop.run(3_700, model, g -> 1.2, g -> 0, seed); // 185 s
+        return errors(r.pre(), r.rec(), lognormal, false, new Random(seed));
+    }
+
+    /** The client's part: tick g of the server started at {@code m[g]} and published {@code rec[g]}. */
+    private static double[] errors(long[] m, TickRecord[] rec, boolean lognormal, boolean hold, Random rng) {
+        long t0 = 1_000_000_000_000L;
+        long dur = 180_000 * MS;
+        int ticks = m.length;
         double theta = (rng.nextDouble() * 2 - 1) * 1e11;
         double rho = (rng.nextDouble() * 2 - 1) * 50e-6;
 
@@ -436,5 +454,33 @@ class ClockEstimatorTest {
         double p95 = p95(pooled("20", false, true));
         System.out.println("20 held pong p95_us=" + Math.round(p95));
         assertTrue(p95 <= 6000, "p95 " + p95 + " µs");
+    }
+
+    /**
+     * A dedicated server on Windows' default 15.6 ms timer (D-095): its ticks start 0–15.6 ms late, now and then a
+     * period or more later (D-098), and the client still stays within the spec's 6 ms p95 at 10 ms of network jitter.
+     * Before the schedule followed vanilla's own (D-096), T̄ read about 52.5 ms there and the client's clock lagged
+     * 10–53 ms; at half a tick late, the missed interrupts left it 8.6–9.0 ms off at p95.
+     */
+    @ParameterizedTest
+    @CsvSource({
+        "WINDOWS_UNIFORM,false",
+        "WINDOWS_UNIFORM,true",
+        "WINDOWS_TIMER,false",
+        "WINDOWS_TIMER,true",
+        "WINDOWS_MISSED,false",
+        "WINDOWS_MISSED,true"
+    })
+    void againstAServerOnWindowsTimerItStaysWithinSixMsP95(VanillaLoop.Model model, boolean lognormal) {
+        double[] all = new double[0];
+        for (long seed = 1; seed <= 4; seed++) {
+            double[] e = errors(model, lognormal, seed);
+            double[] joined = Arrays.copyOf(all, all.length + e.length);
+            System.arraycopy(e, 0, joined, all.length, e.length);
+            all = joined;
+        }
+        double p95 = p95(all);
+        System.out.println(model + (lognormal ? " lognormal" : " normal") + " p95_us=" + Math.round(p95));
+        assertTrue(p95 <= 6000, model + (lognormal ? " lognormal" : " normal") + ": p95 " + p95 + " µs");
     }
 }
