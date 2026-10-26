@@ -64,6 +64,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
@@ -151,7 +152,9 @@ public final class CombatGameTests {
             FUNCTIONS.register("a_pushed_dummy_is_never_clamped", () -> CombatGameTests::aPushedDummyIsNeverClamped),
             FUNCTIONS.register("late_tracking_gets_the_strike", () -> CombatGameTests::lateTrackingGetsTheStrike),
             FUNCTIONS.register(
-                    "late_tracking_gets_the_strike_once_ready", () -> CombatGameTests::lateTrackingOnceReady));
+                    "late_tracking_gets_the_strike_once_ready", () -> CombatGameTests::lateTrackingOnceReady),
+            FUNCTIONS.register(
+                    "a_circling_demon_aims_at_its_target", () -> CombatGameTests::aCirclingDemonAimsAtItsTarget));
 
     /** Tests that wait on chunks generating, with {@link #CHUNK_TICKS} to do it in. */
     private static final List<String> SLOW = List.of("an_unloaded_demon_leaves_alive");
@@ -187,6 +190,12 @@ public final class CombatGameTests {
     private static final int CELL = 9;
     /** How high a cell's walls stand: over every eye, so each hides the other cells' dummies from a demon. */
     private static final int WALL_HEIGHT = 3;
+    /** How long a demon circles before a string's first strike is judged for its aim: a second (D-096). */
+    private static final int CIRCLING_TICKS = 20;
+    /** How far off the bearing to its target a circling demon's strike may lock (PROPOSED, D-096). */
+    private static final double AIM_DEG = 15;
+    /** How many string-opening strikes after circling {@code a_circling_demon_aims_at_its_target} judges. */
+    private static final int AIM_STRIKES = 3;
 
     private static final int MAX_TICKS = 600;
     /** How long the dummy's last guard press holds past an impact: past any verdict, short of the next strike. */
@@ -530,6 +539,91 @@ public final class CombatGameTests {
                     arena.fights().open().size() == 2 * fights,
                     "only " + arena.fights().open().size() + " of the " + 2 * fights + " combatants are in combat");
             h.assertTrue(mean < 10 * BUDGET_MICROS, "a fight's share of a step took " + mean + " µs on average");
+            h.succeed();
+        });
+    }
+
+    /**
+     * D-094's open-ground whiffs (D-096; slice 5d-1 Step 2): the M1 demon with its own brain and walk circles a dummy
+     * standing on open ground, and each string's first strike committed after {@link #CIRCLING_TICKS} ticks of circling
+     * locks within {@link #AIM_DEG} of the bearing to the dummy at its cue (Rules 7.1, 7.13), so a strike right after
+     * walking in, aimed along its walk, can't pass alone. It starts inside its band facing 90° off the dummy, so it
+     * circles at once; while it circles its body turns at most its guard's rate a tick (Rule 11.4), so the front players
+     * see never leads the front the server judges. A string's later strikes don't turn (Rule 7.13) and aren't judged.
+     */
+    private static void aCirclingDemonAimsAtItsTarget(GameTestHelper h) {
+        floor(h, 16, 16);
+        Arena arena = arena(h);
+        DemonProfile profile = arena.data().demons().get(M1Demon.PROFILE);
+        if (profile == null) {
+            throw h.assertionException(M1Demon.PROFILE + " isn't loaded");
+        }
+        double turn = profile.guard().turnDegPerTick();
+        TestDummy dummy = dummy(h, arena, 8, 8, 180);
+        dummy.setPermanentlyInvulnerable(true);
+        M1Demon demon = ownDemon(h, arena, 8, 5.1, 90); // 2.9 blocks north of the dummy, facing west
+        Map<Long, Outbox.AttackStarted> started = new HashMap<>(); // its strikes, by id
+        Map<Long, Long> firstCue = new HashMap<>(); // each of its strings' first cue tick
+        long[] circlingFrom = {-1}; // the tick its circling began, or −1 while it walks or a strike carries it
+        List<String> openers = new ArrayList<>(); // each string's first strike: its cue, how long it circled, its gap
+        List<String> aims = new ArrayList<>(); // those judged: after CIRCLING_TICKS of circling
+        List<String> wide = new ArrayList<>(); // those more than AIM_DEG off
+        arena.listen(e -> {
+            if (e instanceof Outbox.AttackStarted a && a.attacker() == demon.getId()) {
+                started.put(a.strike(), a);
+                firstCue.merge(a.string(), a.cueTick(), Math::min);
+            } else if (e instanceof Outbox.StrikeLocked l) {
+                Outbox.AttackStarted a = started.get(l.strike());
+                Long first = a == null ? null : firstCue.get(a.string());
+                if (a == null || first == null || first != a.cueTick()) {
+                    return; // not its, or a string's later strike
+                }
+                long circled = circlingFrom[0] < 0 ? -1 : a.cueTick() - circlingFrom[0];
+                double bearing = Math.toDegrees(Math.atan2(-(dummy.getX() - l.x()), dummy.getZ() - l.z()));
+                double gap = Math.abs(Mth.wrapDegrees(l.yaw() - bearing));
+                String aim =
+                        String.format(Locale.ROOT, "cue %d after %d ticks circling: %.1f°", a.cueTick(), circled, gap);
+                openers.add(aim);
+                if (circled >= CIRCLING_TICKS) { // not right after walking in or a strike
+                    aims.add(aim);
+                    if (gap > AIM_DEG) {
+                        wide.add(aim);
+                    }
+                }
+            }
+        });
+        dev.champ.kimetsu.core.hit.Pose carried = new dev.champ.kimetsu.core.hit.Pose();
+        float[] lastYaw = {demon.getYRot()}; // from its spawn yaw, so its first turn is judged however soon it comes
+        boolean[] wasCircling = {true};
+        List<String> fast = new ArrayList<>(); // turns while circling faster than its guard's
+        int[] ticks = {0};
+        h.onEachTick(() -> {
+            long n = arena.nextTick(); // between the levels' tick and the step: n − 1 is the step its goal saw
+            boolean circling =
+                    !demon.getNavigation().isInProgress() && !arena.world().strikePose(demon.getId(), n - 1, carried);
+            float yaw = demon.getYRot();
+            if (circling && wasCircling[0] && Math.abs(Mth.wrapDegrees(yaw - lastYaw[0])) > turn + 1e-3) {
+                fast.add(String.format(Locale.ROOT, "tick %d: %.1f° to %.1f°", n, lastYaw[0], yaw));
+            }
+            if (!circling) {
+                circlingFrom[0] = -1;
+            } else if (circlingFrom[0] < 0) {
+                circlingFrom[0] = n;
+            }
+            wasCircling[0] = circling;
+            lastYaw[0] = yaw;
+            ticks[0]++;
+            if (aims.size() < AIM_STRIKES) {
+                h.assertTrue(
+                        ticks[0] < MAX_TICKS - 20,
+                        "only " + aims.size() + " string-opening strikes after " + CIRCLING_TICKS
+                                + " ticks of circling, of " + started.size() + " strikes; its strings' first strikes"
+                                + " (−1: walking or carried): " + openers);
+                return;
+            }
+            LOGGER.info("a_circling_demon_aims_at_its_target: {}; turns over {}°: {}", aims, turn, fast);
+            h.assertTrue(wide.isEmpty(), "strikes locked over " + AIM_DEG + "° off the dummy: " + wide + " of " + aims);
+            h.assertTrue(fast.isEmpty(), "circling, its body turned faster than its guard's " + turn + "°: " + fast);
             h.succeed();
         });
     }
@@ -2661,12 +2755,17 @@ public final class CombatGameTests {
 
     /** An M1 demon at {@code x, z} with its own brain and walk, fighting in {@code arena}. */
     private static M1Demon ownDemon(GameTestHelper h, Arena arena, double x, double z) {
+        return ownDemon(h, arena, x, z, 0);
+    }
+
+    /** {@link #ownDemon}, facing {@code yaw}. */
+    private static M1Demon ownDemon(GameTestHelper h, Arena arena, double x, double z, float yaw) {
         M1Demon d = KimetsuEntities.M1_DEMON.get().create(h.getLevel(), EntitySpawnReason.MOB_SUMMONED);
         if (d == null) {
             throw h.assertionException("no M1 demon");
         }
         Vec3 p = h.absoluteVec(new Vec3(x, 1, z));
-        d.snapTo(p.x, p.y, p.z, 0, 0);
+        d.snapTo(p.x, p.y, p.z, yaw, 0);
         d.fightIn(arena);
         h.getLevel().addFreshEntity(d);
         return d;

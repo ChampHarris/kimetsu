@@ -70,6 +70,7 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
     private @Nullable Demon body;
     private @Nullable DemonBrain ownBrain;
     private Profile.@Nullable Movement movement;
+    private float guardTurn; // its guard's turn a tick, in degrees (Rule 11.4): its body turns no faster circling
     // its size, from its profile on the server; synced, so a client's hitbox, picking and culling match
     private static final EntityDataAccessor<Float> WIDTH =
             SynchedEntityData.defineId(M1Demon.class, EntityDataSerializers.FLOAT);
@@ -246,6 +247,7 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
         a.world().add(d, brain);
         body = d;
         movement = walk;
+        guardTurn = (float) profile.guard().turnDegPerTick();
         carried = false;
         entityData.set(WIDTH, (float) (2 * profile.body().halfWidth()));
         entityData.set(HEIGHT, (float) profile.body().height());
@@ -565,6 +567,11 @@ public final class M1Demon extends PathfinderMob implements ArenaMember {
                 circling = true;
                 demon.getNavigation().stop();
             }
+            // Its body faces its target as it circles, as a strafing bowman's does (RangedBowAttackGoal), so a string
+            // committed now aims at them (Rules 7.1, 7.13; vanilla's strafe never turns it, D-094's whiffs): no faster
+            // than its guard turns (Rule 11.4), so the front players see never leads the one the server judges. The
+            // look control keeps the head's pitch.
+            demon.lookAt(target, demon.guardTurn, 0f);
             float forwards = half > 0 ? (float) Math.clamp((distance - middle) / half, -1.0, 1.0) : 0f;
             float sideways = (float) Math.min(1.0, m.circleShare() / VANILLA_STRAFE);
             demon.getMoveControl().strafe(forwards, sideways);

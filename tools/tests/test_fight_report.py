@@ -173,7 +173,7 @@ class LogsTests(Base):
                  {"t": "PlayerEffect", "n": 3, "fighter": 1, "tick": 3, "effect": {"t": "Targeted"}},
                  second(20, 1)]
         logs = self.report(lines)["logs"]
-        self.assertEqual(logs["skipped"], {"GuardYaw": 2, "Targeting": 1, "PlayerEffect/Targeted": 1})
+        self.assertEqual(logs["skipped"], {"Targeting": 1, "PlayerEffect/Targeted": 1})  # GuardYaw feeds 12. Aim
         self.assertEqual(logs["lines"]["GuardYaw"], 2)
         self.assertEqual(logs["sessions"][0]["steps"], [1, 20])
 
@@ -196,7 +196,7 @@ class LogsTests(Base):
     def test_an_empty_log_prints_none_everywhere(self):
         out = self.text([OPEN])
         for h in ("1. Logs", "2. Fights", "3. Guard", "4. Dodges", "5. Clashes", "6. Splats", "7. Holds",
-                  "8. Movement", "9. Link", "10. Budget", "11. Flags", "12. Not logged"):
+                  "8. Movement", "9. Link", "10. Budget", "11. Flags", "12. Aim", "13. Not logged"):
             self.assertIn(h, out)
         self.assertGreaterEqual(out.count("  none"), 8)
 
@@ -525,6 +525,66 @@ class OtherSectionTests(Base):
         self.assertEqual((gd["white"], gd["kinds"]), (2, {"HIT": 1, "DEFLECT": 1}))
 
 
+def guard_yaw(tick, mob, step):
+    return {"t": "GuardYaw", "n": tick, "mob": mob, "tick": tick, "step": step}
+
+
+def locked(n, strike, yaw):
+    return {"t": "StrikeLocked", "n": n, "strike": strike, "yaw": yaw, "x": 0.0, "y": 0.0, "z": 0.0, "lunge": 1.0}
+
+
+def opened(n, strike, string, cue, target=1, mob=3, name="kimetsu:m1_demon/swipe"):
+    """A strike of string `string` whose cue fires at tick `cue`."""
+    return dict(attack(n, strike, mob, target, cue + 10, name), string=string, cueTick=cue, windupStartTick=cue)
+
+
+class AimTests(Base):
+    def lines(self):
+        return [
+            OPEN,
+            guard_yaw(90, 3, 0), guard_yaw(100, 3, 64), guard_yaw(120, 3, 128),  # 0°, 90°, 180°
+            opened(95, 1, 1, 105), opened(95, 2, 1, 118),  # a string of two
+            opened(115, 3, 2, 120, name="kimetsu:m1_demon/leap"),  # a string of one, cued on a GuardYaw's tick
+            locked(105, 1, 100.0), locked(118, 2, 30.0), locked(120, 3, -170.0),
+            committed(95, 1, 1, 115 * TICK_US, True), committed(95, 1, 2, 128 * TICK_US, True),
+            committed(115, 1, 3, 130 * TICK_US, False),
+            result(115, 1, 3, 1, "MISS"), result(128, 2, 3, 1, "HIT"), result(130, 3, 3, 1, "MISS"),
+        ]
+
+    def test_each_strike_against_the_guard_yaw_at_its_cue(self):
+        am = self.report(self.lines())["aim"]
+        self.assertEqual((am["strikes"], am["no_guard_yaw"]), (3, 0))
+        # strike 1: 100° against 90° (the GuardYaw of tick 100); strike 3: -170° against 180° (its cue's own tick)
+        self.assertEqual((am["first_deg"]["n"], am["first_deg"]["p50"], am["first_deg"]["max"]), (2, 10.0, 10.0))
+        self.assertEqual(am["first_signed_deg"]["min"], 10.0)
+        self.assertEqual((am["later_deg"]["n"], am["later_deg"]["p50"]), (1, 60.0))  # 30° against 90°
+        self.assertEqual((am["first_wide"], am["later_wide"]), (0, 1))
+        self.assertEqual((am["white_missed"], am["other_missed"]), ([1, 2], [1, 1]))
+        by = am["by_result_deg"]
+        self.assertEqual((by["white_missed"]["p50"], by["white_reached"]["p50"], by["other_missed"]["p50"]),
+                         (10.0, 60.0, 10.0))
+        self.assertIsNone(by["other_reached"])
+        text = self.text(self.lines())
+        self.assertIn("12. Aim", text)
+        self.assertIn("white: 1 of 2 missed (50.0%)", text)
+
+    def test_a_strike_cued_before_any_guard_yaw_is_counted_apart(self):
+        am = self.report([OPEN, second(20, 1), guard_yaw(110, 3, 0), opened(95, 1, 1, 105),
+                          locked(105, 1, 0.0)])["aim"]
+        self.assertEqual((am["strikes"], am["no_guard_yaw"], am["first_deg"]), (0, 1, None))
+
+    def test_player_filter(self):
+        lines = [OPEN, second(20, 1), second(20, 2), guard_yaw(90, 3, 0), opened(95, 1, 1, 105, target=1),
+                 opened(95, 2, 2, 106, target=2), locked(105, 1, 5.0), locked(106, 2, 50.0)]
+        self.assertEqual(self.report(lines)["aim"]["strikes"], 2)
+        am = self.report(lines, "--player", "2")["aim"]
+        self.assertEqual((am["strikes"], am["first_deg"]["p50"]), (1, 50.0))
+
+    def test_wrap180(self):
+        for d, want in ((180, 180), (-180, 180), (540, 180), (-190, 170), (190, -170), (-350, 10), (0, 0)):
+            self.assertEqual(fr.wrap180(d), want, d)
+
+
 class ExitCodeTests(Base):
     def test_malformed_line_exits_1_with_its_place(self):
         p = self.write([OPEN, second(20, 1), '{"t":"press","n":5,'])
@@ -573,7 +633,7 @@ class SampleTests(Base):
         code, out, err = self.main(SAMPLE)
         self.assertEqual(code, 0, err)
         for h in ("1. Logs", "2. Fights", "3. Guard", "4. Dodges", "5. Clashes", "6. Splats", "7. Holds",
-                  "8. Movement", "9. Link", "10. Budget", "11. Flags", "12. Not logged"):
+                  "8. Movement", "9. Link", "10. Budget", "11. Flags", "12. Aim", "13. Not logged"):
             self.assertIn(h, out)
         self.assertIn("early 0, late 1", out)  # the +20 ms guard, which no press inside the window claimed
 

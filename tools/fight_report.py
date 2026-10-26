@@ -9,11 +9,11 @@ one, the game's damage, and once a second each fighting player's link and the se
 steps and ticks are game ticks (1 tick = 50 ms = 50,000 µs), and Long.MIN_VALUE means "none".
 
 Sessions split at each `open` line, since strike ids restart and entity ids are reused; every join (press to
-strike, fight to kill) stays inside one session. GuardYaw and Targeting lines, and Targeted effects, are counted
-and skipped.
+strike, fight to kill) stays inside one session. Targeting lines and Targeted effects are counted and skipped;
+GuardYaw lines feed the aim section.
 
 Sections: 1 Logs, 2 Fights, 3 Guard, 4 Dodges, 5 Clashes, 6 Splats, 7 Holds, 8 Movement, 9 Link, 10 Budget,
-11 Flags, 12 Not logged. The flags' thresholds come from the options and nowhere else. The reference numbers come
+11 Flags, 12 Aim, 13 Not logged. The flags' thresholds come from the options and nowhere else. The reference numbers come
 from core/src/test/resources/sim/parity_reference.json, tools/sims/duel_sim.py and clash_sim.py, the combat rules
 datapack and the spec's Success Criteria (docs/design/specs/m1-combat-core.md).
 
@@ -42,7 +42,7 @@ SIMS = ROOT / "tools/sims"
 TICK_US = 50_000
 NONE = -(2**63)  # Long.MIN_VALUE: "none"
 FOREVER = 2**63 - 1  # Long.MAX_VALUE: a Thread that stays open (Hunger at 0)
-SKIPPED = ("GuardYaw", "Targeting")
+SKIPPED = ("Targeting",)
 GUARD_FAILED = ("BLOCK", "HIT", "GRAB", "LAUNCH")
 DODGE_BEFORE_US = 1_000_000  # a Step or Jump up to 1 s before a red or purple impact counts as its dodge
 DODGE_AFTER_US = 250_000  # or, failing that, up to 250 ms after it (a late one)
@@ -51,6 +51,10 @@ GUARD_OUTSIDE_US = 250_000  # a Guard press this near a white impact no press cl
 # (Rule 1.2, D-096): about 2 pushes, one as it enters T̄'s 10 ticks and one as it leaves, so the next second too.
 SPIKE_TICKS = 1.1
 NOMINAL_NS = 50_000  # T̄ within 0.05 ms of the nominal length reads nominal (5d-1's dedicated-server recheck)
+YAW_STEPS = 256  # a GuardYaw step is a 256th of a turn (Outbox.GuardYaw)
+AIM_WIDE_DEG = 30  # a strike locked this far off its attacker's guard yaw is counted apart (D-096's survey)
+# 5d-1 Step 2's pass line (PROPOSED, D-096) and D-094's dev run before the fix. Reference only: no flag reads these.
+AIM = {"pass_median_deg": 15, "d094_white_miss_median_deg": 46, "d094_white_missed": (22, 46)}
 
 # docs/design/specs/m1-combat-core.md: Success Criteria (lines 22-28) and the netcode test's pass line (Tests).
 # Reference only: no flag reads these.
@@ -148,6 +152,11 @@ class Session:
         self.mobstates: dict[int, list[dict]] = defaultdict(list)
         for r in self.of("MobState"):
             self.mobstates[int(num(r, "mob"))].append(r)
+        self.guard_yaws: dict[int, tuple[list, list]] = {}  # mob -> its GuardYaw ticks and steps, by tick
+        for r in sorted(self.of("GuardYaw"), key=lambda r: num(r, "tick")):
+            ticks, steps = self.guard_yaws.setdefault(int(num(r, "mob")), ([], []))
+            ticks.append(num(r, "tick"))
+            steps.append(num(r, "step"))
         self.fights = self._fights()
 
     def _fights(self) -> list[dict]:
@@ -708,6 +717,63 @@ def budget_section(sessions: list[Session]) -> dict:
     }
 
 
+def wrap180(d: float) -> float:
+    """d degrees as the same turn in (-180, 180]."""
+    d = math.fmod(d, 360.0)
+    return d + 360 if d <= -180 else d - 360 if d > 180 else d
+
+
+def aim_section(sessions: list[Session]) -> dict:
+    """Each locked strike's yaw against its attacker's guard yaw at its cue (D-094's open-ground whiffs, 5d-1 Step 2).
+    The guard turns toward its target at its capped rate (Rule 11.4), so it's the server's own bearing to the target,
+    at most a tick behind a Water Step; the log has no player positions. A string's first strike is committed while
+    the demon circles; its later ones lock from the earlier one's carried yaw and don't turn (Rule 7.13)."""
+    first, later, first_signed = [], [], []
+    gaps: dict[str, list] = defaultdict(list)  # colour and result -> |gap|
+    missed, resolved = Counter(), Counter()  # by colour
+    no_guard = 0
+    for s in sessions:
+        opens: dict[tuple, float] = {}  # (attacker, string) -> its first cue tick
+        for a in s.attacks.values():
+            key, cue = (num(a, "attacker"), num(a, "string")), num(a, "cueTick")
+            opens[key] = min(opens.get(key, cue), cue)
+        for lock in s.of("StrikeLocked"):
+            strike = num(lock, "strike")
+            a = s.attacks.get(strike)
+            if a is None or not s.wants(int(num(a, "target"))):  # its start isn't in this session, or not wanted
+                continue
+            target, mob, cue = int(num(a, "target")), int(num(a, "attacker")), num(a, "cueTick")
+            ticks, steps = s.guard_yaws.get(mob, ([], []))
+            i = bisect.bisect_right(ticks, cue)
+            if i == 0:
+                no_guard += 1
+                continue
+            gap = wrap180(num(lock, "yaw") - steps[i - 1] * 360 / YAW_STEPS)
+            if cue == opens[(num(a, "attacker"), num(a, "string"))]:
+                first.append(abs(gap))
+                first_signed.append(gap)
+            else:
+                later.append(abs(gap))
+            c, r = s.committed.get((target, strike)), s.results.get((strike, target))
+            if c is None or r is None:  # cancelled, or still pending when the session ended
+                continue
+            colour = "white" if need(c, "white") else "other"
+            result = "missed" if need(r, "kind") == "MISS" else "reached"
+            resolved[colour] += 1
+            missed[colour] += result == "missed"
+            gaps[f"{colour}_{result}"].append(abs(gap))
+    return {
+        "strikes": len(first) + len(later), "no_guard_yaw": no_guard,
+        "first_deg": stats(first), "first_signed_deg": stats(first_signed),
+        "first_wide": sum(g > AIM_WIDE_DEG for g in first), "later_deg": stats(later),
+        "later_wide": sum(g > AIM_WIDE_DEG for g in later),
+        "by_result_deg": {k: stats(gaps[k]) for k in ("white_missed", "white_reached", "other_missed",
+                                                      "other_reached")},
+        "white_missed": [missed["white"], resolved["white"]], "other_missed": [missed["other"], resolved["other"]],
+        "reference": {"wide_deg": AIM_WIDE_DEG, **AIM},
+    }
+
+
 def flags_section(sessions: list[Session], guard: dict, clashes: dict, opt) -> dict:
     perfect = []
     for s in sessions:
@@ -767,6 +833,8 @@ def not_logged(sessions: list[Session]) -> list[str]:
         "calibration: the client's own calibration; the guard's mean error is the only calibration figure",
         "clock-sync stamps: the ping samples behind each client's combat clock",
         "a strike's colour beyond white (StrikeCommitted.white): red and purple strikes are grouped by attack",
+        "players' positions: a strike's aim is measured against its attacker's guard yaw, the server's bearing to "
+        "its target",
         "who a player is across sessions: entity ids are reused, so the flags count within one session",
         "Hunger: a Thread opened by empty Hunger is read from MobState.threadUntil (Long.MAX_VALUE)",
         "the clash false-start time: read from the combat rules datapack, not from the log",
@@ -799,6 +867,7 @@ def analyze(paths: list[str], sessions: list[Session], opt) -> dict:
         "link": link_section(sessions, ref),
         "budget": budget_section(sessions),
         "flags": flags_section(sessions, guard, clashes, opt),
+        "aim": aim_section(sessions),
         "not_logged": not_logged(sessions),
     }
 
@@ -1058,7 +1127,29 @@ def render(rep: dict) -> str:
         w(f"    #{x['session']} player {x['player']} strike {fmt(x['strike'])} {x['attack']} tick {fmt(x['tick'])}: "
           f"{x['attempt']} at {fmt(x['error_ms'], 0, ' ms')} -> {x['kind']}")
 
-    w("\n12. Not logged")
+    am = rep["aim"]
+    ar = am["reference"]
+    w("\n12. Aim (each locked strike's yaw against its attacker's guard yaw at its cue: the server's bearing)")
+    if not am["strikes"]:
+        w(f"  none (strikes with no guard yaw before their cue: {am['no_guard_yaw']:,})")
+    else:
+        w(f"  strikes {am['strikes']:,} (and {am['no_guard_yaw']:,} with no guard yaw before their cue)")
+        signed = (am["first_signed_deg"] or {}).get("p50")
+        w(f"  a string's first strike: |gap| {st_line(am['first_deg'], '°', 1)}; "
+          f"over {ar['wide_deg']}° {am['first_wide']:,}; signed p50 {fmt(signed, 1, '°')}")
+        w(f"  its later strikes, which don't turn (Rule 7.13): |gap| {st_line(am['later_deg'], '°', 1)}; "
+          f"over {ar['wide_deg']}° {am['later_wide']:,}")
+        for colour, name in (("white", "white"), ("other", "red and purple")):
+            m, n = am[f"{colour}_missed"]
+            w(f"  {name}: {m:,} of {n:,} missed ({pct(share(m, n))}); |gap| missed "
+              f"{st_line(am['by_result_deg'][f'{colour}_missed'], '°', 1, ('p50', 'max'))}, reached "
+              f"{st_line(am['by_result_deg'][f'{colour}_reached'], '°', 1, ('p50', 'max'))}")
+    m, n = ar["d094_white_missed"]
+    w(f"  5d-1 Step 2's pass (PROPOSED): a string's first strikes at |gap| p50 {ar['pass_median_deg']}° or less, and "
+      f"fewer whites missed than D-094's {m} of {n} (its white misses sat a median {ar['d094_white_miss_median_deg']}° "
+      "off)")
+
+    w("\n13. Not logged")
     for line in rep["not_logged"]:
         w(f"  - {line}")
     return "\n".join(out)
