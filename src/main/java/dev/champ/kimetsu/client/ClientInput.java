@@ -10,7 +10,6 @@ import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.fight.PlayerIntake;
 import dev.champ.kimetsu.core.judge.InputHorizon;
 import dev.champ.kimetsu.core.machine.Effect;
-import dev.champ.kimetsu.core.meter.Fixed;
 import dev.champ.kimetsu.data.CombatData;
 import dev.champ.kimetsu.data.CombatDataBuilder;
 import dev.champ.kimetsu.data.SlayerProfile;
@@ -18,19 +17,23 @@ import dev.champ.kimetsu.item.NichirinItem;
 import dev.champ.kimetsu.net.NetCodec;
 import dev.champ.kimetsu.net.NetMessage;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.MouseHandler;
 import net.minecraft.client.Options;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.client.resources.language.I18n;
 import net.minecraft.commands.arguments.EntityAnchorArgument;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.Util;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.client.event.CalculatePlayerTurnEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.client.event.MovementInputUpdateEvent;
 import net.neoforged.neoforge.client.network.ClientPacketDistributor;
@@ -46,15 +49,18 @@ import org.jspecify.annotations.Nullable;
  * pause releases every held key, so none is left held on the server; a Breathe release the lost focus forces is a
  * hold, never an Inhale ({@link FocusRelease}). Deltas polled in different render frames go in different frames, each
  * with its own frame time for the half-frame correction. A Step (the Step key, or a double-tap of left, back or right:
- * {@link StepInput}) goes out like any press, at the next tick's start, and the client dashes from that tick
- * ({@link ForcedMotion}). Presses of vanilla's Jump go out the same way and stay vanilla's (D-083; Sneak waits for the
- * juggle cut's drop, D-085). Main thread only.
+ * {@link StepInput}) goes out like any press, at the next tick's start, and the client dashes ({@link ForcedMotion})
+ * from the tick the server would start it, as its own moves tell ({@link OwnMoves}), which also gate the radial.
+ * Presses of vanilla's Jump go out the same way and stay vanilla's (D-083; Sneak waits for the
+ * juggle cut's drop, D-085). Breathe held past the radial's hold aims the radial while the server could open it
+ * ({@link RadialStroke}): the camera holds still, the mouse's motion is the stroke, and a real key-up carries the slot it
+ * points into; every release a screen, the pause, the blade or the lost focus forces carries none. Main thread only.
  */
 final class ClientInput {
     private static final int GUARDS = 16; // guard presses kept for the overlay's offsets
     private static final long DEV_RELEASE_MICROS = 20_000; // the dev hook lets go 20 ms after the later of both
     private static final long NONE = Long.MIN_VALUE;
-    private static final int OWN_STEPS = 4; // the client's last Steps, whose Breath a snapshot may not show yet
+    private static final double DEV_STROKE_DEG = 45; // the dev hook's flick: three times the dead zone
 
     private final ClientCombat combat;
     private final List<PlayerIntake.Delta> pending = new ArrayList<>();
@@ -76,16 +82,24 @@ final class ClientInput {
     private long breatheDownMicros = NONE; // the stamp of the last Breathe press taken
     private long deferredUp = NONE; // a Breathe release the lost focus restamped: it goes once its stamp has passed
 
-    // the Step (D-070): its keys, its dash, and what gates the dash until the client predicts (step 5)
+    // the Step (D-070): its keys and its dash; and what its own presses start on the server, which gates the dash,
+    // the radial and the attack until the client predicts (step 5; D-107's review)
     private final StepInput steps = new StepInput();
     private final ForcedMotion dash = new ForcedMotion();
     private @Nullable FrameData dashStep; // the Step whose table is kept: a data reload brings a new one
     private double[] dashPerTick = new double[0];
+    private StepInput.Direction stepDirection = StepInput.Direction.BACK; // the keys held at the last Step's press
     private long clientTick; // the client tick running, or the last one run
-    private long attackTick = NONE; // the client tick the last Attack or Pommel press starts its attack in
-    private @Nullable FrameData attack; // and that attack's frames
-    private final long[] ownSteps = new long[OWN_STEPS]; // the engine ticks of its last Steps
-    private int ownStepHead;
+    private final OwnMoves own = new OwnMoves();
+    private OwnMoves.@Nullable Rules ownRules;
+
+    // the radial (Rule 5.4, D-104): its stroke, and the render frame of a release that ended an aim, which stays frozen
+    private final RadialStroke radial = new RadialStroke();
+    private long releaseFrame = -1;
+    private String @Nullable []
+            labels; // the forms' names on the radial, resolved once per data generation and language
+    private @Nullable CombatData labelsData;
+    private String labelsLanguage = "";
 
     // the dev hook (spec Tools: a guard press at an exact combat time)
     private boolean armed;
@@ -97,11 +111,15 @@ final class ClientInput {
     private boolean jumpArmed; // and a Jump at an offset from the next push's first tick (D-083)
     private long jumpOffsetMicros;
     private long jumpAt = Long.MIN_VALUE;
+    private int devSlot = -1; // and a radial flick toward a slot, released after a hold (5d-2)
+    private long devHoldMicros;
+    private boolean devOnBeat;
+    private long devReleaseAt = NONE; // set once its press went
+    private boolean devStroked;
 
     ClientInput(ClientCombat combat, boolean overlay) {
         this.combat = combat;
         this.overlay = overlay;
-        Arrays.fill(ownSteps, NONE);
     }
 
     boolean overlay() {
@@ -226,7 +244,6 @@ final class ClientInput {
                 && !dash.pushWaiting() // dropped, so the server never runs a Step its client won't show (both reviews)
                 && take(PlayerIntake.Key.STEP, true, nanos)) {
             held &= ~PlayerIntake.Key.STEP.bit(); // a tap has no key-up to release it, and frames flow while it's held
-            stepped(nanos);
         }
     }
 
@@ -266,7 +283,13 @@ final class ClientInput {
                         ? focus.breatheUp(mc.isWindowActive(), deferredUp != NONE)
                         : FocusRelease.Up.TAKE;
                 switch (up) {
-                    case TAKE -> take(k, false, nanos);
+                    case TAKE -> {
+                        if (k == PlayerIntake.Key.BREATHE) {
+                            breatheUp(nanos);
+                        } else {
+                            take(k, false, nanos);
+                        }
+                    }
                     case DEFER -> deferRelease(nanos); // the key came up after the focus went: alt-tab, not a tap
                     case DROP -> {} // the restamped release already waiting goes in its place
                 }
@@ -293,85 +316,176 @@ final class ClientInput {
         if (k == PlayerIntake.Key.STEP && dash.pushWaiting()) {
             return a == CaptureRules.Action.TAKE_AND_CANCEL; // dropped, never sent: as a double-tap's (both reviews)
         }
-        if (take(k, true, nanos)) {
-            pressed(k, nanos);
-        }
+        take(k, true, nanos);
         return a == CaptureRules.Action.TAKE_AND_CANCEL;
     }
 
-    /** A press went out: a Step dashes, an attack's frames gate the next Step, a Breathe press is kept for its release. */
-    private void pressed(PlayerIntake.Key k, long nanos) {
+    /**
+     * A real Breathe key-up: the radial's slot, or −1 ({@link #slotAtRelease}), with the motion polled before it in this
+     * frame (SDL runs its events in queue order, so the frame's turn hasn't taken it yet).
+     */
+    private void breatheUp(long nanos) {
+        Minecraft mc = Minecraft.getInstance();
+        double s = mc.options.sensitivity().get();
+        int slot = slotAtRelease(
+                nanos,
+                RadialStroke.degrees(mc.mouseHandler.getXVelocity(), s),
+                RadialStroke.degrees(mc.mouseHandler.getYVelocity(), s));
+        take(PlayerIntake.Key.BREATHE, false, nanos, slot);
+    }
+
+    /**
+     * The slot a Breathe release at the client's {@code nanos} fires, the frame's unturned motion ({@code dx}, {@code dy}
+     * degrees) added to the stroke, or −1; the stroke ends. A release that ended an aim keeps its frame's turn frozen:
+     * that frame's motion was the stroke's, or came after the key-up.
+     */
+    private int slotAtRelease(long nanos, double dx, double dy) {
         Moveset moves = combat.moves();
-        switch (k) {
-            case STEP -> stepped(nanos);
-            case ATTACK, POMMEL -> {
-                if (moves != null) {
-                    attackTick = clientTick + 1; // it starts in the next tick, as the server's machine starts it
-                    attack = k == PlayerIntake.Key.ATTACK ? moves.chain(0) : moves.pommel(); // the chain's hits agree
-                }
-            }
-            default -> {}
+        CombatData d = combat.data();
+        if (moves == null || d == null) {
+            radial.cancel();
+            return -1;
+        }
+        if (aim(nanos)) {
+            releaseFrame = renderFrame;
+        }
+        return radial.release(
+                dx, dy, moves.style().radial().size(), d.rules().machine().radialFlickDeg());
+    }
+
+    /**
+     * Whether the radial aims at the client's {@code nanos} ({@link RadialStroke#update}): the server's rule for opening
+     * it as the client can see it, from its own guard, attack and Step ({@link OwnMoves#blocked}), and from the last
+     * snapshot in combat (out of combat one is stale: a death, a respawn; none comes until frames flow). Nothing aims
+     * without a clock or data. {@link OwnMoves} hears the answer: while it aims, the presses wait in the buffer.
+     */
+    private boolean aim(long nanos) {
+        ClientClock clock = combat.clock();
+        CombatData d = combat.data();
+        Moveset moves = combat.moves();
+        if (clock == null || !clock.inputOpen() || d == null || moves == null) {
+            return false;
+        }
+        MachineRules m = d.rules().machine();
+        long limit = combat.view().assist() >= 1
+                ? RadialStroke.NO_LIMIT // D-036
+                : Micros.ofTicks((long) m.radialLimitBeats() * moves.style().beatTicks());
+        NetMessage.Snapshot s = combat.inCombat(nanos) ? combat.view().snapshot() : null;
+        boolean aiming = radial.update(
+                clock.micros(nanos),
+                Micros.ofMillis(m.radialHoldMs()),
+                limit,
+                own.blocked(clientTick),
+                s != null ? s.state() : null,
+                s != null ? Micros.ofTicks(s.settledTick()) : Long.MIN_VALUE);
+        own.radial(aiming, combat.view().snapshot());
+        return aiming;
+    }
+
+    /**
+     * {@code CalculatePlayerTurnEvent}, once a render frame as the mouse turns the camera (only while it's grabbed):
+     * while the radial aims, the frame's motion is its stroke ({@code getXVelocity}/{@code getYVelocity} are this
+     * frame's pixel deltas, not velocities) and the camera holds still, at vanilla's exact zero with the cinematic camera
+     * off, so its smoother keeps no remainder to play out after the hold. A release's frame stays frozen too
+     * ({@link #slotAtRelease}).
+     */
+    void turn(CalculatePlayerTurnEvent e, long nanos) {
+        boolean aiming = aim(nanos);
+        if (aiming) {
+            MouseHandler mouse = Minecraft.getInstance().mouseHandler;
+            double s = e.getMouseSensitivity();
+            radial.move(RadialStroke.degrees(mouse.getXVelocity(), s), RadialStroke.degrees(mouse.getYVelocity(), s));
+        }
+        if (aiming || releaseFrame == renderFrame) {
+            e.setMouseSensitivity(RadialStroke.FROZEN_SENSITIVITY);
+            e.setCinematicCameraEnabled(false);
         }
     }
 
     /**
-     * A Step went out: the dash from the movement keys held (none: a backstep), gated until the client predicts (step
-     * 5) by the server's last snapshot and the client's own presses: its Breath, evaluated at the client's tick, must
-     * cover the Step's, less the Steps the snapshot can't show yet; its state must allow one; and in its own attack the
-     * dash waits for the attack's Step cancel, as the server's buffer does, or is dropped.
+     * Fills {@code out} with the radial as it's drawn at the client's {@code nanos}: false when it isn't (Rule 5.4: held
+     * to {@code radial_reveal_ms} while it aims).
      */
-    private void stepped(long nanos) {
-        Minecraft mc = Minecraft.getInstance();
-        Moveset moves = combat.moves();
-        CombatData d = combat.data();
+    boolean radialMark(RadialMark out, long nanos) {
         ClientClock clock = combat.clock();
-        if (moves == null || d == null || clock == null) {
-            return;
-        }
-        FrameData step = moves.step();
-        long tick = Math.floorDiv(clock.micros(nanos), Micros.PER_TICK);
-        if (!canStep(step, tick)) {
-            return;
+        CombatData d = combat.data();
+        Moveset moves = combat.moves();
+        if (clock == null || d == null || moves == null || !aim(nanos)) {
+            return false;
         }
         MachineRules m = d.rules().machine();
-        long next = clientTick + 1;
-        long opens = next;
-        FrameData a = attack;
-        if (a != null && next < attackTick + a.total()) {
-            int at = a.opens(FrameData.Into.STEP);
-            // no Step cancel: the server's buffer runs it once the attack ends, if that's within the buffer (netcode
-            // review)
-            opens = attackTick + (at < 0 ? a.total() : at);
+        if (!radial.drawn(clock.micros(nanos), Micros.ofMillis(m.radialRevealMs()))) {
+            return false;
         }
-        Options o = mc.options;
-        StepInput.Direction dir =
-                StepInput.Direction.held(o.keyUp.isDown(), o.keyDown.isDown(), o.keyLeft.isDown(), o.keyRight.isDown());
-        if (dash.press(dashTable(step), dir, next, opens, m.bufferTicks())) {
-            ownSteps[ownStepHead] = tick;
-            ownStepHead = (ownStepHead + 1) % OWN_STEPS;
+        out.slots = moves.style().radial().size();
+        out.selected = radial.selected(out.slots, m.radialFlickDeg());
+        out.labels = labels(d, moves);
+        return true;
+    }
+
+    /** The radial's form names, looked up again when the data or the language changes (a lang key: form.ns.path). */
+    @SuppressWarnings("ReferenceEquality") // the very data instance: a new generation is a new one, equal or not
+    private String[] labels(CombatData d, Moveset moves) {
+        String language = Minecraft.getInstance().getLanguageManager().getSelected();
+        String[] l = labels;
+        if (l != null && d == labelsData && language.equals(labelsLanguage)) {
+            return l;
+        }
+        List<String> ids = moves.style().radial();
+        l = new String[ids.size()];
+        for (int i = 0; i < l.length; i++) {
+            l[i] = I18n.get(Util.makeDescriptionId("form", Identifier.parse(ids.get(i))));
+        }
+        labels = l;
+        labelsData = d;
+        labelsLanguage = language;
+        return l;
+    }
+
+    /** The radial's stroke, for the overlay's line. */
+    RadialStroke radial() {
+        return radial;
+    }
+
+    /**
+     * The Step its own moves started ({@link OwnMoves#takeStep}), at once or from the buffer: the dash from the movement
+     * keys held at its press (none: a backstep), from the Step's first tick.
+     */
+    private void startStep(OwnMoves.Rules r) {
+        long at = own.takeStep();
+        if (at != NONE) {
+            dash.press(
+                    dashTable(r.moves().step()),
+                    stepDirection,
+                    at,
+                    at,
+                    r.rules().machine().bufferTicks());
         }
     }
 
-    /** Whether the server's last snapshot, with the client's own Steps since, lets the Step through. */
-    private boolean canStep(FrameData step, long tick) {
-        NetMessage.Snapshot s = combat.view().snapshot();
-        if (s == null) {
-            return true; // a fresh fighter: full Breath, standing
+    /**
+     * The rules {@link OwnMoves} reads, kept until the data, the moveset or the assist level changes; null before the
+     * data has come.
+     */
+    @SuppressWarnings("ReferenceEquality") // the very instances: a new generation is a new one, equal or not
+    private OwnMoves.@Nullable Rules ownRules() {
+        CombatData d = combat.data();
+        Moveset moves = combat.moves();
+        SlayerProfile slayer = d != null ? d.slayers().get(CombatDataBuilder.SLAYER) : null;
+        if (d == null || moves == null || slayer == null) {
+            return null;
         }
-        switch (s.state()) {
-            case NEUTRAL, GUARD, ATTACK, STEP -> {} // an attack or a Step: the client's own presses tell
-            default -> {
-                return false;
-            }
+        int assist = combat.view().assist();
+        OwnMoves.Rules r = ownRules;
+        if (r == null
+                || r.moves() != moves
+                || r.rules() != d.rules()
+                || r.breath() != slayer.breath()
+                || r.assist() != assist) {
+            r = OwnMoves.Rules.of(moves, d.rules(), slayer.breath(), assist);
+            ownRules = r;
         }
-        long cost = Fixed.of(step.breathCost());
-        long breath = s.breath().at(tick);
-        for (long t : ownSteps) {
-            if (t > s.settledTick()) {
-                breath -= cost;
-            }
-        }
-        return breath >= cost;
+        return r;
     }
 
     /** The Step's displacement in each of its ticks, from its frame data. */
@@ -482,7 +596,8 @@ final class ClientInput {
     void leftLevel() {
         dash.cancel();
         steps.reset();
-        attack = null;
+        radial.cancel(); // the release then carries no slot
+        own.reset();
         jumpAt = Long.MIN_VALUE; // still armed: the next push sets it again (code review)
     }
 
@@ -492,6 +607,7 @@ final class ClientInput {
      * state releases it sooner.
      */
     private void deferRelease(long nanos) {
+        radial.cancel(); // it goes with no slot
         ClientClock clock = combat.clock();
         CombatData d = combat.data();
         if (clock == null || !clock.inputOpen() || d == null) {
@@ -528,6 +644,9 @@ final class ClientInput {
             PlayerIntake.Delta d = pending.get(i);
             if (d.key() == PlayerIntake.Key.BREATHE && !d.down()) {
                 pending.remove(i);
+                if (d.slot() >= 0) {
+                    own.withdraw(clientTick); // its form won't fire: the restamped release carries no slot
+                }
                 deferRelease(nanos);
                 return;
             }
@@ -539,18 +658,34 @@ final class ClientInput {
      * Returns whether it was stamped.
      */
     private boolean take(PlayerIntake.Key k, boolean down, long nanos) {
+        return take(k, down, nanos, -1);
+    }
+
+    /** As {@link #take(PlayerIntake.Key, boolean, long)}; a Breathe release carries radial slot {@code slot} (−1: none). */
+    private boolean take(PlayerIntake.Key k, boolean down, long nanos, int slot) {
         ClientClock clock = combat.clock();
         if (clock == null || !clock.inputOpen()) {
             if (!down) {
                 held &= ~k.bit(); // the frame's held state will tell the server
+                if (k == PlayerIntake.Key.BREATHE) {
+                    radial.cancel();
+                    own.radial(false, combat.view().snapshot());
+                } else if (k == PlayerIntake.Key.GUARD) {
+                    own.guardUp();
+                }
             }
             return false;
         }
-        delta(k, down, clock.micros(nanos));
+        delta(k, down, clock.micros(nanos), slot);
         return true;
     }
 
     private void delta(PlayerIntake.Key k, boolean down, long stampMicros) {
+        delta(k, down, stampMicros, -1);
+    }
+
+    /** A press or release at {@code stampMicros}; Breathe's press starts the radial's stroke, and any release ends it. */
+    private void delta(PlayerIntake.Key k, boolean down, long stampMicros, int slot) {
         if (!pending.isEmpty() && pendingFrame != renderFrame) {
             send(Util.getNanos(), InputHorizon.NO_TICK, pendingFrameMicros); // polled in another render frame
         }
@@ -562,6 +697,7 @@ final class ClientInput {
             held |= k.bit();
             if (k == PlayerIntake.Key.BREATHE) {
                 breatheDownMicros = stampMicros;
+                radial.press(stampMicros);
             }
             pending.add(PlayerIntake.Delta.press(k, stampMicros));
             if (k == PlayerIntake.Key.GUARD) {
@@ -571,13 +707,80 @@ final class ClientInput {
             }
         } else {
             held &= ~k.bit();
-            pending.add(PlayerIntake.Delta.release(k, stampMicros));
+            if (k == PlayerIntake.Key.BREATHE) {
+                radial.cancel(); // its slot, if any, was taken from the stroke before (slotAtRelease)
+            }
+            pending.add(PlayerIntake.Delta.release(k, stampMicros, slot));
+        }
+        own(k, down, stampMicros, slot);
+    }
+
+    /**
+     * What a press or release the server will see starts of its own ({@link OwnMoves}), acting in the next tick: a
+     * guard press also spends a radial that opened at the hold's edge before a frame saw it (D-107's review); a Step
+     * dashes from its start, at once or from the buffer, along the movement keys held now.
+     */
+    private void own(PlayerIntake.Key k, boolean down, long stampMicros, int slot) {
+        OwnMoves.Rules r = ownRules();
+        if (r == null) {
+            if (k == PlayerIntake.Key.GUARD && !down) {
+                own.guardUp();
+            }
+            return;
+        }
+        long next = clientTick + 1;
+        NetMessage.Snapshot shown = combat.view().snapshot();
+        switch (k) {
+            case GUARD -> {
+                if (down) {
+                    radial.guardPressed(
+                            stampMicros, Micros.ofMillis(r.rules().machine().radialHoldMs()));
+                    own.guardDown(next, stampMicros, shown, r);
+                } else {
+                    own.guardUp();
+                }
+            }
+            case ATTACK -> {
+                if (down) {
+                    own.attack(next, stampMicros, r);
+                }
+            }
+            case POMMEL -> {
+                if (down) {
+                    own.pommel(next, r);
+                }
+            }
+            case STEP -> {
+                if (down) {
+                    Options o = Minecraft.getInstance().options;
+                    stepDirection = StepInput.Direction.held(
+                            o.keyUp.isDown(), o.keyDown.isDown(), o.keyLeft.isDown(), o.keyRight.isDown());
+                    own.step(next, stampMicros, shown, r);
+                    startStep(r);
+                }
+            }
+            case BREATHE -> {
+                if (down) {
+                    own.breathe(next, stampMicros, r);
+                } else {
+                    own.release(slot >= 0 ? r.moves().radial(slot) : null, next, stampMicros, shown, r);
+                }
+            }
+            case INHALE -> {
+                if (down) {
+                    own.inhale(next, stampMicros, r);
+                }
+            }
+            default -> {}
         }
     }
 
     // ------------------------------------------------------------------------------------------------- frames
 
-    /** {@code RenderFrameEvent.Pre}: the frame time the next presses carry, and the dev hook's presses when due. */
+    /**
+     * {@code RenderFrameEvent.Pre}: the frame time the next presses carry, the dev hook's presses when due, and the
+     * radial's aim, which the turn event updates too but only while the mouse is grabbed.
+     */
     void frameStart(long nanos) {
         if (lastFrameNanos != Long.MIN_VALUE) {
             frameMicros = (nanos - lastFrameNanos) / 1000;
@@ -585,7 +788,9 @@ final class ClientInput {
         lastFrameNanos = nanos;
         renderFrame++;
         devHook(nanos);
+        devRadial(nanos);
         flushDeferred(nanos);
+        aim(nanos);
     }
 
     /** {@code ClientTickEvent.Pre}: the releases a screen or a lost blade forces, then the presses since the last tick. */
@@ -623,10 +828,26 @@ final class ClientInput {
                 pending.clear(); // nothing can be stamped; the next frame's held state releases them
             }
         }
+        ownTick(nanos);
         if (!pending.isEmpty()) {
             send(nanos, InputHorizon.NO_TICK, pendingFrameMicros);
         }
         flushDeferred(nanos);
+    }
+
+    /**
+     * The tick's start for {@link OwnMoves}, as the server's step runs it: the radial opens first (an attack that ends
+     * now lets it), then what its own moves held back runs, a Step's dash from this tick.
+     */
+    private void ownTick(long nanos) {
+        ClientClock clock = combat.clock();
+        OwnMoves.Rules r = ownRules();
+        if (clock == null || !clock.inputOpen() || r == null) {
+            return;
+        }
+        aim(nanos);
+        own.tick(clientTick, clock.micros(nanos), combat.view().snapshot(), r);
+        startStep(r);
     }
 
     /** {@code ClientTickEvent.Post}, after vanilla's movement and tick-end packets: the tick's pose frame. */
@@ -668,8 +889,9 @@ final class ClientInput {
      */
     void onEpoch() {
         lastTickTime = Long.MIN_VALUE;
-        Arrays.fill(ownSteps, NONE);
+        own.epoch();
         jumpAt = Long.MIN_VALUE; // the dev hook's, on the old timeline
+        radial.cancel(); // its press is on the old timeline: the release carries no slot
     }
 
     private boolean flowing(long nanos) {
@@ -738,6 +960,86 @@ final class ClientInput {
         jumpArmed = true;
         jumpOffsetMicros = offsetMs * 1000L;
         jumpAt = Long.MIN_VALUE;
+    }
+
+    /**
+     * Arms a radial flick toward {@code slot} (5d-2): Breathe pressed in the next render frame, a 45° stroke toward the
+     * slot fed into the stroke's summing path once it aims, and the release {@code holdMs} after the press, or with
+     * {@code onBeat} on the first beat at least that long after it, through the capture's own path, so MCTest can check
+     * the flick, on the beat, without raw mouse motion. A slot the style's radial doesn't have arms nothing.
+     */
+    void armRadial(int slot, int holdMs, boolean onBeat) {
+        Moveset moves = combat.moves();
+        LocalPlayer p = Minecraft.getInstance().player;
+        int slots = moves != null ? moves.style().radial().size() : 0;
+        if (slot >= slots) {
+            if (p != null) {
+                p.sendSystemMessage(Component.literal("Kimetsu dev: radial dropped (slots 0 to " + (slots - 1) + ")"));
+            }
+            return;
+        }
+        devSlot = slot;
+        devHoldMicros = holdMs * 1000L;
+        devOnBeat = onBeat;
+        devReleaseAt = NONE;
+        devStroked = false;
+    }
+
+    private void devRadial(long nanos) {
+        ClientClock clock = combat.clock();
+        Moveset moves = combat.moves();
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer p = mc.player;
+        if (devSlot < 0 || clock == null || !clock.inputOpen() || moves == null || p == null) {
+            return;
+        }
+        long now = clock.micros(nanos);
+        int breathe = PlayerIntake.Key.BREATHE.bit();
+        if (devReleaseAt == NONE) {
+            boolean screen = mc.gui.screen() != null || mc.gui.overlay() != null;
+            if (!NichirinItem.isBlade(p.getMainHandItem()) || screen || (held & breathe) != 0 || deferredUp != NONE) {
+                p.sendSystemMessage(Component.literal(
+                        "Kimetsu dev: radial dropped (no blade in hand, a screen open, or Breathe already down)"));
+                devSlot = -1;
+                return;
+            }
+            delta(PlayerIntake.Key.BREATHE, true, now); // through the capture's own path
+            send(nanos, InputHorizon.NO_TICK, 0);
+            long at = now + devHoldMicros;
+            if (devOnBeat) {
+                long beat = Micros.ofTicks(moves.style().beatTicks());
+                at = Math.ceilDiv(at, beat) * beat; // every Pulse is anchored at 0 (Rule 1.3)
+            }
+            devReleaseAt = at;
+            p.sendSystemMessage(Component.literal(
+                    "Kimetsu dev: Breathe at " + now + " µs, release at " + at + " toward slot " + devSlot));
+            return;
+        }
+        if ((held & breathe) == 0) {
+            p.sendSystemMessage(Component.literal("Kimetsu dev: radial dropped (Breathe was let go)"));
+            devSlot = -1;
+            devReleaseAt = NONE;
+            return;
+        }
+        if (!devStroked && aim(nanos)) {
+            double a = Math.toRadians(devSlot * 360.0 / moves.style().radial().size());
+            radial.move(DEV_STROKE_DEG * Math.sin(a), -DEV_STROKE_DEG * Math.cos(a)); // screen y grows down
+            devStroked = true;
+        }
+        if (now >= devReleaseAt) {
+            long at = devReleaseAt;
+            int slot = slotAtRelease(nanos, 0, 0);
+            delta(PlayerIntake.Key.BREATHE, false, at, slot);
+            send(nanos, InputHorizon.NO_TICK, 0); // no frame to correct for: it's exact
+            p.sendSystemMessage(Component.literal(String.format(
+                    Locale.ROOT,
+                    "Kimetsu dev: Breathe released at %d µs, slot %d, stroke %.1f°",
+                    at,
+                    slot,
+                    radial.lastLength())));
+            devSlot = -1;
+            devReleaseAt = NONE;
+        }
     }
 
     private void devHook(long nanos) {

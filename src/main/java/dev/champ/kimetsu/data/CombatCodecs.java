@@ -384,7 +384,9 @@ public final class CombatCodecs {
             int techBeforeTicks,
             int techAfterTicks,
             int techLockoutTicks,
-            int doubleTapTicks) {
+            int doubleTapTicks,
+            int radialRevealMs,
+            double radialFlickDeg) {
         static final MapCodec<Inputs> CODEC = RecordCodecBuilder.mapCodec(i -> i.group(
                         Codec.INT.fieldOf("buffer_ticks").forGetter(Inputs::bufferTicks),
                         Codec.INT.fieldOf("radial_hold_ms").forGetter(Inputs::radialHoldMs),
@@ -396,7 +398,9 @@ public final class CombatCodecs {
                         Codec.INT.fieldOf("tech_before_ticks").forGetter(Inputs::techBeforeTicks),
                         Codec.INT.fieldOf("tech_after_ticks").forGetter(Inputs::techAfterTicks),
                         Codec.INT.fieldOf("tech_lockout_ticks").forGetter(Inputs::techLockoutTicks),
-                        Codec.INT.fieldOf("double_tap_ticks").forGetter(Inputs::doubleTapTicks))
+                        Codec.INT.fieldOf("double_tap_ticks").forGetter(Inputs::doubleTapTicks),
+                        Codec.INT.fieldOf("radial_reveal_ms").forGetter(Inputs::radialRevealMs),
+                        Codec.DOUBLE.fieldOf("radial_flick_deg").forGetter(Inputs::radialFlickDeg))
                 .apply(i, Inputs::new));
     }
 
@@ -432,7 +436,9 @@ public final class CombatCodecs {
                             m.techBeforeTicks(),
                             m.techAfterTicks(),
                             m.techLockoutTicks(),
-                            m.doubleTapTicks())),
+                            m.doubleTapTicks(),
+                            m.radialRevealMs(),
+                            m.radialFlickDeg())),
                     States.CODEC.forGetter(m -> new States(
                             m.knockdownDownTicks(),
                             m.knockdownRiseTicks(),
@@ -461,7 +467,9 @@ public final class CombatCodecs {
                             st.grabEscapeInputs(),
                             st.historyTicks(),
                             st.inCombatTicks(),
-                            in.doubleTapTicks())));
+                            in.doubleTapTicks(),
+                            in.radialRevealMs(),
+                            in.radialFlickDeg())));
 
     static final Codec<FightRules> FIGHTS = RecordCodecBuilder.create(i -> i.group(
                     Codec.DOUBLE.fieldOf("engage_blocks").forGetter(FightRules::engageBlocks),

@@ -892,59 +892,74 @@ class FrameDataTest {
     @Test
     void machineRulesRejectBadValues() {
         rejects(
-                () -> new MachineRules(-1, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
+                () -> new MachineRules(-1, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7, 330, 15),
                 "buffer_ticks");
         rejects(
-                () -> new MachineRules(3, 0, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
+                () -> new MachineRules(3, 0, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7, 330, 15),
                 "radial_hold_ms");
         rejects(
-                () -> new MachineRules(3, 150, 0, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
+                () -> new MachineRules(3, 150, 0, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7, 330, 15),
                 "radial_limit_beats");
         rejects(
-                () -> new MachineRules(3, 150, 2, -1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
+                () -> new MachineRules(3, 150, 2, -1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7, 330, 15),
                 "guard_hold_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, -1, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
+                () -> new MachineRules(3, 150, 2, 1, -1, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7, 330, 15),
                 "feint_breath");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, -1, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
+                () -> new MachineRules(3, 150, 2, 1, 10, -1, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7, 330, 15),
                 "feint_doubling_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, -1, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, -1, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7, 330, 15),
                 "stumble_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, -1, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, -1, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7, 330, 15),
                 "tech_before_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, -1, 13, 20, 8, 40, 10, 3, 16, 300, 7),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, -1, 13, 20, 8, 40, 10, 3, 16, 300, 7, 330, 15),
                 "tech_after_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, -1, 20, 8, 40, 10, 3, 16, 300, 7),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, -1, 20, 8, 40, 10, 3, 16, 300, 7, 330, 15),
                 "tech_lockout_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, -1, 8, 40, 10, 3, 16, 300, 7),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, -1, 8, 40, 10, 3, 16, 300, 7, 330, 15),
                 "knockdown_down_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, -1, 40, 10, 3, 16, 300, 7),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, -1, 40, 10, 3, 16, 300, 7, 330, 15),
                 "knockdown_rise_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 0, 10, 3, 16, 300, 7),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 0, 10, 3, 16, 300, 7, 330, 15),
                 "knockdown_max_air_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, -1, 3, 16, 300, 7),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, -1, 3, 16, 300, 7, 330, 15),
                 "juggle_cut_breath");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 0, 16, 300, 7),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 0, 16, 300, 7, 330, 15),
                 "grab_escape_inputs");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 1, 300, 7),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 1, 300, 7, 330, 15),
                 "history_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 0, 7),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 0, 7, 330, 15),
                 "in_combat_ticks");
         rejects(
-                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 0),
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 0, 330, 15),
                 "double_tap_ticks");
+        rejects(
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7, 149, 15),
+                "radial_reveal_ms"); // drawn before it can aim: a flick would always show the menu
+        assertDoesNotThrow(
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7, 150, 15));
+        rejects(
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7, 330, 0),
+                "radial_flick_deg"); // every twitch of tracking would fire a form
+        rejects(
+                () -> new MachineRules(3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7, 330, 180.5),
+                "radial_flick_deg"); // past a half turn no flick fires
+        rejects(
+                () -> new MachineRules(
+                        3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7, 330, Double.NaN),
+                "radial_flick_deg");
         rejects(() -> new FightRules(0.5, 1200), "engage_blocks");
         rejects(() -> new FightRules(32, 0), "end_ticks");
         assertDoesNotThrow(Fixtures::movement);

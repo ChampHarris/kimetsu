@@ -220,7 +220,9 @@ public final class Fixtures {
                 3, // Grab: 3 on-beat inputs to escape
                 16, // State history: 16 ticks
                 300, // In combat: 15 s after the last combat effect (Rule 13.1)
-                7); // Step: a double-tap within 7 ticks (vanilla's sprint window)
+                7, // Step: a double-tap within 7 ticks (vanilla's sprint window)
+                330, // Radial reveal: drawn once Breathe is held 330 ms (marking menus reveal after about 1/3 s)
+                15); // Radial flick: under 15° of would-be camera turn fires nothing (D-104)
     }
 
     public static FightRules fights() {

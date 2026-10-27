@@ -211,7 +211,8 @@ public final class Combatant {
     /**
      * A press or release acting in step {@code tick}. {@code minActiveTick} is the step it arrived in: an attack it
      * starts becomes active no earlier (Rule 2.2). The client, which applies its own presses at once, passes the press's
-     * own step.
+     * own step. A press stamped past the radial's hold, Breathe still down, the guard up, meets the radial open, as
+     * {@link #advance} would open it at this step's end.
      */
     public void input(Input in, long tick, long minActiveTick) {
         if (state == State.DEAD) {
@@ -219,6 +220,9 @@ public final class Combatant {
         }
         if (in.combat()) {
             rhythm.active(tick);
+        }
+        if (state == State.NEUTRAL && !guardDown && breatheDown && !radialSpent && radialHeldAt(in.stampMicros())) {
+            openRadial(tick); // its edge came first: in time it's open, as the client aims it (Rule 5.4)
         }
         // A press the world decided without (it arrived after a strike's verdict) is applied after the effect it
         // predates. On time it would have come first, so it's treated that way: offence pressed before a hit that
@@ -294,7 +298,7 @@ public final class Combatant {
 
     /**
      * Rule 3.3: a guard press in the first part of a form's windup feints it; any other just raises the guard. Where the
-     * guard can come up at the press's moment it's also a deflect attempt (Rules 2.6–2.8).
+     * guard can come up at the press's moment it's also a deflect attempt (Rules 2.6–2.8). It cancels the radial.
      */
     private void guardDown(Input in, long tick) {
         guardDown = true;
@@ -437,17 +441,16 @@ public final class Combatant {
     }
 
     /**
-     * Rule 3.7. A release held past the radial's threshold while NEUTRAL opens it on this step and fires at once. One
-     * toward a slot in a state that can't fire yet (a recovery, a Step) waits in the buffer for NEUTRAL, judged at its
-     * stamp (Rule 3's buffer). A tap reaches the machine as an Inhale (the Timeline adds it).
+     * Rule 3.7. A release held past the radial's threshold while NEUTRAL, the guard up, opens it on this step and fires
+     * at once. One toward a slot in a state that can't fire yet (a recovery, a Step) waits in the buffer for NEUTRAL,
+     * judged at its stamp (Rule 3's buffer). A tap reaches the machine as an Inhale (the Timeline adds it).
      */
     private void breatheUp(Input in, long tick, long minActiveTick, boolean voided) {
         breatheDown = false;
         boolean spent = radialSpent;
         radialSpent = false;
-        boolean held =
-                breatheDownAt != NONE && in.stampMicros() - breatheDownAt >= Micros.ofMillis(rules.radialHoldMs());
-        if (state == State.NEUTRAL && !spent && held) {
+        boolean held = radialHeldAt(in.stampMicros());
+        if (state == State.NEUTRAL && !guardDown && !spent && held) {
             openRadial(tick);
         }
         if (state == State.RADIAL) {
@@ -594,11 +597,8 @@ public final class Combatant {
         if (state == State.NEUTRAL && guardDown && guardSince != NONE && tick - guardSince >= rules.guardHoldTicks()) {
             setState(State.GUARD, tick);
         }
-        if (state == State.NEUTRAL
-                && breatheDown
-                && !radialSpent
-                && Micros.ofTicks(tick) >= breatheDownAt + Micros.ofMillis(rules.radialHoldMs())) {
-            openRadial(tick);
+        if (state == State.NEUTRAL && !guardDown && breatheDown && !radialSpent && radialHeldAt(Micros.ofTicks(tick))) {
+            openRadial(tick); // not over a guard still rising (guard_hold_ticks): the guard cancels the radial
         }
         poll(tick);
         if (chainNext > 0 && Micros.ofTicks(tick) >= chainUntil) {
@@ -656,6 +656,11 @@ public final class Combatant {
     /** How long a guard press's claim can wait for its strike's verdict: the longest deflect window and hold cap. */
     private long claimMicros() {
         return Micros.scaled(timing.deflectMs(), timing.assistWindowScale()) + Micros.ofMillis(timing.holdCapMaxMs());
+    }
+
+    /** Whether Breathe, pressed at {@code breatheDownAt}, has been held to the radial's threshold at {@code micros}. */
+    private boolean radialHeldAt(long micros) {
+        return breatheDownAt != NONE && micros - breatheDownAt >= Micros.ofMillis(rules.radialHoldMs());
     }
 
     private void openRadial(long tick) {

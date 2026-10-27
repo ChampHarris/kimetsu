@@ -3,6 +3,7 @@ package dev.champ.kimetsu.client;
 import dev.champ.kimetsu.Kimetsu;
 import dev.champ.kimetsu.client.render.CueMarker;
 import dev.champ.kimetsu.client.render.DebugOverlay;
+import dev.champ.kimetsu.client.render.RadialLayer;
 import dev.champ.kimetsu.client.render.StandInRenderer;
 import dev.champ.kimetsu.config.KimetsuClientConfig;
 import dev.champ.kimetsu.entity.KimetsuEntities;
@@ -45,6 +46,7 @@ public final class KimetsuClient {
         game.addListener(ClientCombat::onTickEnd);
         game.addListener(ClientCombat::onMovementInput);
         game.addListener(ClientCombat::onFrameStart);
+        game.addListener(ClientCombat::onTurn);
         game.addListener(ClientCombat::onMouse);
         game.addListener(ClientCombat::onKey);
         game.addListener(ClientCombat::onInteraction);
@@ -70,6 +72,7 @@ public final class KimetsuClient {
 
     private static void onRegisterLayers(RegisterGuiLayersEvent event) {
         event.registerAbove(VanillaGuiLayers.CROSSHAIR, layer("cue_marker"), new CueMarker());
+        event.registerAbove(VanillaGuiLayers.CROSSHAIR, layer("radial"), new RadialLayer());
         event.registerAboveAll(layer("debug_overlay"), new DebugOverlay());
     }
 

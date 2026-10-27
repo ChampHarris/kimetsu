@@ -172,4 +172,69 @@ class FormsTest {
         r.press(Input.Kind.GUARD_UP, Rig.during(30, 10)).through(40);
         assertEquals(State.NEUTRAL, r.c.state()); // Breathe still held: the radial doesn't reopen
     }
+
+    @Test
+    void aGuardPressedJustBeforeTheHoldsEdgeKeepsTheRadialShutUntilItsLetGo() {
+        Rig r = new Rig();
+        // the edge is 1150 ms, tick 23's end; the guard, at 1120, acts in the same step but hasn't reached GUARD yet
+        r.press(Input.Kind.BREATHE_DOWN, Rig.ms(1000)).press(Input.guard(Rig.during(22, 20)));
+        r.through(23);
+        assertEquals(State.NEUTRAL, r.c.state());
+        r.through(24);
+        assertEquals(State.GUARD, r.c.state());
+        r.press(Input.Kind.GUARD_UP, Rig.during(30, 10)).through(31);
+        assertEquals(State.RADIAL, r.c.state()); // it never opened, so it isn't spent
+    }
+
+    @Test
+    void aGuardPressedPastTheHoldsEdgeInTheTickItOpensCancelsItAsIfOpen() {
+        Rig r = new Rig();
+        // the edge is 1160 ms, inside tick 24; the guard at 1180 comes after it, in the step the radial would open
+        r.press(Input.Kind.BREATHE_DOWN, Rig.ms(1010)).press(Input.guard(Rig.during(23, 30)));
+        r.through(24);
+        assertEquals(State.NEUTRAL, r.c.state());
+        r.through(25);
+        assertEquals(State.GUARD, r.c.state());
+        r.press(Input.Kind.GUARD_UP, Rig.during(30, 10)).through(40);
+        assertEquals(State.NEUTRAL, r.c.state()); // Breathe still held: it opens again only after a release
+        r.release(Rig.ms(2100), 0).press(Input.Kind.BREATHE_DOWN, Rig.ms(2200)).through(48);
+        assertEquals(State.RADIAL, r.c.state());
+    }
+
+    @Test
+    void aPressPastTheHoldsEdgeInTheTickItOpensMeetsItOpen() {
+        Rig r = new Rig();
+        // the edge is 1160 ms, inside tick 24; the Attack at 1180 comes after it: the radial holds it in the buffer
+        r.press(Input.Kind.BREATHE_DOWN, Rig.ms(1010)).press(Input.Kind.ATTACK, Rig.during(23, 30));
+        r.through(24);
+        assertEquals(State.RADIAL, r.c.state());
+        r.release(Rig.during(24, 20), -1).through(25); // it closes empty: what it held runs
+        assertSame(r.moves.chain(0), r.c.attack());
+        assertEquals(25, r.c.attackStart());
+    }
+
+    @Test
+    void aPressJustAfterTheGuardsLetGoMeetsTheRadialItWasHolding() {
+        Rig r = new Rig();
+        r.press(Input.guard(Rig.ms(900)))
+                .press(Input.Kind.BREATHE_DOWN, Rig.ms(1000))
+                .through(30);
+        assertEquals(State.GUARD, r.c.state()); // Breathe held past its edge behind the guard
+        r.press(Input.Kind.GUARD_UP, Rig.during(30, 10))
+                .press(Input.Kind.POMMEL, Rig.during(30, 30))
+                .through(31);
+        assertEquals(State.RADIAL, r.c.state());
+    }
+
+    @Test
+    void aReleaseUnderAHeldGuardFiresNothing() {
+        Rig r = new Rig();
+        // the guard at 1120 (step 23) is still rising when the slotted release at 1170 acts (step 24)
+        r.press(Input.Kind.BREATHE_DOWN, Rig.ms(1000))
+                .press(Input.guard(Rig.during(22, 20)))
+                .release(Rig.ms(1170), 0)
+                .through(30);
+        assertEquals(State.GUARD, r.c.state());
+        assertEquals(Rig.points(100), r.breath());
+    }
 }

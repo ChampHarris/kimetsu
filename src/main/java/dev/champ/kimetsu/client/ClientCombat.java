@@ -2,6 +2,7 @@ package dev.champ.kimetsu.client;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
+import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.logging.LogUtils;
 import dev.champ.kimetsu.config.KimetsuClientConfig;
@@ -34,6 +35,7 @@ import net.minecraft.util.Util;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.neoforged.fml.loading.FMLEnvironment;
+import net.neoforged.neoforge.client.event.CalculatePlayerTurnEvent;
 import net.neoforged.neoforge.client.event.ClientPauseChangeEvent;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
@@ -175,6 +177,17 @@ public final class ClientCombat {
         return out.type != FrameData.Cue.Type.NONE;
     }
 
+    /**
+     * Fills {@code out} with the radial as it's drawn now: false when it isn't (Rule 5.4: Breathe held to
+     * {@code radial_reveal_ms} while it aims).
+     */
+    public static boolean radial(RadialMark out) {
+        out.slots = 0;
+        out.selected = -1;
+        ClientCombat c = current;
+        return c != null && c.input.radialMark(out, Util.getNanos());
+    }
+
     /** The debug overlay's lines: only what the server routed here and this client's own clock and presses. */
     public static List<String> debugLines() {
         List<String> lines = new ArrayList<>();
@@ -233,6 +246,13 @@ public final class ClientCombat {
                     s.rhythmTier(),
                     s.rhythmPoints()));
         }
+        RadialStroke r = c.input.radial();
+        lines.add(String.format(
+                Locale.ROOT,
+                "radial %s  last release: slot %d, stroke %.1f°",
+                r.aiming() ? "aiming" : "closed",
+                r.lastSlot(),
+                r.lastLength()));
         for (int i = 0; i < c.combatants.size(); i++) {
             Entity e = c.combatants.get(i);
             Outbox.MobState m = c.view.mob(e.getId());
@@ -370,6 +390,13 @@ public final class ClientCombat {
         }
     }
 
+    static void onTurn(CalculatePlayerTurnEvent event) {
+        ClientCombat c = current;
+        if (c != null) {
+            c.input.turn(event, Util.getNanos());
+        }
+    }
+
     static void onMouse(InputEvent.MouseButton.Pre event) {
         long nanos = Util.getNanos(); // the moment the game first saw it
         ClientCombat c = current;
@@ -423,7 +450,9 @@ public final class ClientCombat {
 
     /**
      * Dev runs only: {@code /kimetsu_dev guard <ms>}, a guard press at an exact offset from the next impact on you;
-     * {@code /kimetsu_dev jump <ms>}, a Jump press at an offset from the next push's first tick (D-083).
+     * {@code /kimetsu_dev jump <ms>}, a Jump press at an offset from the next push's first tick (D-083);
+     * {@code /kimetsu_dev radial <slot> <holdMs> [beat]}, a flick toward a radial slot released after a hold, or on the
+     * first beat after it (5d-2).
      */
     static void onClientCommands(RegisterClientCommandsEvent event) {
         if (FMLEnvironment.isProduction()) {
@@ -450,7 +479,28 @@ public final class ClientCombat {
                                             }
                                             c.input.armJump(IntegerArgumentType.getInteger(ctx, "ms"));
                                             return 1;
-                                        }))));
+                                        })))
+                        .then(Commands.literal("radial")
+                                .then(Commands.argument("slot", IntegerArgumentType.integer(0, 7))
+                                        .then(Commands.argument("holdMs", IntegerArgumentType.integer(0, 10_000))
+                                                .executes(ctx -> armRadial(
+                                                        IntegerArgumentType.getInteger(ctx, "slot"),
+                                                        IntegerArgumentType.getInteger(ctx, "holdMs"),
+                                                        false))
+                                                .then(Commands.argument("beat", BoolArgumentType.bool())
+                                                        .executes(ctx -> armRadial(
+                                                                IntegerArgumentType.getInteger(ctx, "slot"),
+                                                                IntegerArgumentType.getInteger(ctx, "holdMs"),
+                                                                BoolArgumentType.getBool(ctx, "beat"))))))));
+    }
+
+    private static int armRadial(int slot, int holdMs, boolean onBeat) {
+        ClientCombat c = current;
+        if (c == null) {
+            return 0;
+        }
+        c.input.armRadial(slot, holdMs, onBeat);
+        return 1;
     }
 
     static void onPause(ClientPauseChangeEvent.Post event) {

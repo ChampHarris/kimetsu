@@ -23,6 +23,10 @@ package dev.champ.kimetsu.core.data;
  * @param inCombatTicks how long a combat effect keeps it in combat (Rule 13.1: 15 s, which sets Breath's regeneration)
  * @param doubleTapTicks a second tap of left, back or right this many client ticks or fewer after the first is a Step
  *     (Rule 9.1; the client's, counted in client ticks as vanilla's sprint window is)
+ * @param radialRevealMs the radial is drawn only once Breathe has been held this long, so a practised flick fires
+ *     without it appearing (Rule 5.4; the client's; marking menus reveal after about 1/3 s); at least the hold
+ * @param radialFlickDeg a stroke shorter than this, in degrees the mouse would have turned the camera, fires nothing
+ *     (Rule 5.4's dead zone, D-104; the client's): tracking a demon while Breathe is held isn't a flick
  */
 public record MachineRules(
         int bufferTicks,
@@ -42,7 +46,9 @@ public record MachineRules(
         int grabEscapeInputs,
         int historyTicks,
         int inCombatTicks,
-        int doubleTapTicks) {
+        int doubleTapTicks,
+        int radialRevealMs,
+        double radialFlickDeg) {
 
     public MachineRules {
         Check.atLeast("buffer_ticks", bufferTicks, 0);
@@ -63,5 +69,9 @@ public record MachineRules(
         Check.atLeast("history_ticks", historyTicks, 2);
         Check.positive("in_combat_ticks", inCombatTicks);
         Check.positive("double_tap_ticks", doubleTapTicks);
+        Check.atLeast("radial_reveal_ms", radialRevealMs, radialHoldMs);
+        Check.that(
+                radialFlickDeg > 0 && radialFlickDeg <= 180,
+                "radial_flick_deg must be above 0 and at most 180, was " + radialFlickDeg);
     }
 }

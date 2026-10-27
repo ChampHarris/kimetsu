@@ -42,6 +42,8 @@
     "buffer_ticks": 3,
     "radial_hold_ms": 150,
     "radial_limit_beats": 2,
+    "radial_reveal_ms": 330,
+    "radial_flick_deg": 15.0,
     "guard_hold_ticks": 1,
     "feint_breath": 10.0,
     "feint_doubling_ticks": 60,
