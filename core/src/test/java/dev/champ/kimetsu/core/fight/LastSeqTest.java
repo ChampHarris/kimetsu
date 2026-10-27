@@ -123,6 +123,33 @@ class LastSeqTest {
         assertEquals(0, intake.settledSeq(100));
     }
 
+    /**
+     * How far its input is known, which bounds the tick a snapshot settles: the newest frame's stamp less half its frame
+     * time, as the stamp check let it count and the input horizon reads it, since an honest client judges no press still
+     * to come at or before that (D-112's review (3)); never back.
+     */
+    @Test
+    void itsInputIsKnownThroughTheNewestFramesStampLessHalfItsFrame() {
+        a.through(100);
+        assertEquals(Long.MIN_VALUE, intake.newestFrameMicros());
+        send(0, at(101, 30), 0);
+        assertEquals(at(101, 30) - FRAME / 2, intake.newestFrameMicros());
+        sendLong(1, at(101, 40));
+        assertEquals(at(101, 30) - FRAME / 2, intake.newestFrameMicros()); // 101.040 less 50 ms is before it
+        sendLong(2, at(102, 40));
+        assertEquals(at(101, 40), intake.newestFrameMicros());
+        send(3, at(102, 70), 0);
+        assertEquals(at(102, 70) - FRAME / 2, intake.newestFrameMicros());
+    }
+
+    /** Frame {@code seq}, 125 ms long (past the 100 ms the correction trusts: half of 100, 50 ms back), sent at {@code stamp}, on time. */
+    private void sendLong(long seq, long stamp) {
+        intake.frame(
+                new PlayerIntake.Frame(seq, stamp, 125_000, InputHorizon.NO_TICK, 0, 0, List.of()),
+                stamp + RTT / 2,
+                false);
+    }
+
     @Test
     void leavingTheFightSettlesEveryFrame() {
         a.through(100);

@@ -317,8 +317,11 @@ public final class PlayerIntake {
     }
 
     /**
-     * The newest stamp the stamp check let a frame count, or {@code Long.MIN_VALUE} before the first frame of this
-     * epoch: how far the player's input is known, which bounds the tick a snapshot settles.
+     * How far the player's input is known, which bounds the tick a snapshot settles: the newest frame's stamp as the
+     * stamp check let it count, less half its frame time, as the input horizon reads it ({@link InputHorizon#frame}), or
+     * {@code Long.MIN_VALUE} before the first frame of this epoch. An honest client judges no press still to come at or
+     * before it (its own moves are floored there); its send stamp alone would settle a step a press polled after it can
+     * still land in (D-112's review).
      */
     public long newestFrameMicros() {
         return newest;
@@ -335,7 +338,7 @@ public final class PlayerIntake {
         long no = open(f.seq());
         long r = rtt.minMicros(arrivalMicros);
         long counted = check.frame(f.sendStampMicros(), arrivalMicros, frozen ? 0 : r, f.epoch());
-        newest = Math.max(newest, counted);
+        newest = Math.max(newest, counted - StampCheck.halfFrame(rules, f.frameTimeMicros()));
         drain(); // presses an earlier stall held, anchored by this frame
         long cap = holdCap(r);
         List<Delta> deltas = f.deltas();

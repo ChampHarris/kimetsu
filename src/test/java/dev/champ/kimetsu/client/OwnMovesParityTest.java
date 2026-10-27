@@ -9,7 +9,9 @@ import dev.champ.kimetsu.core.clock.PulseSchedule;
 import dev.champ.kimetsu.core.data.BreathRules;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.Moveset;
+import dev.champ.kimetsu.core.fight.Fighter;
 import dev.champ.kimetsu.core.fight.PlayerIntake;
+import dev.champ.kimetsu.core.judge.InputHorizon;
 import dev.champ.kimetsu.core.judge.StampCheck;
 import dev.champ.kimetsu.core.machine.Combatant;
 import dev.champ.kimetsu.core.machine.Effect;
@@ -42,14 +44,19 @@ import org.junit.jupiter.params.provider.MethodSource;
  * a real client. Half the seeds press on the beat, so the Light Chain continues and Rhythm reaches Mushin; the rest
  * press anywhere, so Breath runs out and winds. Assist 0, 1 or 2.
  *
- * <p>Two drivers. {@link #theClientsOwnMovesAreTheServers}: events in the order of their judged stamps, one frame time a
- * seed (144 fps to 8, the last past the 100 ms the half-frame correction trusts), the radial aimed at each render
+ * <p>Three drivers. {@link #theClientsOwnMovesAreTheServers}: events in the order of their judged stamps, one frame time
+ * a seed (144 fps to 8, the last past the 100 ms the half-frame correction trusts), the radial aimed at each render
  * frame's start, at each client tick's start (engine step t's end) and at a Breathe release, so no press ever needs its
- * frame time cut. {@link #throughVanillasLoop}: vanilla's own loop ({@code Minecraft.runTick}: the poll, then up to ten
- * client ticks that are due, then the turn and {@code RenderFrameEvent.Pre}), each press carrying the frame time
- * {@code ClientInput} measured at the last frame's start (a frame old, so a hitch makes it the next frame's), hitches or
- * none, the client's ticks at half a frame past the step boundaries or at a random phase, inside its frames or between
- * them, and the frames {@code ClientInput} sends ({@code OwnPresses.sent}).
+ * frame time cut. {@link #throughVanillasLoop}: vanilla's own loop ({@code Minecraft.runTick}: the poll, the snapshots
+ * that came, then up to ten client ticks that are due, then the turn and {@code RenderFrameEvent.Pre}), each press
+ * carrying the frame time {@code ClientInput} measured at the last frame's start (a frame old, so a hitch makes it the
+ * next frame's), hitches or none, the client's ticks at half a frame past the step boundaries or at a random phase,
+ * inside its frames or between them; the frames go as {@code ClientInput} sends them (an early one stamped as
+ * {@code sendAhead} stamps it) through a real {@code PlayerIntake}, whose stamp check judges every press, and the server
+ * snapshots as {@code PlayerSession.afterStep} does (D-112's review). Its server runs a step once no press to come can
+ * land in it. {@link #atTheServersTicks}: the same, the server running each step at its tick's end, a random lateness
+ * after the step's end ({@code CombatServer.tickEnd}), so presses arrive after their step and replay, and a snapshot can
+ * settle a step before the client's next press is polled.
  *
  * <p>Left out, each where OwnMoves can't know or a session's own path decides it, and where it's covered instead:
  * <ul>
@@ -66,7 +73,11 @@ import org.junit.jupiter.params.provider.MethodSource;
  *   <li>{@code epoch}: a new timeline restarts the server's steps and the stamp check ({@code ClockEpoch}, Rule 1.8);
  *       {@code OwnMovesTest}'s "a new timeline forgets its spends";
  *   <li>{@code reset}: a level change gives the server a fresh fighter out of combat (D-068); {@code OwnMovesTest}'s
- *       "a level change forgets its moves".
+ *       "a level change forgets its moves";
+ *   <li>after a hitch, against the ticking server: a press polled just before one waits it out for the next tick's
+ *       start, and arriving more ticks after its step than its windup it's held (Rule 2.2), which OwnMoves doesn't
+ *       model (D-108's known gap; 15 of 1,000 one-minute seeds held one, D-113): the seed is compared up to that
+ *       attack's start. A windup held anywhere else (the waiting server, or no hitch in the last 500 ms) fails it.
  * </ul>
  */
 class OwnMovesParityTest {
@@ -114,7 +125,13 @@ class OwnMovesParityTest {
     @ParameterizedTest(name = "loop seed {0}")
     @MethodSource("seeds")
     void throughVanillasLoop(long seed) {
-        new Loop(seed).run();
+        new Loop(seed, false).run();
+    }
+
+    @ParameterizedTest(name = "server tick seed {0}")
+    @MethodSource("seeds")
+    void atTheServersTicks(long seed) {
+        new Loop(seed, true).run();
     }
 
     /** The server's state at each engine step, for {@link Loop} to compare once the client has run the step too. */
@@ -348,11 +365,20 @@ class OwnMovesParityTest {
     }
 
     /**
-     * Vanilla's loop at combat-clock µs: each render frame polls its presses (stamped at the poll, carrying the frame time
-     * of the frame before), runs the client ticks that are due (catch-up ones back to back, each standing at the step
-     * its start falls after), aims at the turn and at {@code RenderFrameEvent.Pre}, where the frame time is measured.
+     * Vanilla's loop at combat-clock µs, against the server as the mod runs it. The client: each render frame polls its
+     * presses (stamped at the poll, carrying the frame time of the frame before), takes the snapshots that came
+     * ({@code processQueuedPackets}), runs the client ticks that are due (catch-up ones back to back, each standing at the
+     * step its start falls after), aims at the turn and at {@code RenderFrameEvent.Pre}, where the frame time is
+     * measured; its frames go as {@code ClientInput} sends them, an early one (for a new press) stamped as it stamps them.
+     * The server: each frame through a real {@link PlayerIntake} as it's sent (no link delay), so its stamp check judges
+     * every press, and after each step a snapshot as {@code PlayerSession.afterStep} makes it (settled through the
+     * intake's newest frame, sent when it shows something new). It runs each step once no press to come can land in it,
+     * or ({@code ticking}) at its tick's end, a random lateness after the step's end, as {@code CombatServer.tickEnd}
+     * does: a press that arrives after its step is replayed at its stamp (the Timeline's late presses).
      */
     private static final class Loop {
+        private static final long EVENT = 1; // µs from an event's stamp to Util.getNanos() as its handler sends a frame
+
         private final SplittableRandom random;
         private final boolean onBeat;
         private final int assist;
@@ -360,32 +386,42 @@ class OwnMovesParityTest {
         private final boolean hitches;
         private final boolean between; // the ticks start between frames, at their nominal times
         private final long phase; // the client's tick grid, µs past the step boundaries
+        private final boolean ticking; // the server runs each step at its tick's end, not once it's final
+        private final long late; // that long after the step's end
         private final OwnMoves.Rules r;
         private final Timeline server;
+        private final Fighter fighter;
+        private final PlayerIntake intake;
         private final OwnPresses client = new OwnPresses();
         private final Steps serverSteps = new Steps();
         private final Steps clientSteps = new Steps();
-        private NetMessage.@Nullable Snapshot shown;
-        private long settled = Long.MIN_VALUE; // the newest snapshot's tick
+        private final ArrayDeque<String> trace = new ArrayDeque<>();
+        private NetMessage.@Nullable Snapshot sent; // the last snapshot the server sent (PlayerSession.shown)
+        private NetMessage.@Nullable Snapshot shown; // the last one the client took
         private long nextTick = 1; // the next client tick due
         private long lastPose = Long.MIN_VALUE; // the last pose frame's step
         private long frameMicros; // ClientInput.frameMicros: the next presses carry it
         private long lastFrameStart;
         private long renderFrame;
-        private int pending; // presses waiting for a frame, ClientInput.pending
+        private final List<PlayerIntake.Delta> pending = new ArrayList<>(); // ClientInput.pending
         private long pendingFrame = -1;
         private long pendingFrameMicros;
-        private long horizon = Long.MIN_VALUE; // the server's input horizon, from the frames sent
+        private long pendingJudged = Long.MAX_VALUE; // the earliest a waiting press is judged at
+        private long arrivedJudged = Long.MAX_VALUE; // and one sent, which the timeline takes at its next step
+        private int held; // ClientInput.held: the releasable keys down
+        private long seq;
         private long serverStep; // the last step the server ran
+        private long recorded; // the last step whose final state is recorded
         private long clientRan; // the last step the client ran
         private long checked = Long.MIN_VALUE; // the last step compared: from the first the client ran
         private boolean guard;
         private boolean breathe;
         private long breatheAt;
         private long lastBeat = Long.MIN_VALUE;
-        private final ArrayDeque<String> trace = new ArrayDeque<>();
+        private long hitchEnd = Long.MIN_VALUE; // when the last hitch frame ended
+        private long heldAt = Long.MIN_VALUE; // the step whose attack the ticking server first held (Rule 2.2)
 
-        Loop(long seed) {
+        Loop(long seed, boolean ticking) {
             random = new SplittableRandom(seed);
             base = FRAMES[(int) (seed % FRAMES.length)];
             assist = (int) (seed / 5 % 3);
@@ -396,8 +432,29 @@ class OwnMovesParityTest {
             phase = randomPhase
                     ? random.nextLong(Micros.PER_TICK)
                     : Math.min(StampCheck.halfFrame(RULES.timing(), base), Micros.PER_TICK - 1);
+            this.ticking = ticking;
+            late = ticking ? random.nextLong(Micros.PER_TICK) : 0;
             r = OwnMoves.Rules.of(WATER, RULES, BREATH, assist);
             server = serverAt(assist);
+            fighter = new Fighter(
+                    1,
+                    server,
+                    new InputHorizon(RULES.timing()),
+                    new PulseSchedule(WATER.style().beatTicks()),
+                    0.3,
+                    1.8,
+                    1.62,
+                    InputHorizon.holdCapMicros(
+                            RULES.timing(), 0, Micros.ofMillis(RULES.timing().toleranceMinMs())));
+            intake = new PlayerIntake(
+                    RULES.timing(),
+                    0,
+                    (in, d, frameTime, held) -> note(
+                            in.tick(),
+                            "server judged " + d.key() + (d.down() ? " down" : " up") + " stamped " + d.stampMicros()
+                                    + " at " + in.stampMicros() + (held ? " (held)" : "")));
+            intake.echo(0, 0);
+            intake.join(fighter);
             frameMicros = base;
             client.stepped = s -> {
                 if (s >= 0 && s < clientSteps.attack.length) {
@@ -411,10 +468,12 @@ class OwnMovesParityTest {
             };
         }
 
-        /** The next frame's length: the base, a tenth either way, and with hitches one in 40 of 40 to 250 ms. */
-        private long frame() {
+        /** The length of the frame polled at {@code poll}: the base, a tenth either way, and with hitches one in 40 of 40 to 250 ms. */
+        private long frame(long poll) {
             if (hitches && random.nextInt(40) == 0) {
-                return Math.max(base, 40_000 + random.nextLong(210_000));
+                long length = Math.max(base, 40_000 + random.nextLong(210_000));
+                hitchEnd = poll + length;
+                return length;
             }
             return hitches ? base + random.nextLong(-base / 10, base / 10 + 1) : base;
         }
@@ -424,47 +483,79 @@ class OwnMovesParityTest {
             lastFrameStart = poll - base;
             nextTick = Math.floorDiv(poll - phase, Micros.PER_TICK); // the client's first tick, due at the first poll
             while (nextTick <= TICKS) {
-                long length = frame();
-                while (between && nextTick <= TICKS && Micros.ofTicks(nextTick) + phase < poll) {
-                    long at = Micros.ofTicks(nextTick) + phase;
-                    tickEnd(tickStart(at), at + 300);
+                long length = frame(poll);
+                while (between && nextTick <= TICKS && Micros.ofTicks(nextTick) + phase <= poll + 2 * EVENT) {
+                    long at = Math.min(Micros.ofTicks(nextTick) + phase, poll - 1); // never among the poll's presses
+                    tickEnd(tickStart(at), Math.min(at + 300, poll - 1)); // done before the poll
                 }
                 poll(poll);
+                take(poll + 100); // processQueuedPackets: the snapshots that came
                 int ran = 0;
                 while (!between && nextTick <= TICKS && Micros.ofTicks(nextTick) + phase <= poll && ran < 10) {
                     tickEnd(tickStart(poll + 200 + ran * 1_000L), poll + 800 + ran * 1_000L);
                     ran++;
                 }
                 long turn = poll + 1_000 + ran * 1_000L; // ClientInput.turn, before the frame's start
+                at(turn);
                 client.aim(turn, frameMicros, r, shown, shown);
                 long start = turn + 200; // RenderFrameEvent.Pre: ClientInput.frameStart
+                at(start);
                 frameMicros = start - lastFrameStart;
                 lastFrameStart = start;
                 renderFrame++;
                 client.aim(start, frameMicros, r, shown, shown);
-                long next = poll + length;
-                while (Micros.ofTicks(serverStep + 1) < next - HALF_MAX && serverStep < TICKS + 4) {
-                    step(++serverStep); // no press polled from the next frame on is judged in it
-                }
+                long next = Math.max(poll + length, start + 100); // a frame lasts at least its own ticks
+                stepFinal(next);
                 compare();
                 poll = next;
+            }
+            if (!pending.isEmpty()) {
+                send(poll, poll, InputHorizon.NO_TICK, pendingFrameMicros); // what the next tick's start would send
             }
             while (serverStep < TICKS + 4) {
                 step(++serverStep);
             }
+            record(TICKS + 4);
             compare();
-            assertTrue(checked >= TICKS, what("the client ran every step", checked + 1));
+            long last = heldAt == Long.MIN_VALUE ? TICKS : heldAt - 1;
+            assertTrue(checked >= last, what("the client ran every step", checked + 1));
+        }
+
+        /** The ticking server's steps whose tick has ended by combat time {@code t}. */
+        private void at(long t) {
+            while (ticking && serverStep < TICKS + 4 && Micros.ofTicks(serverStep + 1) + late <= t) {
+                step(++serverStep);
+            }
+        }
+
+        /**
+         * The steps no press to come can land in, a frame starting at {@code next}: past every press waiting and half the
+         * longest frame before the next poll. The waiting server runs them; their final states are recorded.
+         */
+        private void stepFinal(long next) {
+            long bound = Math.min(next - HALF_MAX, pendingJudged);
+            while (!ticking && serverStep < TICKS + 4 && Micros.ofTicks(serverStep + 1) < bound) {
+                step(++serverStep);
+            }
+            record(Micros.stepOf(Math.min(bound, arrivedJudged)) - 1);
+        }
+
+        /** The client takes the last snapshot the server sent by {@code t}. */
+        private void take(long t) {
+            at(t);
+            shown = sent;
         }
 
         /** ClientInput.tickStart: its own moves up to the step its pose carries, then the presses go out; its pose. */
         private long tickStart(long at) {
+            at(at);
             long pose = Math.floorDiv(at, Micros.PER_TICK);
             note(pose, "client tick " + nextTick + " starts at " + at);
             nextTick++;
             client.tick(pose, r, shown, shown);
             took();
-            if (pending > 0) {
-                send(at, pendingFrameMicros);
+            if (!pending.isEmpty()) {
+                send(at, at, InputHorizon.NO_TICK, pendingFrameMicros);
             }
             return pose;
         }
@@ -473,32 +564,80 @@ class OwnMovesParityTest {
         private void tickEnd(long pose, long at) {
             if (pose > lastPose) {
                 lastPose = pose;
-                send(at, pending > 0 ? pendingFrameMicros : frameMicros);
+                send(at, at, Micros.ofTicks(pose), !pending.isEmpty() ? pendingFrameMicros : frameMicros);
             }
         }
 
-        /** ClientInput.send: the server's horizon reaches the frame's stamp less half its frame time. */
-        private void send(long stamp, long frame) {
-            horizon = Math.max(horizon, stamp - StampCheck.halfFrame(RULES.timing(), frame));
-            pending = 0;
+        /**
+         * ClientInput.sendAhead: a frame ahead of the press stamped {@code pressStamp} that forces it (delta's for another
+         * render frame or frame time, breatheUp's), sent as its handler runs, just after the press.
+         */
+        private void early(long pressStamp) {
+            long now = pressStamp + EVENT;
+            long newest = Long.MIN_VALUE;
+            for (PlayerIntake.Delta d : pending) {
+                newest = Math.max(newest, d.stampMicros());
+            }
+            send(OwnPresses.earlyStamp(newest, now, pressStamp), now, InputHorizon.NO_TICK, pendingFrameMicros);
+        }
+
+        /**
+         * ClientInput.send at combat time {@code now}, stamped {@code stamp}: through the server's intake as it arrives,
+         * and the client's horizon moves to its stamp less half its frame time.
+         */
+        private void send(long stamp, long now, long tickTime, long frame) {
+            at(now);
+            PlayerIntake.Frame f = new PlayerIntake.Frame(seq++, stamp, frame, tickTime, 0, held, pending);
+            pending.clear();
+            arrivedJudged = Math.min(arrivedJudged, pendingJudged);
+            pendingJudged = Long.MAX_VALUE;
+            note(
+                    Micros.stepOf(stamp),
+                    "frame " + f.seq() + " sent at " + now + " stamped " + stamp + ", frame time " + frame + ", "
+                            + f.deltas().size() + " presses");
+            intake.frame(f, now, false);
             client.sent(stamp, frame, r, shown, shown);
         }
 
-        private void step(long t) {
-            server.beginTick(t);
-            server.endTick(t);
-            Combatant c = server.live();
-            if (t < serverSteps.attack.length) {
-                FrameData a = c.state() == State.ATTACK ? c.attack() : null;
-                serverSteps.attack[(int) t] = a != null ? a.id() : "-";
-                serverSteps.step[(int) t] = c.state() == State.STEP
-                        && c.stateUntil() == t + WATER.step().total();
-                serverSteps.radial[(int) t] = c.state() == State.RADIAL;
+        /** PlayerSession.beforeStep, the world's step and afterStep: the snapshot, sent when it shows something new. */
+        private void step(long n) {
+            intake.beforeStep(n);
+            server.beginTick(n);
+            arrivedJudged = Long.MAX_VALUE;
+            server.endTick(n);
+            long tick = server.settledThrough(intake.newestFrameMicros(), fighter.earliestHeldMicros());
+            if (tick == Long.MIN_VALUE) {
+                return;
             }
-            long tick = server.settledThrough(horizon, Long.MAX_VALUE);
-            if (tick != Long.MIN_VALUE && tick > settled) {
-                settled = tick;
-                shown = snapshotAt(server, tick);
+            intake.settledSeq(tick);
+            NetMessage.Snapshot s = snapshotAt(server, tick);
+            NetMessage.Snapshot last = sent;
+            if (last == null || !s.sameAs(last)) {
+                sent = s;
+                note(tick, "server step " + n + " sends the snapshot of " + tick + ": " + s.state());
+            }
+        }
+
+        /** The server's final state at each step through {@code through} it has run, as compared. */
+        private void record(long through) {
+            long last = Math.min(Math.min(through, serverStep), serverSteps.attack.length - 1);
+            for (long t = recorded + 1; t <= last && heldAt == Long.MIN_VALUE; t++) {
+                Combatant c = server.endAt(t);
+                FrameData a = c.state() == State.ATTACK ? c.attack() : null;
+                if (a != null && c.attackHold() > 0) {
+                    // D-108's known gap: OwnMoves holds no windup, so the comparison stops here (the class doc)
+                    assertTrue(
+                            ticking && Micros.ofTicks(t) - hitchEnd < Micros.ofMillis(500),
+                            what("a windup held for a late press (Rule 2.2) only just after a hitch", t));
+                    heldAt = t;
+                    return;
+                }
+                int i = (int) t;
+                serverSteps.attack[i] = a != null ? a.id() : "-";
+                serverSteps.step[i] = c.state() == State.STEP
+                        && c.stateUntil() == t + WATER.step().total();
+                serverSteps.radial[i] = c.state() == State.RADIAL;
+                recorded = t;
             }
         }
 
@@ -507,7 +646,7 @@ class OwnMovesParityTest {
             if (checked == Long.MIN_VALUE) {
                 return;
             }
-            long through = Math.min(Math.min(serverStep, clientRan), TICKS);
+            long through = Math.min(Math.min(recorded, clientRan), TICKS);
             for (long t = checked + 1; t <= through; t++) {
                 int i = (int) t;
                 assertEquals(serverSteps.attack[i], clientSteps.attack[i], what("the attack", t));
@@ -526,6 +665,7 @@ class OwnMovesParityTest {
 
         /** This frame's presses: on the beat, the first poll judged past each beat two times in three. */
         private void poll(long at) {
+            at(at);
             int n = 0;
             if (onBeat) {
                 long judged = at - StampCheck.halfFrame(RULES.timing(), frameMicros);
@@ -542,72 +682,72 @@ class OwnMovesParityTest {
                 n = u < base ? 2 : u < base * 10 ? 1 : 0;
             }
             for (int i = 0; i < n; i++) {
-                press(at + i);
+                press(at + 2 * EVENT * i); // each handler after the last one's send
             }
         }
 
         private void press(long stamp) {
             int k = random.nextInt(100);
-            long early =
+            long soonest =
                     stamp - StampCheck.halfFrame(RULES.timing(), client.frameTime(stamp, frameMicros, RULES.timing()));
             if (k < 30) {
-                server.receive(Input.of(Input.Kind.ATTACK, delta(PlayerIntake.Key.ATTACK, true, stamp, -1, k)));
+                delta(PlayerIntake.Key.ATTACK, true, stamp, -1, k);
             } else if (k < 38) {
-                server.receive(Input.of(Input.Kind.POMMEL, delta(PlayerIntake.Key.POMMEL, true, stamp, -1, k)));
+                delta(PlayerIntake.Key.POMMEL, true, stamp, -1, k);
             } else if (k < 55) {
-                if (breathe && early - breatheAt < HOLD + Micros.ofMillis(1)) {
+                if (breathe && soonest - breatheAt < HOLD + Micros.ofMillis(1)) {
                     return; // it may yet be a tap (the class doc); a ms to spare for a frame that cuts it
                 }
-                server.receive(Input.of(Input.Kind.STEP, delta(PlayerIntake.Key.STEP, true, stamp, -1, k)));
+                delta(PlayerIntake.Key.STEP, true, stamp, -1, k);
                 took();
             } else if (k < 72) {
                 boolean down = !guard;
-                long judged = delta(PlayerIntake.Key.GUARD, down, stamp, -1, k);
+                delta(PlayerIntake.Key.GUARD, down, stamp, -1, k);
                 guard = down;
-                server.receive(down ? Input.guard(judged) : Input.of(Input.Kind.GUARD_UP, judged));
             } else if (k < 80) {
-                server.receive(Input.of(Input.Kind.INHALE, delta(PlayerIntake.Key.INHALE, true, stamp, -1, k)));
+                delta(PlayerIntake.Key.INHALE, true, stamp, -1, k);
             } else if (!breathe) {
-                long judged = delta(PlayerIntake.Key.BREATHE, true, stamp, -1, k);
+                breatheAt = delta(PlayerIntake.Key.BREATHE, true, stamp, -1, k);
                 breathe = true;
-                breatheAt = judged;
-                server.receive(Input.of(Input.Kind.BREATHE_DOWN, judged));
             } else {
                 // ClientInput.breatheUp: what waits goes first, then (slotAtRelease) the radial aimed at its stamp and
                 // the stroke's slot, while it aims
-                if (pending > 0) {
-                    send(stamp, pendingFrameMicros);
+                if (!pending.isEmpty()) {
+                    early(stamp);
                 }
                 client.aim(stamp, frameMicros, r, shown, shown);
                 int toward = random.nextInt(SLOTS + 1) - 1;
                 double a = Math.toRadians(toward * 360.0 / SLOTS);
                 double deg = toward >= 0 ? 3 * FLICK : 0;
                 int slot = client.radial.release(deg * Math.sin(a), -deg * Math.cos(a), SLOTS, FLICK);
-                long judged = delta(PlayerIntake.Key.BREATHE, false, stamp, slot, k);
+                delta(PlayerIntake.Key.BREATHE, false, stamp, slot, k);
                 breathe = false;
-                server.receive(Input.release(judged, slot));
             }
         }
 
         /**
-         * ClientInput.delta: a frame from another render frame or with another frame time goes first, then the press, by
-         * the frame time it goes out with. Returns the stamp the server judges it at.
+         * ClientInput.delta: a frame from another render frame or with another frame time goes first, then the press
+         * waits for the next, by the frame time it goes out with. Returns the stamp the client judges it at.
          */
         private long delta(PlayerIntake.Key k, boolean down, long stamp, int slot, int kind) {
-            if (pending > 0 && pendingFrame != renderFrame) {
-                send(stamp, pendingFrameMicros);
+            if (!pending.isEmpty() && pendingFrame != renderFrame) {
+                early(stamp);
             }
             long f = client.frameTime(stamp, frameMicros, RULES.timing());
-            if (pending > 0 && pendingFrameMicros != f) {
-                send(stamp, pendingFrameMicros);
+            if (!pending.isEmpty() && pendingFrameMicros != f) {
+                early(stamp);
                 f = client.frameTime(stamp, frameMicros, RULES.timing());
             }
-            if (pending == 0) {
+            if (pending.isEmpty()) {
                 pendingFrame = renderFrame;
                 pendingFrameMicros = f;
             }
-            pending++;
+            if (k.releasable()) {
+                held = down ? held | k.bit() : held & ~k.bit();
+            }
+            pending.add(down ? PlayerIntake.Delta.press(k, stamp) : PlayerIntake.Delta.release(k, stamp, slot));
             long judged = stamp - StampCheck.halfFrame(RULES.timing(), f);
+            pendingJudged = Math.min(pendingJudged, judged);
             note(
                     Micros.stepOf(judged),
                     kind(kind, guard, breathe) + " polled at " + stamp + " in a " + frameMicros
@@ -617,7 +757,7 @@ class OwnMovesParityTest {
         }
 
         private void note(long step, String line) {
-            if (trace.size() == 60) {
+            if (trace.size() == 200) {
                 trace.removeFirst();
             }
             trace.addLast("[step " + step + "] " + line);
@@ -628,7 +768,8 @@ class OwnMovesParityTest {
                 StringBuilder s = new StringBuilder(check + " at step " + t + ": " + base / 1000.0 + " ms frames"
                         + (hitches ? " with hitches" : "") + ", ticks " + phase + " µs past the step"
                         + (between ? " between frames" : " in the frames") + (onBeat ? ", on the beat" : "")
-                        + ", assist " + assist + "\n");
+                        + ", assist " + assist + (ticking ? ", the server " + late + " µs after each step" : "")
+                        + "\n");
                 for (long u = Math.max(1, t - 8); u <= Math.min(t + 1, TICKS); u++) {
                     int i = (int) u;
                     s.append("  ")

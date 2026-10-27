@@ -238,6 +238,16 @@ class OwnPressesTest {
     }
 
     @Test
+    void aFrameSentAheadOfAPressIsStampedNoLaterThanIt_norBeforeWhatItCarries() {
+        // StampCheck.press: a press stamped before the frame before its own, arriving past the tolerance, is clamped
+        // later; one in a frame stamped before it is cut back to the frame's stamp
+        assertEquals(1_000_000, OwnPresses.earlyStamp(990_000, 1_000_004, 1_000_000), "the press, not the send's now");
+        assertEquals(1_000_004, OwnPresses.earlyStamp(990_000, 1_000_004, 1_000_020), "now, for one stamped ahead");
+        assertEquals(
+                995_000, OwnPresses.earlyStamp(995_000, 1_000_004, 980_000), "an exact time before what it carries");
+    }
+
+    @Test
     void aPressJudgedPastTheNextTickStartsStepEndActsAfterIt_soItsBufferCountsFromItsOwnStep() {
         // D-111 (c), the loop parity test's seed 1: a client tick that starts 11 ms into its step (144 fps) follows a
         // press polled before it but judged into the step after; the server buffers it from there, behind the guard,

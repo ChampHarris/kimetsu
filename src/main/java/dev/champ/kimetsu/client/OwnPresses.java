@@ -63,6 +63,17 @@ final class OwnPresses {
     }
 
     /**
+     * The stamp of a frame sent at {@code nowMicros} ahead of a press stamped {@code pressMicros} that waits for the next
+     * frame, carrying presses stamped up to {@code newestMicros}: no later than that press, so the next frame's bracket
+     * holds it however long it waits up to the stall bracket, 300 ms ({@code StampCheck.press}: one stamped before the
+     * frame before its own, more than the tolerance before its arrival, is clamped later), and no earlier than a press
+     * it carries (D-112's review).
+     */
+    static long earlyStamp(long newestMicros, long nowMicros, long pressMicros) {
+        return Math.max(newestMicros, Math.min(nowMicros, pressMicros));
+    }
+
+    /**
      * The frame time a press stamped {@code stampMicros}, polled in a frame of {@code frameTimeMicros}, goes out with:
      * that frame's, or the one whose half judges it at the floor if that's later; 0 stays 0. Changes nothing.
      */

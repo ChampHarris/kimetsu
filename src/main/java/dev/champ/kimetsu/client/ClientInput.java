@@ -332,9 +332,9 @@ final class ClientInput {
     private void breatheUp(long nanos) {
         Minecraft mc = Minecraft.getInstance();
         ClientClock clock = combat.clock();
-        if (!pending.isEmpty()) {
+        if (!pending.isEmpty() && clock != null) {
             // what waits goes first: its horizon could end a step, which must run while the stroke still aims
-            send(Util.getNanos(), InputHorizon.NO_TICK, pendingFrameMicros);
+            sendAhead(clock.micros(nanos));
         }
         double s = mc.options.sensitivity().get();
         int slot = slotAtRelease(
@@ -702,11 +702,11 @@ final class ClientInput {
      */
     private void delta(PlayerIntake.Key k, boolean down, long stampMicros, int slot, long frameTimeMicros) {
         if (!pending.isEmpty() && pendingFrame != renderFrame) {
-            send(Util.getNanos(), InputHorizon.NO_TICK, pendingFrameMicros); // another render frame
+            sendAhead(stampMicros); // another render frame
         }
         long f = frameTime(stampMicros, frameTimeMicros);
         if (!pending.isEmpty() && pendingFrameMicros != f) {
-            send(Util.getNanos(), InputHorizon.NO_TICK, pendingFrameMicros); // another frame time
+            sendAhead(stampMicros); // another frame time
             f = frameTime(stampMicros, frameTimeMicros); // the frame that went is the server's horizon now
         }
         if (pending.isEmpty()) {
@@ -905,13 +905,42 @@ final class ClientInput {
 
     private void send(long nanos, long tickTime, long frameTime) {
         ClientClock clock = combat.clock();
+        if (clock != null) {
+            send(nanos, clock.micros(nanos), tickTime, frameTime);
+        }
+    }
+
+    /**
+     * What waits goes now, ahead of a press or release stamped {@code pressMicros} that waits for the next frame: stamped
+     * no later than it ({@link OwnPresses#earlyStamp}), which the server's bracket needs to judge it at its stamp
+     * however long it waits, up to the stall bracket (300 ms).
+     */
+    private void sendAhead(long pressMicros) {
+        ClientClock clock = combat.clock();
+        if (clock == null) {
+            return;
+        }
+        long newest = Long.MIN_VALUE;
+        for (int i = 0; i < pending.size(); i++) {
+            newest = Math.max(newest, pending.get(i).stampMicros());
+        }
+        long nanos = Util.getNanos();
+        send(
+                nanos,
+                OwnPresses.earlyStamp(newest, clock.micros(nanos), pressMicros),
+                InputHorizon.NO_TICK,
+                pendingFrameMicros);
+    }
+
+    /** A frame stamped {@code stamp} on the combat clock, sent at the client's {@code nanos}. */
+    private void send(long nanos, long stamp, long tickTime, long frameTime) {
+        ClientClock clock = combat.clock();
         if (clock == null || !clock.inputOpen()) {
             return;
         }
         int n = Math.min(pending.size(), NetCodec.MAX_DELTAS);
         List<PlayerIntake.Delta> out = new ArrayList<>(pending.subList(0, n));
         pending.subList(0, n).clear(); // the rest go in the next frame
-        long stamp = clock.micros(nanos);
         ClientPacketDistributor.sendToServer(new NetMessage.InputFrame(
                 new PlayerIntake.Frame(seq++, stamp, frameTime, tickTime, clock.epoch(), held, out)));
         heldSent = held;

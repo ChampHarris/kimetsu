@@ -540,10 +540,12 @@ public final class Timeline {
     /**
      * The newest tick whose end no press still to come can change, or {@code Long.MIN_VALUE} if that's older than the
      * history: the tick a snapshot to the client is taken at (Netcode, "Prediction and reconciliation"). Every press
-     * the client has made up to it is in the server's state, and none after it. {@code horizonMicros} is the newest
-     * frame stamp received from the player (frames arrive in order); {@code earliestHeldMicros} is the stamp check's
-     * earliest held press ({@code StampCheck.earliestHeldJudged}), or {@code Long.MAX_VALUE}. A pending impact bounds it
-     * (its result is logged there), and so does a Breathe press whose release could still make it a tap.
+     * the client has made up to it is in the server's state, and none after it. {@code horizonMicros} is how far the
+     * player's input is known: the newest frame's stamp less half its frame time ({@code PlayerIntake.newestFrameMicros};
+     * frames arrive in order), at or before which no press still to come is judged; {@code earliestHeldMicros} is the
+     * stamp check's earliest held press ({@code StampCheck.earliestHeldJudged}), or {@code Long.MAX_VALUE}. A pending
+     * impact bounds it (its result is logged there), and so does a Breathe press whose release could still make it a
+     * tap.
      */
     public long settledThrough(long horizonMicros, long earliestHeldMicros) {
         long h = Math.min(inTick ? current - 1 : current, Micros.tickOf(horizonMicros));
