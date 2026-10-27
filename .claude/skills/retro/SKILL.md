@@ -26,7 +26,7 @@ A table, at most seven rows, ranked by expected effect:
 
 | # | Problem (evidence: counts, session dates) | Change (file, mechanism) | Cost | Risk |
 
-Then ask Champ with AskUserQuestion, multiSelect: which changes to make (your top picks first, labelled "(Recommended)"). The doctrine files are guarded ("ask"), so each approved edit will also show a permission prompt; that's expected.
+Then ask Champ with AskUserQuestion (header starting "T3 "), multiSelect: which changes to make (your top picks first, labelled "(Recommended)"). The doctrine files are guarded ("ask"), so each approved edit will also show a permission prompt; that's expected.
 
 ## 4. Apply and record
 Make only the approved changes, each with its test (hook changes: a case in `.claude/hooks/tests/`; then run every hook test and `python tools/kit_lint.py`). Add one line per change to the changelog in `docs/adr/0003-claude-code-kit.md` (date, change, evidence) and update `docs/tools/kit-watch.md`'s "last reviewed" line. Tell Champ in three lines what changed and what to watch next time.

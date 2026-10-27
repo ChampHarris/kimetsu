@@ -84,7 +84,7 @@ case("few files: no nudge", run("commit_nudge.py", stop)[0] == 0)
 for i in range(5, 12):
     put(f"src/f{i}.txt", "x")
 r = run("commit_nudge.py", stop)
-case("10+ files: nudges once", r[0] == 2 and "uncommitted" in r[2] and "AskUserQuestion" in r[2], r)
+case("10+ files: nudges once", r[0] == 2 and "uncommitted" in r[2] and "push" in r[2] and "Never ask Champ" in r[2], r)
 case("same batch: quiet", run("commit_nudge.py", stop)[0] == 0)
 case("stop_hook_active: quiet", run("commit_nudge.py", dict(stop, stop_hook_active=True))[0] == 0)
 for i in range(12, 22):

@@ -1,5 +1,7 @@
 # The effort check
 
+> **Changed 2026-10-27 (decision tiers, `docs/tools/decision-rights.md`):** Claude no longer asks. It picks Max, Extra or High itself, switches with the matching skill and says which in one line; you override with `/max`, `/extra`, `/high` or `/effort`, and Ultracode stays yours. The sections below describe the mechanics, which are unchanged apart from the question.
+
 When real work starts in Claude Code, Claude asks which effort to use, **Ultracode, Max, Extra or High**, and puts its recommendation first with the reason. Your pick switches the turn at once and holds for the session (D-024).
 
 | Pick | What it is | Best for | How it's set |

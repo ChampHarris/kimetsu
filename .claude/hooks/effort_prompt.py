@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Effort check: Claude asks Champ which effort level to use for real work, and keeps his pick.
+"""Effort check: Claude picks the effort level for real work itself and says which (D-024, amended by the
+decision tiers in docs/tools/decision-rights.md); Champ overrides with /max, /extra, /high or /effort.
 
 UserPromptSubmit  On the first real task of a session, and later whenever a request looks harder than every
-                  level offered so far, tells Claude to ask with AskUserQuestion (Ultracode, Max, Extra or High,
-                  its recommendation first). After a pick, reminds Claude each turn to switch to it with the
+                  level offered so far, tells Claude to pick Max, Extra or High itself, invoke its skill and say so
+                  in one line (Ultracode stays Champ's). After a pick, reminds Claude each turn to switch to it with the
                   max / extra / high skill until Champ picks again or changes the level with /effort.
 PreToolUse and    (matcher "Skill") learn the session's real level, which hooks only see inside tool calls,
 PostToolUse       record picks made through those skills, and spot an /effort change made since the pick.
@@ -144,30 +145,20 @@ def question_text(rec: int, words: list[str], base: str, source: str, picked: st
     now = LABEL[base] + (f" ({source}; /effort shows the live level)" if source else "")
     guess = TIER_NAME[rec] + (f" (matched: {', '.join(words)})" if words else "")
     return (
-        "EFFORT CHECK. Champ chooses the effort for real work (.claude/hooks/effort_prompt.py).\n"
-        f"Session level: {now}. His pick this session: {LABEL[picked] if picked else 'none'}. "
+        "EFFORT CHECK. Pick the effort yourself; don't ask Champ (docs/tools/decision-rights.md: he's often away).\n"
+        f"Session level: {now}. Pick this session so far: {LABEL[picked] if picked else 'none'}. "
         f"Keyword guess for this request: {guess}.\n"
-        "Before any other tool, call AskUserQuestion with one question: header \"Effort\", question "
-        f"\"Which effort for this? (now: {LABEL[picked or base]})\", multiSelect false, exactly four options. "
-        "Put your recommendation first with \" (Recommended)\" after its label; the others follow in the order "
-        "Ultracode, Max, Extra, High. Recommend from your own reading of the request; the guess is only keywords.\n"
-        "- Ultracode: broad or parallel work: repo-wide audits and reviews, ports and migrations, milestone checks, "
-        "research sweeps, several specs at once. Multi-agent; the most tokens.\n"
+        "Choose from your own reading of the request (the guess is only keywords):\n"
         "- Max: one hard problem: design and specs, red-teams, numbers and sims, netcode and desync, frame data "
-        "and the judge, rendering and kfx, a crash with no known cause. Slowest.\n"
+        "and the judge, rendering and kfx, a crash with no known cause.\n"
         "- Extra: building from a clear plan: features, multi-file code, tests, tools, art batches.\n"
-        "- High: small and clear: questions, one-file fixes, renames, docs touch-ups, commits. Fastest.\n"
-        "One line per description; the recommended one says why it fits this request.\n"
-        "After the answer:\n"
-        "- Max, Extra or High: invoke that skill (max, extra or high) with the Skill tool, then do the task in "
-        "this turn. The pick stands for the session and the hook reminds you each turn. For Max add one line: "
-        "\"/effort max keeps Max without the per-turn switch.\"\n"
-        "- Ultracode: don't start. Only Champ can turn it on: he resends with the word \"ultracode\" in his "
-        "message (this request), or runs /effort ultracode (the rest of the session, at the current level). "
-        "Say that in two lines and stop.\n"
-        "- Anything typed under Other: follow it.\n"
-        "If AskUserQuestion isn't available (a headless run), or a system reminder says ultracode is already on "
-        "and you'd recommend Ultracode, skip the question and say which level you're running at."
+        "- High: small and clear: questions, one-file fixes, renames, docs touch-ups, commits.\n"
+        "Before any other tool, invoke that skill (max, extra or high) with the Skill tool, then start the task, "
+        "and say it in one line, e.g. \"Effort: Extra, building from the approved plan.\" The pick holds for the "
+        "session; Champ overrides with /max, /extra, /high or /effort.\n"
+        "Ultracode is Champ's alone: if the work would need it (repo-wide audits, ports, milestone checks), run at "
+        "Max and add one line that he can resend with the word \"ultracode\" for the multi-agent version.\n"
+        "If a system reminder says ultracode is already on, keep the session's level and say which it is."
     )
 
 

@@ -106,6 +106,8 @@
       "Bash(git show*)",
       "Bash(git add *)",
       "Bash(git commit *)",
+      "Bash(git push)",
+      "Bash(git push origin *)",
       "Bash(git branch*)",
       "Bash(git switch *)",
       "Bash(git stash*)",
@@ -146,7 +148,6 @@
       "mcp__mctest__mc_server_players"
     ],
     "ask": [
-      "Bash(git push*)",
       "Bash(git rebase*)",
       "Bash(git branch -D*)",
       "Bash(git branch -d*)",
@@ -161,7 +162,13 @@
       "Read(**/*.jks)",
       "Read(**/*.keystore)",
       "Bash(git push --force*)",
-      "Bash(git push -f*)"
+      "Bash(git push -f*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f*)",
+      "Bash(git push * +*)",
+      "Bash(git push --delete*)",
+      "Bash(git push * --delete*)",
+      "Bash(git push * :*)"
     ]
   },
   "hooks": {

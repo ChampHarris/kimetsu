@@ -3,8 +3,8 @@
 
 When 10 or more files are uncommitted, the stop is blocked once (exit 2) and Claude tells Champ in one or two
 lines: how much is uncommitted, whether the tests cover it (the test results on disk, from _quality.py, not
-Claude's memory of the session), and a suggested commit message, then asks whether to commit (and push). Claude never commits on its own because of
-this hook. The nudge comes back only after a commit, or after 10 more files pile up. Stdlib only; quiet on
+Claude's memory of the session), and then commits and pushes it itself when it's finished, tested and reviewed (tier 1, docs/tools/decision-rights.md),
+or says why not yet. The nudge comes back only after a commit, or after 10 more files pile up. Stdlib only; quiet on
 any error.
 """
 from __future__ import annotations
@@ -52,9 +52,10 @@ def main() -> int:
     return fail_with(
         f"Commit nudge: {n} files are uncommitted since the last commit. {tests}\nBefore you finish, tell Champ in one "
         "or two lines what the uncommitted work is, whether it's tested (from the line above, not from memory), and "
-        "a suggested commit message. Then ask him with AskUserQuestion whether to commit and push; if the tests "
-        "don't cover it, offer to run them first. Don't commit unless he says yes. If you're mid-task and committing "
-        "now would split a change in half, say that instead.")
+        "the commit message. If it's finished, tested (per the line above) and its review is done, commit it and push "
+        "(never force) without asking: that's tier 1 (docs/tools/decision-rights.md). If the tests don't cover it, run "
+        "them first. If it's mid-task, unreviewed or red, don't commit; say why in one line. Never ask Champ about "
+        "committing.")
 
 
 if __name__ == "__main__":

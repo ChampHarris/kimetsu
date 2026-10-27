@@ -67,8 +67,8 @@ def stop(active=False):
     return hook("spec_approval.py", {"hook_event_name": "Stop", "session_id": "s", "stop_hook_active": active})
 
 
-def ask(event, question, answers=None, response=None):
-    tin = {"questions": [{"question": question, "header": "Approve", "multiSelect": False,
+def ask(event, question, answers=None, response=None, header="Approve"):
+    tin = {"questions": [{"question": question, "header": header, "multiSelect": False,
                           "options": [{"label": "Approve", "description": "x"}, {"label": "Not yet", "description": "y"}]}]}
     if answers is not None:
         tin["answers"] = answers
@@ -129,6 +129,10 @@ q = f"Approve spec demo (rev {spec_rev(text)})?"
 case("pre-filled approval answers: denied", decision(ask("PreToolUse", q, answers={q: "Approve"})) == "deny")
 case("unanswered approval question: allowed", ask("PreToolUse", q) == (0, "", ""))
 case("other questions with answers: untouched", ask("PreToolUse", "Pick a key?", answers={"Pick a key?": "R"}) == (0, "", ""))
+case("untagged question to Champ: denied with the tiers", decision(ask("PreToolUse", "Commit and push?", header="Commit")) == "deny")
+case("T3 question: allowed", ask("PreToolUse", "Which key binds Breathe?", header="T3 Controls") == (0, "", ""))
+case("T2 question at session close: allowed", ask("PreToolUse", "Keep the backstop?", header="T2 Backstop") == (0, "", ""))
+case("a word starting with T3: not a tag", decision(ask("PreToolUse", "Keep it?", header="T3x")) == "deny")
 ask("PostToolUse", q, answers={q: "Not yet"}, response={"answers": {q: "Not yet"}})
 case("Not yet: nothing recorded", "demo" not in state().get("approvals", {}))
 case("guard without a record: asks", decision(guard("status: REVIEW", "status: APPROVED")) == "ask")

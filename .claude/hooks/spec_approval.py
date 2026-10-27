@@ -7,7 +7,8 @@ Stop: every spec in docs/design/specs/ with `status: REVIEW` that passes tools/c
   "Approve spec <id> (rev <8 hex>)?" with the options Approve / Not yet. Each revision is offered once, so a
   "Not yet" isn't asked again until the spec changes.
 PreToolUse(AskUserQuestion): an approval question must reach Champ unanswered; one that arrives with answers
-  already filled in is denied.
+  already filled in is denied. Any other question that would reach Champ needs a tier tag at the start of its
+  header ("T3 " now, "T2 " at /session-close; docs/tools/decision-rights.md), else it's denied with the tier rules.
 PostToolUse(AskUserQuestion): when Champ picks "Approve", the spec id and revision are recorded in
   .claude/.state/spec_approvals.json. guard_paths.py then lets one Edit set that revision to APPROVED without a
   permission prompt, provided the edit changes nothing but the status line. Anything else that tries to approve
@@ -36,6 +37,14 @@ ASK_LOG = "ask_payloads.jsonl"
 APPROVE_Q = re.compile(r"Approve spec ([\w.\-]+) \(rev ([0-9a-f]{8})\)\?")
 ANSWERED = re.compile(r"\bChamp,\s*\d{4}-\d{2}-\d{2}")
 ITEM = re.compile(r"^\s*\d+[.)]\s+")
+TIER_TAG = re.compile(r"^\s*T[23]\b")
+ASK_GATE = ("Decision tiers (docs/tools/decision-rights.md): Champ is often away, so only tier-3 calls stop the work. "
+            "Tier 1 (craft, a cheap-to-reverse call with a clear recommendation, errata, minor review findings, "
+            "commit and push once green and reviewed, the effort level): decide it, record it in docs/decisions.md, "
+            "keep going. Tier 2 (matters, doesn't block): build on your recommendation and save the question for "
+            "/session-close, where its header starts \"T2 \". A real tier-3 call (spec approval, how the game plays, "
+            "looks or sounds, canon and art direction, money, the kit's rules, anything hard to undo) goes ahead with "
+            "a header starting \"T3 \"; first finish every step that doesn't depend on the answer.")
 
 
 def open_questions(section: str) -> list[str]:
@@ -130,6 +139,15 @@ def on_pre_ask(data: dict) -> int:
         emit({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                      "permissionDecisionReason": "A spec-approval question must reach Champ "
                                      "unanswered. Ask again without the answers field."}})
+        return 0
+    if tin.get("answers"):
+        return 0  # nothing reaches Champ
+    untagged = [str(q.get("header", "")) or str(q.get("question", ""))[:40]
+                for q in tin.get("questions", []) or [] if isinstance(q, dict)
+                and not APPROVE_Q.search(str(q.get("question", ""))) and not TIER_TAG.match(str(q.get("header", "")))]
+    if untagged:
+        emit({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                     "permissionDecisionReason": ASK_GATE + " Untagged: " + ", ".join(untagged)}})
     return 0
 
 

@@ -65,7 +65,8 @@ steps = [
     ("first real task asks (Extra)", prompt("s1", "p3", "implement the Pulse clock from the approved spec"),
      asks("Extra")),
     ("question names the repo default", prompt("s1x", "q", "implement the Pulse clock from the approved spec"),
-     lambda r: "Session level: Extra (this repo's default" in r[1] and "(now: Extra)" in r[1]),
+     lambda r: "Session level: Extra (this repo's default" in r[1] and "don't ask Champ" in r[1]
+     and "AskUserQuestion" not in r[1]),
     ("same tier again is silent", prompt("s1", "p4", "add the JUnit test for the clock too"), silent),
     ("harder work asks (Max)", prompt("s1", "p5", "redesign the hit judge so a desync can't double-count a strike"),
      asks("Max")),

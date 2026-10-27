@@ -1,7 +1,7 @@
 ---
 name: session-close
 description: End-of-session handoff — update docs/state.md, record decisions and new gotchas, and list uncommitted work — so the next session starts with full context. Use at the end of every working session, before a long break, or when context is about to be compacted.
-allowed-tools: Bash(git status*) Bash(git diff*) Bash(git log*) Read Edit
+allowed-tools: Bash(git status*) Bash(git diff*) Bash(git log*) Bash(git add *) Bash(git commit *) Bash(git push) Bash(git push origin *) Read Edit AskUserQuestion
 ---
 
 # /session-close
@@ -11,4 +11,6 @@ allowed-tools: Bash(git status*) Bash(git diff*) Bash(git log*) Read Edit
 3. Append to `docs/decisions.md` any decision made this session: what, who decided, why, what would reopen it.
 4. Append to `docs/gotchas.md` anything that surprised you about the APIs, tools or build (with the fix), so it never costs time twice. If the gotcha is already there, don't add a copy: bump its `(seen N)` count at the end of its line (add `(seen 2)` the first time). `/retro` turns the most-seen ones into hooks or rules.
 5. Blockers: if `/blocked` recorded anything this session, check its entry in `docs/blockers.md` is current (status, what's needed from Champ). Mark solved ones `**Status:** resolved` with the fix in one line.
-6. Tell Champ in five lines or fewer: done, next, decisions needed, and whether there's uncommitted work and whether its tests ran (the status line's `tests` mark). Suggest a commit message if there is. If the context is past about 200k tokens (or the context nudge sent you here), end with one line: the handoff is saved, type `/clear` to continue in a fresh session. Only Champ can clear the context.
+6. Tier 2 questions (`docs/tools/decision-rights.md`): ask every call you built on your recommendation this session, together, with AskUserQuestion (each header starting "T2 ", recommendation first, up to four per call). If there are none, ask nothing. Record each answer in `docs/decisions.md`; an answer against the recommendation goes first in `**Next:**`.
+7. If the work is finished, green and reviewed and isn't committed yet, commit it and push (never force), then check CI (tier 1). Otherwise say what's uncommitted and why.
+8. Tell Champ in five lines or fewer: done, next, decisions needed, and whether there's uncommitted work and whether its tests ran (the status line's `tests` mark). Suggest a commit message if there is. If the context is past about 200k tokens (or the context nudge sent you here), end with one line: the handoff is saved, type `/clear` to continue in a fresh session. Only Champ can clear the context.

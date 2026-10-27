@@ -19,6 +19,7 @@ Champ's lore-accurate, skill-first Demon Slayer (Kimetsu no Yaiba) action RPG fo
 | Art and audio rules | `docs/art/art-bible.md`, `docs/audio/audio-bible.md` |
 | Prior art: what to adopt, what's generic | `docs/research/prior-art.md` |
 | Blockers waiting on Champ | `docs/blockers.md` (written by `/blocked`) |
+| Who decides what (and what waits for Champ) | `docs/tools/decision-rights.md` |
 | How Claude Code is set up here, and why | `docs/adr/0003-claude-code-kit.md`; the gates in `docs/tools/quality-gates.md` |
 | Townsfolk names and trades | `src/main/resources/data/kimetsu/townsfolk/names.json` |
 | Minecraft and NeoForge source, vanilla data | `ref-src/` (`python tools/refsrc.py`; vanilla data alone: `--mcmeta 26.3`) |
@@ -28,13 +29,13 @@ When sources disagree on a design fact: `docs/gdd/` > `docs/decisions.md` > R6 a
 ## Non-negotiables
 1. **Research before proposing.** Check the GDD and its Merge Log first; never resurrect a cut idea without a new argument. Tag evidence `[canon]` `[prior-art]` `[tech]`.
 2. **Judge every idea on merit,** Champ's, yours and other games'. Novelty earns nothing by itself: a proven mechanic that passes the adopt check (`docs/taste.md`) is adopted, credited and improved for this mod. Before agreeing to an implementation, name at least two flaws in it first: budget, desync, Mixin risk, a missing API (D-018). Keep the best, remove redundancy, extend an existing system before adding one.
-3. **Don't invent design silently.** A missing number, rule or name gets a PROPOSED value and a question for Champ. Raise design problems; don't patch them in code.
+3. **Don't invent design silently.** A missing number, rule or name gets a PROPOSED value, recorded where it belongs; whether it waits for Champ follows the decision tiers (rule 9). Raise design problems; don't patch them in code.
 4. **Verify every API in `ref-src/`.** 26.x is newer than most training data.
 5. **Server-authoritative, need-to-know networking, frame data is the source of truth** for hits and cues; animations follow it.
 6. **Menial vanilla stays; the rest is the mod's own and blends with it.** Ores, coal, torches, stone, crafting, farming and building blocks keep vanilla's art (`art/vanilla-scope.json`). Everything else a player meets is the mod's own, at vanilla's 16 px and on vanilla-like ramps, so it sits beside vanilla stone, dirt and foliage without a seam (R7-01, R7-02). AI may make any of it. Claude doesn't rip or recreate official art, music or voices, and doesn't draw canon characters' likenesses or signature looks. Original characters fill most canon roles; the few canon figures the story needs stay offscreen or unidentifiable (`.claude/rules/assets.md`).
 7. **Only Champ approves specs.** The hooks enforce this. When a spec is in REVIEW, passes `check_spec` and every Open Question has his answer, the Stop hook has you ask him "Approve spec <id> (rev ...)?" with AskUserQuestion; his Approve lets one status-only edit through (`docs/tools/spec-approval.md`).
 8. **Evidence before "done":** the command you ran and what it printed (build, test counts, a Lens contact sheet or MCTest screenshot you looked at). The Stop hook checks the test results on disk and blocks a weakened test or check (see Quality loop).
-9. **Ask Champ with buttons, and hand him the next prompt.** Every decision you need from him goes through AskUserQuestion, recommendation first; every report that did real work ends with the output style's "Your move" block (what happened, what's waiting on him, the next prompt to paste).
+9. **Decide in tiers, ask with buttons, and hand him the next prompt** (`docs/tools/decision-rights.md`). Tier 1 (craft, cheap-to-reverse calls with a clear recommendation, errata, commit and push once green and reviewed): decide, record it in `docs/decisions.md`, keep going. Tier 2 (matters, doesn't block): build on your recommendation and ask at `/session-close`. Tier 3 (specs, how the game plays or looks, canon and art direction, money, the kit's rules, anything hard to reverse): finish everything that doesn't depend on it, then ask with AskUserQuestion, header starting "T3 ", recommendation first (a hook denies untagged questions). Pick the effort level yourself and say it in one line. Champ is often away from the desk: never leave work waiting on a tier-1 or tier-2 question. When unsure between tiers 1 and 2, tier 2. Every report that did real work ends with the output style's "Your move" block.
 
 ## Commands
 ```bash

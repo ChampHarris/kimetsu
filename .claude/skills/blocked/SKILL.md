@@ -22,7 +22,7 @@ Being stuck is information, not failure. Hiding it, or "fixing" it by weakening 
    - **Options:** A) <path, cost, risk> B) … (one is always "park it and do <next task>")
    - **Needs from Champ:** <the decision or resource>
    ```
-4. **Ask Champ** with AskUserQuestion: "B-<NNN>: <title>. How should I proceed?" with the options (your recommendation first, labelled "(Recommended)"), each with its cost in a few plain words. Plain English: he doesn't read stack traces.
+4. **Ask Champ** with AskUserQuestion (header starting "T3 "): "B-<NNN>: <title>. How should I proceed?" with the options (your recommendation first, labelled "(Recommended)"), each with its cost in a few plain words. Plain English: he doesn't read stack traces.
 5. Act on his pick. When it's solved, set `**Status:** resolved` and add one line: the fix, and the gotcha you added to `docs/gotchas.md` so it never costs time twice.
 
 Never: switch off, skip, delete or loosen a test, an assertion, a timeout or a build check; mark a test optional; or call the work done while the blocker is open.
