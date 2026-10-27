@@ -8,7 +8,10 @@ import dev.champ.kimetsu.core.clock.PulseSchedule;
 import dev.champ.kimetsu.core.data.BreathRules;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.Moveset;
+import dev.champ.kimetsu.core.fight.PlayerIntake;
+import dev.champ.kimetsu.core.judge.StampCheck;
 import dev.champ.kimetsu.core.machine.Combatant;
+import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.Input;
 import dev.champ.kimetsu.core.machine.InputBuffer;
 import dev.champ.kimetsu.core.machine.State;
@@ -27,19 +30,37 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
- * {@link OwnMoves} against the server's own machine (plan Risk 8): random presses of Attack, Pommel, Step, guard and
- * Breathe go through a core {@link Timeline}, stepped as a player's session steps it (a tick's presses, then its timers
- * and meters; a Breathe tap adds its Inhale at its press), and through {@link OwnMoves} and {@link RadialStroke}, driven
- * as {@code ClientInput} drives them, which see the snapshots the server sends: after each step, of the newest tick no
- * press still to come can change ({@code PlayerSession.afterStep}). There's no link delay, so only the rules can
+ * {@link OwnMoves} against the server's own machine (plan Risk 8): random presses of Attack, Pommel, Step, guard, Breathe
+ * and the Inhale key go through a core {@link Timeline}, stepped as a player's session steps it (a tick's presses, then
+ * its timers and meters; a Breathe tap adds its Inhale at its press), each judged as the server judges an honest
+ * client's (its stamp less half its frame's time, {@code StampCheck.press}), and through {@link OwnPresses}, driven as
+ * {@code ClientInput} drives it: raw stamps and the frame time each went with, the radial aimed at each render frame's
+ * start, at each client tick's start and at a Breathe release, and brought up to a press's stamp only by
+ * {@code OwnPresses} itself. It sees the snapshots the server sends: after each step, of the newest tick no press still
+ * to come can change ({@code PlayerSession.afterStep}). Each seed runs at one frame rate, from 144 fps to 8 fps (past
+ * the 100 ms the half-frame correction trusts), and at assist 0, 1 or 2. There's no link delay, so only the rules can
  * differ. Tick by tick, the attack each runs, each Step's start and whether the radial is open must agree. A slotted
  * release goes only while the client aims, as from a real client. Half the seeds press on the beat, so the Light Chain
  * continues and Rhythm reaches Mushin; the rest press anywhere, so Breath runs out and winds.
  *
- * <p>Two things OwnMoves can't know are left out, both step 5's to reconcile. The held guard's Breath drain is off:
- * OwnMoves runs the snapshot's Breath on at the rate it was settled with, which a guard raised or lowered since
- * changes. And no Step is pressed while Breathe is down short of the radial's hold: whether the server can pay for it
- * depends on the Inhale a tap would add at that press, which only the release tells.
+ * <p>Events run in the order of their judged stamps, client tick t's start at engine step t's end: a client whose ticks
+ * start half a frame after the step boundaries. A real client's tick phase is arbitrary, so a press polled early in a
+ * tick can be judged into the step before, while OwnMoves runs every press in the tick after the one it was polled in
+ * (step 5's prediction reconciles the two).
+ *
+ * <p>Left out, each where OwnMoves can't know or a session's own path decides it, and where it's covered instead:
+ * <ul>
+ *   <li>the held guard's Breath drain: OwnMoves runs the snapshot's Breath on at the rate it was settled with, which a
+ *       guard raised or lowered since changes (step 5);
+ *   <li>a Step pressed while Breathe is down short of the radial's hold: whether the server can pay for it depends on
+ *       the Inhale a tap would add at that press, which only the release tells (D-109's found item, for Champ);
+ *   <li>{@code withdraw}: a slotted release the lost focus restamps reaches the server as a later release with no slot
+ *       ({@code FocusRelease}, the session's restamp); {@code OwnMovesTest}'s "a slotted release that never went";
+ *   <li>{@code epoch}: a new timeline restarts the server's steps and the stamp check ({@code ClockEpoch}, Rule 1.8);
+ *       {@code OwnMovesTest}'s "a new timeline forgets its spends";
+ *   <li>{@code reset}: a level change gives the server a fresh fighter out of combat (D-068); {@code OwnMovesTest}'s
+ *       "a level change forgets its moves".
+ * </ul>
  */
 class OwnMovesParityTest {
     private static final Moveset WATER = Fixtures.water();
@@ -53,11 +74,12 @@ class OwnMovesParityTest {
             Fixtures.fights(),
             Fixtures.movement());
     private static final BreathRules BREATH = withoutGuardDrain(Fixtures.breath());
-    private static final OwnMoves.Rules R = OwnMoves.Rules.of(WATER, RULES, BREATH, 0);
     private static final int TICKS = 1_200; // a minute of fighting
     private static final long HOLD = Micros.ofMillis(RULES.machine().radialHoldMs());
-    private static final long LIMIT = Micros.ofTicks(
-            (long) RULES.machine().radialLimitBeats() * WATER.style().beatTicks());
+    private static final double FLICK = RULES.machine().radialFlickDeg();
+    private static final int SLOTS = WATER.style().radial().size();
+    // 144, 60, 30, 20 and 8 fps, the last past the frame time the correction trusts (100 ms)
+    private static final long[] FRAMES = {6_944, 16_667, 33_333, 50_000, 125_000};
 
     private static BreathRules withoutGuardDrain(BreathRules b) {
         return new BreathRules(
@@ -84,40 +106,53 @@ class OwnMovesParityTest {
     private static final class Run {
         private final SplittableRandom random;
         private final boolean onBeat;
-        private final Timeline server = new Timeline(
-                new Combatant(
-                        RULES.machine(),
-                        RULES.timing(),
-                        BREATH,
-                        Fixtures.playerPosture(),
-                        RULES.rhythm(),
-                        WATER,
-                        new PulseSchedule(WATER.style().beatTicks()),
-                        0),
-                1);
-        private final OwnMoves own = new OwnMoves();
-        private final RadialStroke radial = new RadialStroke();
+        private final int assist;
+        private final long frameMicros;
+        private final long half; // the server's correction for that frame time
+        private final OwnMoves.Rules r;
+        private final Timeline server;
+        private final OwnPresses client = new OwnPresses();
         private NetMessage.@Nullable Snapshot shown;
+        private long ticked; // the client tick last started
+        private long nextFrame; // the next render frame's start, raw
         private boolean guard;
         private boolean breathe;
-        private long breatheAt;
+        private long breatheAt; // its judged stamp
         private long clientStep = OwnMoves.NONE; // the Step the client started in this tick
         private final ArrayDeque<String> trace = new ArrayDeque<>(); // the last presses and ticks, for a failure
 
         Run(long seed) {
             random = new SplittableRandom(seed);
             onBeat = seed % 2 == 0;
+            assist = (int) (seed / 2 % 3);
+            frameMicros = FRAMES[(int) (seed / 6 % FRAMES.length)];
+            half = StampCheck.halfFrame(RULES.timing(), frameMicros);
+            r = OwnMoves.Rules.of(WATER, RULES, BREATH, assist);
+            Combatant start = new Combatant(
+                    RULES.machine(),
+                    RULES.timing(),
+                    BREATH,
+                    Fixtures.playerPosture(),
+                    RULES.rhythm(),
+                    WATER,
+                    new PulseSchedule(WATER.style().beatTicks()),
+                    0);
+            start.effect(new Effect.AssistChanged(assist), 0); // its level from its first step, as PlayerSession.join
+            server = new Timeline(start, 1);
+            nextFrame = 1 + random.nextLong(frameMicros);
         }
 
         void run() {
             for (long t = 1; t <= TICKS; t++) {
                 clientStep = OwnMoves.NONE;
-                for (long stamp : stamps(t)) {
-                    press(t, stamp);
+                for (long judged : stamps(t)) {
+                    framesThrough(judged);
+                    press(t, judged);
                 }
-                // the client tick's start: the radial opens first, then the buffer runs (ClientInput.ownTick)
-                aim(Micros.ofTicks(t), t);
-                own.tick(t, Micros.ofTicks(t), shown, R);
+                framesThrough(Micros.ofTicks(t) - 1);
+                // the client tick's start, at the step's end: the radial, then the buffer (ClientInput.ownTick)
+                client.tick(t, t, r, shown, shown);
+                ticked = t;
                 took();
                 server.beginTick(t);
                 server.endTick(t);
@@ -129,7 +164,15 @@ class OwnMovesParityTest {
             }
         }
 
-        /** The stamps of this tick's presses, in order: none, one or two, inside the tick's 50 ms (they act in it). */
+        /** The render frames that start by judged time {@code judged}: each aims the radial (ClientInput.frameStart). */
+        private void framesThrough(long judged) {
+            while (nextFrame - half <= judged) {
+                client.aim(nextFrame, frameMicros, ticked, r, shown);
+                nextFrame += frameMicros;
+            }
+        }
+
+        /** The judged stamps of this tick's presses, in order: none, one or two, inside the tick's 50 ms (they act in it). */
         private List<Long> stamps(long t) {
             List<Long> out = new ArrayList<>();
             if (onBeat) {
@@ -148,65 +191,57 @@ class OwnMovesParityTest {
             return out;
         }
 
-        private void press(long t, long stamp) {
-            aim(stamp, t - 1); // the frame's own aim, before the press is polled
+        /** A press the server judges at {@code judged}: the client stamped it half a frame later. */
+        private void press(long t, long judged) {
+            long stamp = judged + half;
             int k = random.nextInt(100);
-            note("  " + t + " @" + (stamp - Micros.ofTicks(t - 1)) / 1000.0 + "ms: " + kind(k));
+            note("  " + t + " @" + (judged - Micros.ofTicks(t - 1)) / 1000.0 + "ms: " + kind(k));
             if (k < 30) {
-                server.receive(Input.of(Input.Kind.ATTACK, stamp));
-                own.attack(t, stamp, R);
+                server.receive(Input.of(Input.Kind.ATTACK, judged));
+                key(PlayerIntake.Key.ATTACK, true, t, stamp, -1);
             } else if (k < 38) {
-                server.receive(Input.of(Input.Kind.POMMEL, stamp));
-                own.pommel(t, R);
+                server.receive(Input.of(Input.Kind.POMMEL, judged));
+                key(PlayerIntake.Key.POMMEL, true, t, stamp, -1);
             } else if (k < 55) {
-                if (breathe && stamp - breatheAt < HOLD) {
+                if (breathe && judged - breatheAt < HOLD) {
                     return; // it may yet be a tap (the class doc)
                 }
-                server.receive(Input.of(Input.Kind.STEP, stamp));
-                own.step(t, stamp, shown, R);
+                server.receive(Input.of(Input.Kind.STEP, judged));
+                key(PlayerIntake.Key.STEP, true, t, stamp, -1);
                 took();
-            } else if (k < 75) {
+            } else if (k < 72) {
                 guard = !guard;
-                if (guard) {
-                    server.receive(Input.guard(stamp));
-                    radial.guardPressed(stamp, HOLD);
-                    own.guardDown(t, stamp, shown, R);
-                } else {
-                    server.receive(Input.of(Input.Kind.GUARD_UP, stamp));
-                    own.guardUp();
-                }
+                server.receive(guard ? Input.guard(judged) : Input.of(Input.Kind.GUARD_UP, judged));
+                key(PlayerIntake.Key.GUARD, guard, t, stamp, -1);
+            } else if (k < 80) {
+                server.receive(Input.of(Input.Kind.INHALE, judged));
+                key(PlayerIntake.Key.INHALE, true, t, stamp, -1);
             } else {
                 breathe = !breathe;
                 if (breathe) {
-                    breatheAt = stamp;
-                    server.receive(Input.of(Input.Kind.BREATHE_DOWN, stamp));
-                    radial.press(stamp);
-                    own.breathe(t, stamp, R);
+                    breatheAt = judged;
+                    server.receive(Input.of(Input.Kind.BREATHE_DOWN, judged));
+                    key(PlayerIntake.Key.BREATHE, true, t, stamp, -1);
                 } else {
-                    // a real key-up: a slot only while the client aims (its stroke), as ClientInput sends it
-                    int slot = radial.aiming() ? random.nextInt(5) - 1 : -1;
-                    radial.cancel();
-                    server.receive(Input.release(stamp, slot));
-                    own.release(slot >= 0 ? WATER.radial(slot) : null, t, stamp, shown, R);
+                    // a real key-up (ClientInput.slotAtRelease): the radial aimed at its stamp, then the stroke's
+                    // slot, which a flick toward a slot (or none) gets only while it aims
+                    client.aim(stamp, frameMicros, ticked, r, shown);
+                    int toward = random.nextInt(SLOTS + 1) - 1;
+                    double a = Math.toRadians(toward * 360.0 / SLOTS);
+                    double deg = toward >= 0 ? 3 * FLICK : 0;
+                    int slot = client.radial.release(deg * Math.sin(a), -deg * Math.cos(a), SLOTS, FLICK);
+                    server.receive(Input.release(judged, slot));
+                    key(PlayerIntake.Key.BREATHE, false, t, stamp, slot);
                 }
             }
         }
 
-        /** ClientInput.aim: the radial's aim at {@code micros}, the client tick last run being {@code clientTick}. */
-        private void aim(long micros, long clientTick) {
-            NetMessage.Snapshot s = shown;
-            boolean aiming = radial.update(
-                    micros,
-                    HOLD,
-                    LIMIT,
-                    own.blocked(clientTick),
-                    s != null ? s.state() : null,
-                    s != null ? Micros.ofTicks(s.settledTick()) : Long.MIN_VALUE);
-            own.radial(aiming, s);
+        private void key(PlayerIntake.Key k, boolean down, long t, long stamp, int slot) {
+            client.key(k, down, t, stamp, frameMicros, slot, r, shown, shown);
         }
 
         private void took() {
-            long s = own.takeStep();
+            long s = client.moves.takeStep();
             if (s != OwnMoves.NONE) {
                 clientStep = s;
             }
@@ -215,7 +250,7 @@ class OwnMovesParityTest {
         private void check(long t) {
             Combatant c = server.live();
             FrameData a = c.state() == State.ATTACK ? c.attack() : null;
-            FrameData mine = own.attackAt(t);
+            FrameData mine = client.moves.attackAt(t);
             note(t + " server " + c.state() + (a != null ? " " + a.id() + " from " + c.attackStart() : "")
                     + " Breath " + c.breath().at(t) / (double) Fixed.ONE
                     + " buffer" + (c.buffer().get(InputBuffer.Slot.STEP) != null ? " S" : "")
@@ -223,12 +258,12 @@ class OwnMovesParityTest {
                     + (c.buffer().get(InputBuffer.Slot.ATTACK) != null ? " A" : "")
                     + (c.guardDown() ? ", guard" : "")
                     + " | client " + (mine != null ? mine.id() : "-") + (clientStep != OwnMoves.NONE ? " Step" : "")
-                    + (radial.aiming() ? " aiming" : "") + (own.blocked(t) ? " blocked" : ""));
+                    + (client.radial.aiming() ? " aiming" : "") + (client.moves.blocked(t) ? " blocked" : ""));
             assertEquals(a != null ? a.id() : "none", mine != null ? mine.id() : "none", what("the attack", t));
             boolean serverStep = c.state() == State.STEP
                     && c.stateUntil() == t + WATER.step().total();
             assertEquals(serverStep ? t : OwnMoves.NONE, clientStep, what("a Step's start", t));
-            assertEquals(c.state() == State.RADIAL, radial.aiming(), what("the radial open", t));
+            assertEquals(c.state() == State.RADIAL, client.radial.aiming(), what("the radial open", t));
         }
 
         /**
@@ -266,7 +301,10 @@ class OwnMovesParityTest {
             if (k < 55) {
                 return "Step";
             }
-            return k < 75 ? (guard ? "guard up" : "guard down") : (breathe ? "Breathe up" : "Breathe down");
+            if (k < 72) {
+                return guard ? "guard up" : "guard down";
+            }
+            return k < 80 ? "Inhale" : breathe ? "Breathe up" : "Breathe down";
         }
 
         private void note(String line) {
@@ -277,8 +315,8 @@ class OwnMovesParityTest {
         }
 
         private Supplier<String> what(String check, long t) {
-            return () ->
-                    check + " at seed tick " + t + (onBeat ? " (on the beat)" : "") + "\n" + String.join("\n", trace);
+            return () -> check + " at seed tick " + t + (onBeat ? " (on the beat)" : "") + ", assist " + assist + ", "
+                    + frameMicros / 1000.0 + " ms frames\n" + String.join("\n", trace);
         }
     }
 }

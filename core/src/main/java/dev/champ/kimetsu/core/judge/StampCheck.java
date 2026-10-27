@@ -234,8 +234,11 @@ public final class StampCheck {
         return tolerance;
     }
 
-    /** The half-frame correction (Rule 2.1), on a frame time no longer than the rules trust. */
-    static long halfFrame(TimingRules rules, long frameTimeMicros) {
+    /**
+     * The half-frame correction (Rule 2.1), on a frame time no longer than the rules trust. Public so the client judges
+     * its own presses as the server will ({@code client.OwnPresses}).
+     */
+    public static long halfFrame(TimingRules rules, long frameTimeMicros) {
         if (!rules.halfFrameCorrection()) {
             return 0;
         }

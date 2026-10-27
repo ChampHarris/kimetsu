@@ -1,5 +1,6 @@
 package dev.champ.kimetsu.client;
 
+import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.machine.State;
 import org.jspecify.annotations.Nullable;
 
@@ -10,14 +11,19 @@ import org.jspecify.annotations.Nullable;
  * later of the press plus {@code machine.radial_hold_ms} and the first moment its own guard, attack and Step are over
  * and its last snapshot shows nothing that holds it ({@link #opens}). While it aims, the mouse doesn't turn the camera;
  * its motion is the stroke, summed in the degrees it would have turned the camera ({@link #degrees}), so a flick feels
- * the same at any DPI, with Y as moved on screen (a menu isn't a camera, so invert-Y doesn't apply). It starts when the
- * server opened it: at the press plus the hold if nothing held it back across that edge, else when the client first
- * saw it free.
+ * the same at any DPI, with Y as moved on screen (a menu isn't a camera, so invert-Y doesn't apply).
  *
- * <p>The aim ends at a guard press (the radial cancels into GUARD), at the radial's limit counted from the aim's start
- * (none on assist, D-036), or when a snapshot settled after the aim's start shows a hit, a hold or a fall that closed
- * the radial; ended, it doesn't aim again until a release, as the server's {@code radialSpent}. A snapshot settled
- * before the aim's start that shows one only delays it: the server couldn't have opened the radial yet. At the release
+ * <p>Times are the server's judged times ({@code OwnPresses}): an update at a moment says whether a release judged then
+ * would meet the radial open. A client tick's start stands at an engine step's end instead ({@link #stepEnded}), where
+ * the server's {@code advance} opens and closes it. The aim starts in the engine step the server opened it in: its
+ * edge's (the press plus the hold) if nothing held it back across that edge, else the step of the moment the client
+ * first saw it free (a step's end, or a press or a frame within the next step).
+ *
+ * <p>The aim ends at a guard press (the radial cancels into GUARD), at the end of its opening step plus the radial's
+ * limit (none on assist, D-036), where the server's {@code advance} closes it (a release judged in that last step still
+ * meets it), or when a snapshot settled in or after the opening step shows a hit, a hold or a fall that closed the
+ * radial; ended, it doesn't aim again until a release, as the server's {@code radialSpent}. A snapshot settled before
+ * the opening step that shows one only delays it: the server couldn't have opened the radial yet. At the release
  * the slot is the on-axis sector the stroke points into ({@link #slot}), or −1 inside {@code machine.radial_flick_deg}
  * or when it isn't aiming. It's drawn once Breathe has been held to {@code machine.radial_reveal_ms} while it aims, so a
  * practised flick fires without the menu appearing.
@@ -35,7 +41,7 @@ final class RadialStroke {
     private static final long NONE = Long.MIN_VALUE;
 
     private long pressMicros = NONE; // Breathe's press, while it's held
-    private long aimFrom = NONE; // the aim's start, while it aims
+    private long openStep = NONE; // the engine step the server opened it in, while it aims
     private boolean spent; // the aim ended with Breathe still held
     private boolean lastFree; // the last update found nothing holding it back
     private double x; // the stroke, degrees: right
@@ -83,7 +89,7 @@ final class RadialStroke {
     /** Breathe went down at {@code stampMicros}: a fresh stroke. */
     void press(long stampMicros) {
         pressMicros = stampMicros;
-        aimFrom = NONE;
+        openStep = NONE;
         spent = false;
         lastFree = false;
         x = 0;
@@ -91,10 +97,12 @@ final class RadialStroke {
     }
 
     /**
-     * What the client knows at {@code nowMicros}; returns whether it aims.
+     * What the client knows for a release judged at {@code nowMicros} (a press's, a release's or a frame's moment); returns
+     * whether it aims.
      *
      * @param holdMicros {@code machine.radial_hold_ms}
-     * @param limitMicros how long the radial stays open from its start with nothing fired, or {@link #NO_LIMIT}
+     * @param limitMicros how long the radial stays open from its opening step with nothing fired, a whole number of
+     *     ticks, or {@link #NO_LIMIT}
      * @param blocked the client's own guard is held, or its own attack or Step runs: the server isn't NEUTRAL
      * @param shown the state the server's last snapshot shows, or null before the first
      * @param shownSettledMicros the time that snapshot was settled at
@@ -106,23 +114,63 @@ final class RadialStroke {
             boolean blocked,
             @Nullable State shown,
             long shownSettledMicros) {
+        return see(
+                nowMicros,
+                Micros.stepOf(nowMicros),
+                false,
+                holdMicros,
+                limitMicros,
+                blocked,
+                shown,
+                shownSettledMicros);
+    }
+
+    /**
+     * What the client knows at the end of engine step {@code step} (a client tick's start, after the step's presses), as
+     * {@link #update}: the server's {@code advance} closes it there at its limit and opens it there if it's free.
+     */
+    boolean stepEnded(
+            long step,
+            long holdMicros,
+            long limitMicros,
+            boolean blocked,
+            @Nullable State shown,
+            long shownSettledMicros) {
+        return see(Micros.ofTicks(step), step, true, holdMicros, limitMicros, blocked, shown, shownSettledMicros);
+    }
+
+    /**
+     * At {@code atMicros} in engine step {@code step}: at its end ({@code stepEnd}, after the step's own advance) or within
+     * it (before it).
+     */
+    private boolean see(
+            long atMicros,
+            long step,
+            boolean stepEnd,
+            long holdMicros,
+            long limitMicros,
+            boolean blocked,
+            @Nullable State shown,
+            long shownSettledMicros) {
         if (pressMicros == NONE || spent) {
             return false;
         }
         boolean opens = opens(shown);
-        if (aimFrom != NONE) {
+        if (openStep != NONE) {
+            long close = limitMicros != NO_LIMIT ? openStep + limitMicros / Micros.PER_TICK : NONE;
             if (!opens) {
-                end(shownSettledMicros >= aimFrom); // settled before it: the server hadn't opened it yet
-            } else if (limitMicros != NO_LIMIT && nowMicros - aimFrom >= limitMicros) {
+                end(shownSettledMicros >= Micros.ofTicks(openStep)); // settled before it: the server hadn't opened it
+            } else if (close != NONE && (stepEnd ? step >= close : step > close)) {
                 end(true); // it closed with nothing fired
             }
         }
         boolean free = !blocked && opens;
-        if (aimFrom == NONE && !spent && free && nowMicros - pressMicros >= holdMicros) {
-            aimFrom = lastFree ? pressMicros + holdMicros : nowMicros; // free since the last update: from the edge
+        if (openStep == NONE && !spent && free && atMicros - pressMicros >= holdMicros) {
+            // free since the last update: from the edge's step; else from this moment's, which a step's end opened
+            openStep = lastFree ? Micros.stepOf(pressMicros + holdMicros) : step;
         }
         lastFree = free;
-        return aimFrom != NONE;
+        return openStep != NONE;
     }
 
     /**
@@ -131,14 +179,15 @@ final class RadialStroke {
      * (D-107's review); one not yet open isn't touched.
      */
     void guardPressed(long stampMicros, long holdMicros) {
-        if (aimFrom != NONE || (pressMicros != NONE && !spent && lastFree && stampMicros - pressMicros >= holdMicros)) {
+        if (openStep != NONE
+                || (pressMicros != NONE && !spent && lastFree && stampMicros - pressMicros >= holdMicros)) {
             end(true);
         }
     }
 
     /** Mouse motion, in degrees of would-be turn ({@code dy} down, as on screen): the stroke's while it aims. */
     void move(double dx, double dy) {
-        if (aimFrom != NONE) {
+        if (openStep != NONE) {
             x += dx;
             y += dy;
         }
@@ -150,10 +199,10 @@ final class RadialStroke {
      */
     int release(double dx, double dy, int slots, double flickDeg) {
         move(dx, dy);
-        int s = aimFrom != NONE ? slot(x, y, slots, flickDeg) : -1;
+        int s = openStep != NONE ? slot(x, y, slots, flickDeg) : -1;
         if (pressMicros != NONE) {
             lastSlot = s;
-            lastLength = aimFrom != NONE ? Math.hypot(x, y) : 0;
+            lastLength = openStep != NONE ? Math.hypot(x, y) : 0;
         }
         cancel();
         return s;
@@ -162,31 +211,31 @@ final class RadialStroke {
     /** Breathe let go with no slot (a screen, the pause, the blade leaving the hand, the lost focus), or forgotten. */
     void cancel() {
         pressMicros = NONE;
-        aimFrom = NONE;
+        openStep = NONE;
         spent = false;
         x = 0;
         y = 0;
     }
 
     private void end(boolean spends) {
-        aimFrom = NONE;
+        openStep = NONE;
         spent = spends;
         x = 0;
         y = 0;
     }
 
     boolean aiming() {
-        return aimFrom != NONE;
+        return openStep != NONE;
     }
 
     /** Whether it's drawn at {@code nowMicros}: aiming, with Breathe held at least {@code revealMicros}. */
     boolean drawn(long nowMicros, long revealMicros) {
-        return aimFrom != NONE && nowMicros - pressMicros >= revealMicros;
+        return openStep != NONE && nowMicros - pressMicros >= revealMicros;
     }
 
     /** The slot the stroke points into now, lit on the drawn radial, or −1. */
     int selected(int slots, double flickDeg) {
-        return aimFrom != NONE ? slot(x, y, slots, flickDeg) : -1;
+        return openStep != NONE ? slot(x, y, slots, flickDeg) : -1;
     }
 
     /** The last real release's slot (−1: none fired), for the overlay. */

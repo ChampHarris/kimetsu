@@ -99,7 +99,10 @@ class RadialStrokeTest {
         assertFalse(r.update(299_999, HOLD, LIMIT, true, State.NEUTRAL, 0));
         assertTrue(r.update(300_000, HOLD, LIMIT, false, State.NEUTRAL, 0), "it aims once the move is over");
         assertTrue(r.update(300_000 + LIMIT - 1, HOLD, LIMIT, false, State.NEUTRAL, 0), "the limit runs from there");
-        assertFalse(r.update(300_000 + LIMIT, HOLD, LIMIT, false, State.NEUTRAL, 0));
+        // from step 6, the frame's: a release judged in step 32 still meets it, as the server's advance closes it at
+        // step 32's end (D-110's review, finding 5)
+        assertTrue(r.update(300_000 + LIMIT, HOLD, LIMIT, false, State.NEUTRAL, 0), "the closing step's last µs");
+        assertFalse(r.update(300_000 + LIMIT + 1, HOLD, LIMIT, false, State.NEUTRAL, 0));
     }
 
     @Test
@@ -134,7 +137,8 @@ class RadialStrokeTest {
         assertTrue(r.update(500_000, HOLD, LIMIT, false, State.NEUTRAL, 450_000), "it aims again, from here");
         assertEquals(-1, r.selected(SLOTS, FLICK), "with a fresh stroke");
         assertTrue(r.update(500_000 + LIMIT - 1, HOLD, LIMIT, false, State.NEUTRAL, 450_000));
-        assertFalse(r.update(500_000 + LIMIT, HOLD, LIMIT, false, State.NEUTRAL, 450_000), "the limit restarted");
+        assertTrue(r.update(500_000 + LIMIT, HOLD, LIMIT, false, State.NEUTRAL, 450_000), "the closing step's end");
+        assertFalse(r.update(500_000 + LIMIT + 1, HOLD, LIMIT, false, State.NEUTRAL, 450_000), "the limit restarted");
     }
 
     @Test
@@ -191,7 +195,59 @@ class RadialStrokeTest {
         assertFalse(r.update(140_000, HOLD, LIMIT, false, State.NEUTRAL, 0));
         assertTrue(r.update(170_000, HOLD, LIMIT, false, State.NEUTRAL, 0));
         assertTrue(r.update(HOLD + LIMIT - 1, HOLD, LIMIT, false, State.NEUTRAL, 0));
-        assertFalse(r.update(HOLD + LIMIT, HOLD, LIMIT, false, State.NEUTRAL, 0), "closed two beats after the edge");
+        assertTrue(r.update(HOLD + LIMIT, HOLD, LIMIT, false, State.NEUTRAL, 0), "step 29's end, the closing step's");
+        assertFalse(r.update(HOLD + LIMIT + 1, HOLD, LIMIT, false, State.NEUTRAL, 0), "closed two beats after it");
+    }
+
+    @Test
+    void theLimitEndsWhereTheServerClosesIt_theEndOfTheOpeningStepPlusTheLimit() {
+        // the server opens it in the step its edge falls in (Micros.stepOf) and closes it at that step's end plus the
+        // limit's ticks (Combatant.advance): a release judged up to then still meets it (D-110's review, finding 5)
+        RadialStroke r = new RadialStroke();
+        r.press(10_000); // its edge at 160 ms, in step 4
+        assertFalse(r.update(10_000, HOLD, LIMIT, false, State.NEUTRAL, 0), "free at its press");
+        assertTrue(r.update(170_000, HOLD, LIMIT, false, State.NEUTRAL, 0));
+        assertTrue(
+                r.update(160_000 + LIMIT, HOLD, LIMIT, false, State.NEUTRAL, 0), "the edge plus the limit: open yet");
+        assertTrue(r.update(1_500_000, HOLD, LIMIT, false, State.NEUTRAL, 0), "the end of step 30");
+        assertFalse(r.update(1_500_001, HOLD, LIMIT, false, State.NEUTRAL, 0), "closed");
+
+        RadialStroke frame = new RadialStroke(); // a late open, at a frame in step 7: from step 7
+        frame.press(0);
+        assertFalse(frame.update(200_000, HOLD, LIMIT, true, State.NEUTRAL, 0));
+        assertTrue(frame.update(305_000, HOLD, LIMIT, false, State.NEUTRAL, 0));
+        assertTrue(frame.update(305_000 + LIMIT, HOLD, LIMIT, false, State.NEUTRAL, 0), "the frame plus the limit");
+        assertTrue(frame.update(1_650_000, HOLD, LIMIT, false, State.NEUTRAL, 0), "the end of step 33");
+        assertFalse(frame.update(1_650_001, HOLD, LIMIT, false, State.NEUTRAL, 0));
+    }
+
+    @Test
+    void aStepsEndClosesItAtTheLimitsStep_andOpensItThere() {
+        // a client tick's start stands at the end of an engine step, after the step's presses: the server's advance
+        // closes the radial at the closing step's end, and opens it at the end of the step that first finds it free
+        RadialStroke r = new RadialStroke();
+        r.press(10_000);
+        assertFalse(r.update(10_000, HOLD, LIMIT, false, State.NEUTRAL, 0));
+        assertTrue(r.update(170_000, HOLD, LIMIT, false, State.NEUTRAL, 0)); // from step 4
+        assertTrue(r.stepEnded(29, HOLD, LIMIT, false, State.NEUTRAL, 0));
+        assertFalse(r.stepEnded(30, HOLD, LIMIT, false, State.NEUTRAL, 0), "step 30's end closes it");
+        assertFalse(r.update(1_500_001, HOLD, LIMIT, false, State.NEUTRAL, 0), "spent");
+
+        RadialStroke late = new RadialStroke(); // its own attack over at step 6's end
+        late.press(0);
+        assertFalse(late.update(200_000, HOLD, LIMIT, true, State.NEUTRAL, 0));
+        assertFalse(late.stepEnded(5, HOLD, LIMIT, true, State.NEUTRAL, 0));
+        assertTrue(late.stepEnded(6, HOLD, LIMIT, false, State.NEUTRAL, 0), "free at step 6's end: open from step 6");
+        assertTrue(late.update(1_600_000, HOLD, LIMIT, false, State.NEUTRAL, 0), "a release in step 32 meets it");
+        assertFalse(late.update(1_600_001, HOLD, LIMIT, false, State.NEUTRAL, 0));
+
+        RadialStroke edge = new RadialStroke(); // free across the edge, first seen at a step's end: from the edge
+        edge.press(10_000);
+        assertFalse(edge.stepEnded(1, HOLD, LIMIT, false, State.NEUTRAL, 0));
+        assertFalse(edge.stepEnded(3, HOLD, LIMIT, false, State.NEUTRAL, 0), "150 ms: short of the hold");
+        assertTrue(edge.stepEnded(4, HOLD, LIMIT, false, State.NEUTRAL, 0), "its edge at 160 ms: open from step 4");
+        assertTrue(edge.stepEnded(29, HOLD, LIMIT, false, State.NEUTRAL, 0));
+        assertFalse(edge.stepEnded(30, HOLD, LIMIT, false, State.NEUTRAL, 0));
     }
 
     @Test
@@ -206,7 +262,8 @@ class RadialStrokeTest {
     void theLimitClosesItTwoBeatsAfterItsStart_noneOnAssist() {
         RadialStroke r = aiming();
         assertTrue(r.update(HOLD + LIMIT - 1, HOLD, LIMIT, false, State.NEUTRAL, 0));
-        assertFalse(r.update(HOLD + LIMIT, HOLD, LIMIT, false, State.NEUTRAL, 0), "closed with nothing fired");
+        assertTrue(r.update(HOLD + LIMIT, HOLD, LIMIT, false, State.NEUTRAL, 0), "the closing step's last µs");
+        assertFalse(r.update(HOLD + LIMIT + 1, HOLD, LIMIT, false, State.NEUTRAL, 0), "closed with nothing fired");
         assertFalse(r.update(HOLD + LIMIT + 50_000, HOLD, LIMIT, false, State.NEUTRAL, 0), "and spent");
         assertEquals(-1, r.release(30, 0, SLOTS, FLICK));
 

@@ -416,6 +416,33 @@ class OwnMovesTest {
                                 .aim(14)
                                 .release(FIRST, 14, false)), // 25 − 7.5 < 20
                 row(
+                        "... every one of them the snapshot can't show yet, however many (D-110's nit)",
+                        r -> r.shows(State.NEUTRAL, 50, false, 0, 5)
+                                .step(10)
+                                .steps(10)
+                                .step(17)
+                                .steps(17)
+                                .step(24)
+                                .steps(24)
+                                .step(31)
+                                .steps(31)
+                                .step(38)
+                                .steps(38) // 50 − 5 × 7.5 = 12.5
+                                .aim(45)
+                                .release(FIRST, 45, false)), // < 20
+                row(
+                        "... and none it can: they're let go, so a long fight holds only a round trip's",
+                        r -> r.shows(State.NEUTRAL, 100, false, 0, 5)
+                                .step(10)
+                                .steps(10)
+                                .step(17)
+                                .steps(17)
+                                .holds(17, 2)
+                                .shows(State.NEUTRAL, 85, false, 0, 17) // shows both
+                                .step(24)
+                                .steps(24)
+                                .holds(24, 1)),
+                row(
                         "at Mushin, on the beat, the finisher's frames",
                         r -> r.shows(State.NEUTRAL, 100, false, 20, 5)
                                 .aim(10)
@@ -557,6 +584,26 @@ class OwnMovesTest {
                                 .release(null, 23, false)
                                 .aim(40)
                                 .release(SECOND, 40, false)),
+                row(
+                        "... until its own Winded ends, though the last snapshot, a step older, still shows it",
+                        r -> r.shows(State.NEUTRAL, 100, false, 0, 5)
+                                .aim(10)
+                                .release(FIRST, 10, true)
+                                .breathe(22) // Winded from step 22 to 62 (Breath.wind)
+                                .release(null, 23, false)
+                                .shows(State.NEUTRAL, 100, true, 0, 61)
+                                .aim(62)
+                                .release(SECOND, 62, true)),
+                row(
+                        "... and a Winded the snapshot shows past its own end is the server's",
+                        r -> r.shows(State.NEUTRAL, 100, false, 0, 5)
+                                .aim(10)
+                                .release(FIRST, 10, true)
+                                .breathe(22)
+                                .release(null, 23, false)
+                                .shows(State.NEUTRAL, 100, true, 0, 62) // wound again at 0 Breath, say
+                                .aim(63)
+                                .release(SECOND, 63, false)),
 
                 // ---- the client's own bookkeeping
                 row(
@@ -567,8 +614,25 @@ class OwnMovesTest {
                                 .running(10, NONE)
                                 .blocked(10, false)),
                 row(
+                        "... and its Breath",
+                        r -> r.shows(State.NEUTRAL, 30, false, 0, 5)
+                                .aim(10)
+                                .release(FIRST, 10, true) // 30 − 20
+                                .withdraw(10)
+                                .aim(11)
+                                .release(SECOND, 11, true)), // 30 ≥ 25
+                row(
                         "a level change forgets its moves",
-                        r -> r.attack(13).reset().running(14, NONE)));
+                        r -> r.attack(13).reset().running(14, NONE)),
+                row(
+                        "a new timeline forgets its spends: their steps, the old one's, would all look newer",
+                        r -> r.shows(State.NEUTRAL, 10, false, 0, 5)
+                                .step(10)
+                                .steps(10) // 10 − 7.5, at step 10
+                                .epoch()
+                                .shows(State.NEUTRAL, 10, false, 0, 3) // the new timeline's step 3
+                                .step(20)
+                                .steps(20)));
     }
 
     @ParameterizedTest(name = "{0}")
@@ -685,6 +749,11 @@ class OwnMovesTest {
             return this;
         }
 
+        Run epoch() {
+            own.epoch();
+            return this;
+        }
+
         Run shows(State state, double breath, boolean winded, int rhythmPoints, long settled) {
             long max = Fixed.of(100);
             shown = new NetMessage.Snapshot(
@@ -719,6 +788,13 @@ class OwnMovesTest {
         Run steps(long tick) {
             startTo(tick);
             assertEquals(tick, own.takeStep(), "the Step's first tick");
+            return this;
+        }
+
+        /** It holds {@code spends} of its spends after tick {@code tick} starts. */
+        Run holds(long tick, int spends) {
+            startTo(tick);
+            assertEquals(spends, own.spendsHeld(), "the spends held after tick " + tick);
             return this;
         }
 

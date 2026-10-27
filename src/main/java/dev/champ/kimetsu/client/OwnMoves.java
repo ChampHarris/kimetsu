@@ -24,8 +24,8 @@ import org.jspecify.annotations.Nullable;
  * are a table test.
  *
  * <p>A press acts in the client tick after the one it's polled in, as it goes out at that tick's start; its stamp, the
- * combat clock's µs, judges its beat, and the Breath it spends is counted at the engine step it acts in
- * ({@code Micros.stepOf}). Each press runs at once if the state its own moves left allows it; otherwise the buffer
+ * combat clock's µs as the server judges it ({@link OwnPresses}: half its frame early), judges its beat, and the
+ * Breath it spends is counted at the engine step it acts in ({@code Micros.stepOf}). Each press runs at once if the state its own moves left allows it; otherwise the buffer
  * keeps it ({@code buffer_ticks}, the newest of each kind), and {@link #tick} runs it at the first tick start that does,
  * as the server's step polls its buffer: a Step by the attack's Step cancel or once its state is NEUTRAL or GUARD, a
  * Pommel from NEUTRAL, an attack from NEUTRAL or into the Light Chain's window. The guard comes up
@@ -39,8 +39,6 @@ import org.jspecify.annotations.Nullable;
  */
 final class OwnMoves {
     static final long NONE = Long.MIN_VALUE;
-
-    private static final int SPENDS = 4; // its last spends, whose Breath a snapshot may not show yet
 
     /** The rules it reads, one set per data generation and assist level, with the style's Pulse. */
     record Rules(Moveset moves, CombatRules rules, BreathRules breath, int assist, PulseSchedule pulse) {
@@ -59,7 +57,10 @@ final class OwnMoves {
     private long attackStart = NONE;
     private long attackEnd = NONE;
     private int chainHit = -1;
-    private int formSpend = -1; // a form's: its spend's slot, which a Feint gives back
+    // a form's: the Breath it paid (−1: not a form, or its grey bar is gone), which a Feint gives back and a Recovery
+    // Breath refunds a share of, and the engine step it paid at, for a release that never went
+    private long formCost = -1;
+    private long formAt = NONE;
     // the Light Chain's next hit (Rule 3.2): from tick chainFrom, for a press stamped by chainUntil
     private int chainNext;
     private long chainBeat = NONE;
@@ -76,10 +77,11 @@ final class OwnMoves {
     private long bufferedPommel = NONE;
     private long bufferedAttack = NONE;
     private long bufferedAttackStamp;
-    // Breath spent: the engine step and cost of its last spends (a cost of 0: never spent; below 0: given back)
-    private final long[] spentAt = new long[SPENDS];
-    private final long[] spent = new long[SPENDS];
-    private int spendHead;
+    // Breath spent (below 0: given back): the engine step and cost of each spend the last snapshot it ticked with can't
+    // show yet, however many (D-110's review); those it can are let go at the next tick
+    private long[] spentAt = new long[8];
+    private long[] spent = new long[8];
+    private int spends;
     private long lastFeintStep = NONE;
     private double lastFeintCost;
     // the Inhale (Combatant.inhale): a Breathe press, which its release may make a tap, judged as its press found it
@@ -94,10 +96,6 @@ final class OwnMoves {
         NONE, // mid-swing, mid-Step, guarding
         PLAIN, // from NEUTRAL: on the beat, Breath
         RECOVERY // in a form's recovery: on the beat, Breath and the form's back; off it, Winded
-    }
-
-    OwnMoves() {
-        Arrays.fill(spentAt, NONE);
     }
 
     // ------------------------------------------------------------------------------------------------- presses
@@ -203,11 +201,13 @@ final class OwnMoves {
         if (windedUntil != NONE && at < windedUntil) {
             return false; // its own Recovery Breath off the beat, which the snapshot may not show yet
         }
-        if (shown != null && (shown.winded() || breath(at, shown) < cost)) {
+        if (shown != null && (winded(shown) || breath(at, shown) < cost)) {
             return false;
         }
         start(fired, tick);
-        formSpend = spend(Micros.stepOf(micros), cost);
+        formCost = cost;
+        formAt = at;
+        spend(at, cost);
         resetChain();
         return true;
     }
@@ -232,11 +232,14 @@ final class OwnMoves {
     }
 
     /**
-     * The client tick {@code tick} starts at {@code micros} ({@code Combatant.advance}): the radial's limit closes it, a
-     * guard held into a recovery cancels it, a guard that comes up ends the Light Chain, presses held past the buffer
-     * go, and the rest that can run now do, Step first.
+     * The client tick {@code tick} starts at {@code micros} ({@code Combatant.advance}), the spends {@code shown} already
+     * shows let go: the radial's limit closes it, a guard held into a recovery cancels it, a guard that comes up ends
+     * the Light Chain, presses held past the buffer go, and the rest that can run now do, Step first.
      */
     void tick(long tick, long micros, NetMessage.@Nullable Snapshot shown, Rules r) {
+        if (shown != null) {
+            forget(shown.settledTick());
+        }
         if (closing) {
             radial = false; // its limit
             closing = false;
@@ -278,8 +281,10 @@ final class OwnMoves {
 
     /** The slotted release that would have started a form in {@code tick} never went (the lost focus restamped it). */
     void withdraw(long tick) {
-        if (attack != null && formSpend >= 0 && attackStart == tick) {
-            spent[formSpend] = 0;
+        if (attack != null && formCost >= 0 && attackStart == tick) {
+            if (formAt != NONE) {
+                spend(formAt, -formCost); // at its own step: never paid, whichever snapshot comes
+            }
             endAttack();
         }
     }
@@ -297,7 +302,8 @@ final class OwnMoves {
 
     /** A new timeline ({@code ClockEpoch}): its spends' steps and its stamps were on the old one. */
     void epoch() {
-        Arrays.fill(spentAt, NONE);
+        spends = 0;
+        formAt = NONE;
         lastFeintStep = NONE;
         tapAt = NONE;
         inhaleBeat = NONE;
@@ -317,6 +323,11 @@ final class OwnMoves {
     @Nullable
     FrameData attackAt(long tick) {
         return attack != null && tick >= attackStart && tick < attackEnd ? attack : null;
+    }
+
+    /** How many of its spends it holds: those the last snapshot it ticked with can't show yet (for its test). */
+    int spendsHeld() {
+        return spends;
     }
 
     /** The first tick of a Step that started since the last call, for the dash, or {@link #NONE}. */
@@ -375,15 +386,12 @@ final class OwnMoves {
         return true;
     }
 
-    /** The server's state as its last snapshot shows it lets a Step through: a hit, a hold or a fall doesn't. */
+    /**
+     * The server's state as its last snapshot shows it (null: a fresh fighter, standing) lets a Step through: a hit, a
+     * hold or a fall doesn't; an attack, a Step or the radial are its own presses' to tell, as for the radial.
+     */
     private static boolean stepAllowed(NetMessage.@Nullable Snapshot shown) {
-        if (shown == null) {
-            return true; // a fresh fighter: full Breath, standing
-        }
-        return switch (shown.state()) {
-            case NEUTRAL, GUARD, ATTACK, STEP, RADIAL -> true; // an attack, a Step or the radial: its own presses tell
-            default -> false;
-        };
+        return RadialStroke.opens(shown != null ? shown.state() : null);
     }
 
     /**
@@ -422,7 +430,7 @@ final class OwnMoves {
             attack = hit;
             attackStart = tick - hit.windup() - hit.active();
             attackEnd = tick + stumble;
-            formSpend = -1;
+            formCost = -1;
         }
         chainHit = -1;
         resetChain();
@@ -449,7 +457,7 @@ final class OwnMoves {
         attackStart = tick;
         attackEnd = tick + f.total();
         chainHit = -1;
-        formSpend = -1;
+        formCost = -1;
     }
 
     /**
@@ -465,10 +473,9 @@ final class OwnMoves {
         if (s == State.ATTACK
                 && f != null
                 && f.recoveryBreath()
-                && formSpend >= 0
-                && spent[formSpend] > 0
+                && formCost > 0
                 && phaseAt(f, Math.max(attackStart, tick - 1)) == Phase.RECOVERY) {
-            tapRefund = Math.round(spent[formSpend] * r.breath().recoveryRefundShare());
+            tapRefund = Math.round(formCost * r.breath().recoveryRefundShare());
             return Inhale.RECOVERY;
         }
         return Inhale.NONE;
@@ -491,7 +498,7 @@ final class OwnMoves {
             gain = Fixed.of(r.breath().onBeatInhale());
         }
         if (kind == Inhale.RECOVERY) {
-            formSpend = -1; // the grey bar: refunded or lost
+            formCost = -1; // the grey bar: refunded or lost
             if (beat != OnBeat.OFF_BEAT) {
                 gain += tapRefund;
             } else {
@@ -508,7 +515,7 @@ final class OwnMoves {
      * whether or not a snapshot shows it paid yet, and the Feint pays its own.
      */
     private void feint(long micros, MachineRules m) {
-        long back = formSpend >= 0 ? spent[formSpend] : 0;
+        long back = Math.max(formCost, 0);
         long at = Micros.stepOf(micros);
         double cost = lastFeintStep != NONE && at - lastFeintStep <= m.feintDoublingTicks()
                 ? lastFeintCost * 2
@@ -523,7 +530,7 @@ final class OwnMoves {
         attack = null;
         attackEnd = NONE;
         chainHit = -1;
-        formSpend = -1;
+        formCost = -1;
     }
 
     private void resetChain() {
@@ -570,6 +577,16 @@ final class OwnMoves {
         return OnBeat.beat(r.pulse(), micros, OnBeat.windowMicros(r.rules().timing(), r.assist()));
     }
 
+    /**
+     * Whether the snapshot shows a Winded its own moves don't account for. One settled inside its own off-beat Recovery
+     * Breath's spell shows that spell, whose end it knows to the step: the server's {@code Breath.wind} sets it
+     * outright, and Breath run down to 0 never stretches a spell already running. Anything else is the server's, with
+     * no end the snapshot tells, so it stands.
+     */
+    private boolean winded(NetMessage.Snapshot shown) {
+        return shown.winded() && (windedUntil == NONE || shown.settledTick() >= windedUntil);
+    }
+
     /** {@code Combatant.tryForm}'s Mushin: every point of Rhythm after the release's own judgment. */
     private static boolean mushin(NetMessage.@Nullable Snapshot shown, boolean offBeat, Rules r) {
         if (shown == null) {
@@ -583,20 +600,34 @@ final class OwnMoves {
     /** The Breath at engine step {@code at}: the snapshot's, less what its own moves spent after it was settled. */
     private long breath(long at, NetMessage.Snapshot shown) {
         long b = shown.breath().at(at);
-        for (int i = 0; i < SPENDS; i++) {
-            if (spentAt[i] != NONE && spentAt[i] > shown.settledTick()) {
+        for (int i = 0; i < spends; i++) {
+            if (spentAt[i] > shown.settledTick()) {
                 b -= spent[i];
             }
         }
         return b;
     }
 
-    /** Returns the spend's slot. */
-    private int spend(long at, long cost) {
-        int i = spendHead;
-        spentAt[i] = at;
-        spent[i] = cost;
-        spendHead = (spendHead + 1) % SPENDS;
-        return i;
+    private void spend(long at, long cost) {
+        if (spends == spent.length) { // more than a round trip's worth: rare, so it grows rather than forgets
+            spentAt = Arrays.copyOf(spentAt, spends * 2);
+            spent = Arrays.copyOf(spent, spends * 2);
+        }
+        spentAt[spends] = at;
+        spent[spends] = cost;
+        spends++;
+    }
+
+    /** Lets go of the spends a snapshot settled at engine step {@code settled} shows already. */
+    private void forget(long settled) {
+        int kept = 0;
+        for (int i = 0; i < spends; i++) {
+            if (spentAt[i] > settled) {
+                spentAt[kept] = spentAt[i];
+                spent[kept] = spent[i];
+                kept++;
+            }
+        }
+        spends = kept;
     }
 }
