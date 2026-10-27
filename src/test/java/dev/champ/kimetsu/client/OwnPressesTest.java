@@ -25,9 +25,9 @@ import org.junit.jupiter.params.provider.EnumSource;
  * closing step. Water's rules: the radial's hold 150 ms, its limit 2 beats (26 ticks), the beat 13 ticks (0.65 s), on it
  * within 120 ms; the Light Chain's window from a hit's 6th tick.
  *
- * <p>Client tick t starts at the end of engine step t, after the presses that act in it; the harness runs a press in the
- * tick after the last one started, as {@code ClientInput} does, and a test that skips a tick's start models a client
- * whose ticks start late in the step.
+ * <p>A press acts in the engine step it's judged into, every step end before it run first, as the server runs them
+ * (D-112); a client tick's start runs the step ends up to the step its pose carries, here tick t's step t. A test that
+ * skips a tick's start models a client whose ticks start late in the step.
  */
 class OwnPressesTest {
     private static final Moveset WATER = Fixtures.water();
@@ -188,6 +188,169 @@ class OwnPressesTest {
         assertTrue(r.p.radial.aiming(), "open from step 6");
     }
 
+    // ------------------------------------------------------------------------------------------- D-111's review
+    // (the server's order, D-112)
+
+    @Test
+    void aPressPolledAfterATickStartIsJudgedAfterTheStepEndItRan_soItMeetsTheRadialAsTheServerDoes() {
+        // the review's first probe: Breathe judged at 898 ms (its edge at 1,048 ms, in step 21) and the tick start at
+        // step 21's end opened the radial; an Attack polled 2 ms after it in a 16.7 ms frame would be judged at
+        // 1,045.667 ms, before the edge, where the server would start Chain 1 while the client aimed and held it. It
+        // goes out with its frame time cut to 8 ms, judged at 1,050.001 ms, after the step end the client ran: the
+        // server's radial is open there too, and holds it
+        Run r = new Run();
+        r.to(17);
+        r.key(PlayerIntake.Key.BREATHE, true, 906_333, 16_667); // judged at 898,000
+        r.to(21);
+        assertTrue(r.p.radial.aiming(), "open from step 21's end");
+        assertEquals(7_998, r.key(PlayerIntake.Key.ATTACK, true, 1_054_000, 16_667), "the frame time it goes out with");
+        r.to(22);
+        assertTrue(r.p.radial.aiming(), "the Attack held, the radial open");
+        r.running(22, NONE);
+        r.release(1_110_000, 0, 1); // Water Wheel, to the right
+        r.to(23);
+        r.running(23, WATER.radial(1));
+    }
+
+    @Test
+    void afterAHitchTheLaterPressGoesOutWithACutFrameTime_soTheServerRunsThemInTheClientsOrder() {
+        // the review's second probe: a Step polled at 1,040 ms in a 16.7 ms frame (judged at 1,031.667 ms), then an
+        // Attack a frame later carrying the hitch's 120 ms, which would be judged at 1,006.667 ms: the server would
+        // start Chain 1 and drop the Step the client dashed. It goes out with 50 ms, judged with the Step and after it
+        Run r = new Run();
+        r.to(20);
+        assertEquals(16_667, r.key(PlayerIntake.Key.STEP, true, 1_040_000, 16_667), "nothing to cut");
+        assertEquals(50_000, r.key(PlayerIntake.Key.ATTACK, true, 1_056_667, 120_000));
+        r.to(21);
+        assertEquals(21, r.p.moves.takeStep(), "the Step's first tick");
+        r.running(21, NONE);
+    }
+
+    @Test
+    void aPressIsNeverJudgedBeforeAFrameTheServerCounted_soAGuardAfterAHitchStillCounts() {
+        // InputHorizon.frame: a frame sent at 1,040 ms in a 16.7 ms frame tells the server the input up to 1,031.667 ms
+        // is in, so a strike whose impact is by then is decided; a guard polled next carrying a 100 ms frame would be
+        // judged at 1,000 ms, too late to count. It goes out judged just after the frame's horizon
+        Run r = new Run();
+        r.to(20);
+        r.p.sent(1_040_000, 16_667, RULES, null, null);
+        assertEquals(36_664, r.key(PlayerIntake.Key.GUARD, true, 1_050_000, 100_000), "judged at 1,031.668 ms");
+    }
+
+    @Test
+    void aPressJudgedPastTheNextTickStartsStepEndActsAfterIt_soItsBufferCountsFromItsOwnStep() {
+        // D-111 (c), the loop parity test's seed 1: a client tick that starts 11 ms into its step (144 fps) follows a
+        // press polled before it but judged into the step after; the server buffers it from there, behind the guard,
+        // and it's still in the buffer when the guard comes up 3 steps later
+        Run r = new Run();
+        r.key(PlayerIntake.Key.GUARD, true, 10_000, 0); // step 1
+        r.to(119);
+        r.key(PlayerIntake.Key.ATTACK, true, 6_005_332, 6_944); // judged at 6,001,860: step 121
+        r.to(123);
+        r.key(PlayerIntake.Key.GUARD, false, 6_165_044, 6_944); // judged at 6,161,572: step 124
+        r.to(124);
+        r.running(124, C1);
+    }
+
+    @Test
+    void anAimRaisesTheFloor_soAPressAfterAHitchMeetsTheRadialItOpened() {
+        // Breathe pressed at 10 ms: its edge at 160 ms, in step 4. A frame at 170 ms opens the radial there; an Attack
+        // polled next carrying a 100 ms frame would be judged at 125 ms, before the edge, where the server would run
+        // Chain 1 while the client aimed: it goes out judged at the frame's 170 ms, where the server's radial is open
+        // too
+        Run r = new Run();
+        r.key(PlayerIntake.Key.BREATHE, true, 10_000, 0);
+        r.to(3);
+        assertTrue(r.frame(170_000, 0), "open from step 4");
+        assertEquals(10_000, r.key(PlayerIntake.Key.ATTACK, true, 175_000, 100_000), "judged at 170 ms");
+        r.to(4);
+        assertTrue(r.p.radial.aiming(), "the Attack held, the radial open");
+        r.running(4, NONE);
+    }
+
+    @Test
+    void aCutPressIsJudgedWhereItGoesOut_soTheLightChainsWindowReadsTheCutStamp() {
+        // Chain 1 on beat 1 (650 ms): the next beat's window ends at 1,420 ms. A frame sent at 1,433.333 ms in a 16.7
+        // ms frame puts the server's horizon at 1,425 ms; an Attack polled at 1,460 ms in a 100 ms frame would be
+        // judged at 1,410 ms, in the window, but goes out judged at 1,425.001 ms, past it: Chain 1 again, as on the
+        // server
+        Run r = new Run();
+        r.to(12);
+        r.key(PlayerIntake.Key.ATTACK, true, 650_000, 0);
+        r.to(28);
+        r.p.sent(1_433_333, 16_667, RULES, null, null);
+        assertEquals(69_998, r.key(PlayerIntake.Key.ATTACK, true, 1_460_000, 100_000));
+        r.to(29);
+        r.running(29, C1);
+    }
+
+    @Test
+    void aSentFrameRunsTheStepsThroughItsHorizon_beforeASnapshotSettledThereCanCome() {
+        // the server settles a step once a frame's horizon passes it (InputHorizon, Timeline.settledThrough), so its
+        // own moves have run it by then and no snapshot is newer than they are: a Step held behind a Step starts at the
+        // first one's end as the frame goes, with no tick start since
+        Run r = new Run();
+        r.to(20);
+        r.key(PlayerIntake.Key.STEP, true, 1_010_000, 0); // step 21: STEP through step 26
+        assertEquals(21, r.p.moves.takeStep());
+        r.key(PlayerIntake.Key.STEP, true, 1_260_000, 0); // step 26: held
+        r.p.sent(1_360_000, 0, RULES, null, null); // its horizon past step 27's end
+        assertEquals(27, r.p.moves.takeStep(), "started at step 27's end");
+    }
+
+    @Test
+    void aGapPastTheCatchUpRunsOnlyItsLastStep() {
+        // the clock closed, or no rules, for a while: what the moves held back is over by then, so the steps between
+        // aren't run one by one (OwnPresses.CATCH_UP_STEPS)
+        Run r = new Run();
+        r.to(10);
+        int[] runs = {0};
+        r.p.stepped = s -> runs[0]++;
+        r.p.tick(10 + OwnPresses.CATCH_UP_STEPS, RULES, null, null);
+        assertEquals(OwnPresses.CATCH_UP_STEPS, runs[0], "a gap as long as the cap: each step");
+        runs[0] = 0;
+        r.p.tick(10 + 3L * OwnPresses.CATCH_UP_STEPS, RULES, null, null);
+        assertEquals(1, runs[0], "past it: the last alone");
+    }
+
+    @Test
+    void aReleaseAtAnExactTimeBeforeTheFloorActsInTheNextStepItsMovesRun() {
+        // a frame time of 0 can't be cut, so a press stamped before a step end its moves ran (the dev hooks fire at
+        // their due time) acts in the next step they run, a step late, never in one already ended (D-112's craft call
+        // b)
+        Run r = new Run();
+        r.key(PlayerIntake.Key.BREATHE, true, 10_000, 0); // its edge at 160 ms, in step 4
+        r.to(4); // open from step 4
+        r.release(195_000, 0, 1); // Water Wheel, judged at 195 ms, in step 4, whose end has run
+        r.to(5);
+        r.running(4, NONE);
+        r.running(5, WATER.radial(1));
+    }
+
+    @Test
+    void withdrawTakesBackTheFormTheLastSlottedReleaseStarted() {
+        // ClientInput.restampPending: the lost focus restamps a slotted release still waiting to go, so its form never
+        // fires on the server (it goes later, with no slot): the form its own moves started goes too
+        Run r = new Run();
+        r.key(PlayerIntake.Key.BREATHE, true, 10_000, 0);
+        r.to(4);
+        r.release(210_000, 0, 1); // Water Wheel, from step 5
+        r.p.withdraw();
+        r.to(5);
+        r.running(5, NONE);
+    }
+
+    @Test
+    void aNewTimelineStartsItsStepsAndItsFloorOver() {
+        // ClockEpoch: the new timeline's stamps start again behind the old one's, so the step a press acts in and the
+        // frame time it goes out with are the new timeline's
+        Run r = new Run();
+        r.to(100);
+        r.p.epoch();
+        assertEquals(16_667, r.key(PlayerIntake.Key.STEP, true, 160_000, 16_667), "nothing to cut on the new timeline");
+        assertEquals(4, r.p.moves.takeStep(), "the Step's first tick, step 4 of the new timeline");
+    }
+
     // ------------------------------------------------------------------------------------------- finding 5
 
     @Test
@@ -203,7 +366,7 @@ class OwnPressesTest {
         r.running(30, WATER.radial(0));
     }
 
-    /** One run: presses act in the tick after the last one started, each tick's start at its step's end. */
+    /** One run: presses act in the step they're judged into, client tick t's start at step t's end. */
     private static final class Run {
         final OwnPresses p = new OwnPresses();
         private NetMessage.@Nullable Snapshot shown; // none yet: a fresh fighter, full Breath, standing
@@ -230,18 +393,19 @@ class OwnPressesTest {
         /** Every client tick up to {@code tick} starts. */
         void to(long tick) {
             for (long t = ticked + 1; t <= tick; t++) {
-                p.tick(t, t, RULES, shown, shown);
+                p.tick(t, RULES, shown, shown);
             }
             ticked = Math.max(ticked, tick);
         }
 
         /** A render frame's own aim at {@code micros}, in a frame of {@code frameMicros}. */
         boolean frame(long micros, long frameMicros) {
-            return p.aim(micros, frameMicros, ticked, RULES, shown);
+            return p.aim(micros, frameMicros, RULES, shown, shown);
         }
 
-        void key(PlayerIntake.Key k, boolean down, long stampMicros, long frameMicros) {
-            p.key(k, down, ticked + 1, stampMicros, frameMicros, -1, RULES, shown, shown);
+        /** Returns the frame time it goes out with. */
+        long key(PlayerIntake.Key k, boolean down, long stampMicros, long frameMicros) {
+            return p.key(k, down, stampMicros, frameMicros, -1, RULES, shown, shown);
         }
 
         /**
@@ -249,7 +413,7 @@ class OwnPressesTest {
          * 45° stroke toward {@code slot} (−1: none), which fires only if it aims.
          */
         void release(long stampMicros, long frameMicros, int slot) {
-            p.aim(stampMicros, frameMicros, ticked, RULES, shown);
+            p.aim(stampMicros, frameMicros, RULES, shown, shown);
             double a = Math.toRadians(slot * 90.0);
             double deg = slot >= 0 ? 3 * FLICK : 0;
             int s = p.radial.release(
@@ -257,7 +421,7 @@ class OwnPressesTest {
                     -deg * Math.cos(a),
                     WATER.style().radial().size(),
                     FLICK);
-            p.key(PlayerIntake.Key.BREATHE, false, ticked + 1, stampMicros, frameMicros, s, RULES, shown, shown);
+            p.key(PlayerIntake.Key.BREATHE, false, stampMicros, frameMicros, s, RULES, shown, shown);
         }
 
         void running(long tick, @Nullable FrameData expected) {

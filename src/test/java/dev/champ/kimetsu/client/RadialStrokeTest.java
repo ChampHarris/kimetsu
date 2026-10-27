@@ -142,6 +142,25 @@ class RadialStrokeTest {
     }
 
     @Test
+    void aSnapshotSettledAtTheAimsStartThatShowsItShutEndsIt_untilARelease() {
+        // the backstop (D-112): settled where the server had opened the radial, a snapshot that doesn't show it open
+        // says it never did (a hold or a press the client couldn't see): the aim ends as a closed radial's does
+        RadialStroke r = aiming(); // open from step 3, its edge's
+        r.move(30, 0);
+        assertFalse(r.update(200_000, HOLD, LIMIT, false, State.ATTACK, 150_000), "settled at step 3's end: ATTACK");
+        assertFalse(r.update(600_000, HOLD, LIMIT, false, State.NEUTRAL, 550_000), "spent: it doesn't aim again");
+        assertEquals(-1, r.release(30, 0, SLOTS, FLICK), "and the release fires nothing");
+    }
+
+    @Test
+    void aSnapshotSettledBeforeTheAimsStartThatShowsItShutChangesNothing() {
+        // the server couldn't have opened it yet; one that shows it open is the server agreeing
+        RadialStroke r = aiming();
+        assertTrue(r.update(200_000, HOLD, LIMIT, false, State.ATTACK, 100_000), "settled at step 2's end");
+        assertTrue(r.update(250_000, HOLD, LIMIT, false, State.RADIAL, 150_000), "settled at step 3's: RADIAL");
+    }
+
+    @Test
     void aGuardPressWhileAimingClosesIt_untilARelease() {
         RadialStroke r = aiming();
         r.move(30, 0);

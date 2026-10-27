@@ -52,7 +52,8 @@ import org.jspecify.annotations.Nullable;
  * goes alone, with none. A Step (the Step key, or a double-tap of left, back or right:
  * {@link StepInput}) goes out like any press, at the next tick's start, and the client dashes ({@link ForcedMotion})
  * from the tick the server would start it, as its own moves tell ({@link OwnMoves}), which also gate the radial; both
- * hear its presses as the server will judge them ({@link OwnPresses}: half the press's frame early).
+ * hear its presses as the server will judge them, in the server's order ({@link OwnPresses}: half the press's frame
+ * early, never before what the client already acted on or sent, so a press after a hitch goes out with a shorter frame).
  * Presses of vanilla's Jump go out the same way and stay vanilla's (D-083; Sneak waits for the
  * juggle cut's drop, D-085). Breathe held past the radial's hold aims the radial while the server could open it
  * ({@link RadialStroke}): the camera holds still, the mouse's motion is the stroke, and a real key-up carries the slot it
@@ -92,6 +93,7 @@ final class ClientInput {
     private double[] dashPerTick = new double[0];
     private StepInput.Direction stepDirection = StepInput.Direction.BACK; // the keys held at the last Step's press
     private long clientTick; // the client tick running, or the last one run
+    private long lastPose = NONE; // the engine step its start stood at
     private final OwnPresses presses = new OwnPresses(); // its presses as the server will judge them (D-110's review)
     private final OwnMoves own = presses.moves;
     private OwnMoves.@Nullable Rules ownRules;
@@ -330,6 +332,10 @@ final class ClientInput {
     private void breatheUp(long nanos) {
         Minecraft mc = Minecraft.getInstance();
         ClientClock clock = combat.clock();
+        if (!pending.isEmpty()) {
+            // what waits goes first: its horizon could end a step, which must run while the stroke still aims
+            send(Util.getNanos(), InputHorizon.NO_TICK, pendingFrameMicros);
+        }
         double s = mc.options.sensitivity().get();
         int slot = slotAtRelease(
                 nanos,
@@ -379,7 +385,7 @@ final class ClientInput {
         if (clock == null || !clock.inputOpen() || r == null) {
             return false;
         }
-        return presses.aim(stampMicros, frameTimeMicros, clientTick, r, inCombat(nanos));
+        return presses.aim(stampMicros, frameTimeMicros, r, combat.view().snapshot(), inCombat(nanos));
     }
 
     /** The last snapshot, in combat; null out of it (D-107's craft call b). */
@@ -456,16 +462,17 @@ final class ClientInput {
 
     /**
      * The Step its own moves started ({@link OwnMoves#takeStep}), at once or from the buffer: the dash from the movement
-     * keys held at its press (none: a backstep), from the Step's first tick.
+     * keys held at its press (none: a backstep), from the client tick that stands at the Step's first engine step, as
+     * near as client tick {@code nextTick}, the first it can run in, standing at {@code nextPose} tells.
      */
-    private void startStep(OwnMoves.Rules r) {
+    private void startStep(OwnMoves.Rules r, long nextTick, long nextPose) {
         long at = own.takeStep();
         if (at != NONE) {
             dash.press(
                     dashTable(r.moves().step()),
                     stepDirection,
-                    at,
-                    at,
+                    nextTick,
+                    nextPose == NONE ? nextTick : nextTick + Math.max(0, at - nextPose),
                     r.rules().machine().bufferTicks());
         }
     }
@@ -652,7 +659,7 @@ final class ClientInput {
             if (d.key() == PlayerIntake.Key.BREATHE && !d.down()) {
                 pending.remove(i);
                 if (d.slot() >= 0) {
-                    own.withdraw(clientTick); // its form won't fire: the restamped release carries no slot
+                    presses.withdraw(); // its form won't fire: the restamped release carries no slot
                 }
                 deferRelease(nanos);
                 return;
@@ -688,16 +695,23 @@ final class ClientInput {
     }
 
     /**
-     * A press or release at {@code stampMicros}, going out with frame time {@code frameTimeMicros} (0: an exact time,
-     * no frame to correct for), which the server's half-frame correction and its own moves judge it by alike.
+     * A press or release at {@code stampMicros} polled in a frame of {@code frameTimeMicros} (0: an exact time, no frame
+     * to correct for). It goes out with that frame time, or a shorter one where half of it would judge the press before
+     * what the client already acted on or sent ({@link OwnPresses#frameTime}), which the server's half-frame correction
+     * and its own moves judge it by alike.
      */
     private void delta(PlayerIntake.Key k, boolean down, long stampMicros, int slot, long frameTimeMicros) {
-        if (!pending.isEmpty() && (pendingFrame != renderFrame || pendingFrameMicros != frameTimeMicros)) {
-            send(Util.getNanos(), InputHorizon.NO_TICK, pendingFrameMicros); // another render frame, or frame time
+        if (!pending.isEmpty() && pendingFrame != renderFrame) {
+            send(Util.getNanos(), InputHorizon.NO_TICK, pendingFrameMicros); // another render frame
+        }
+        long f = frameTime(stampMicros, frameTimeMicros);
+        if (!pending.isEmpty() && pendingFrameMicros != f) {
+            send(Util.getNanos(), InputHorizon.NO_TICK, pendingFrameMicros); // another frame time
+            f = frameTime(stampMicros, frameTimeMicros); // the frame that went is the server's horizon now
         }
         if (pending.isEmpty()) {
             pendingFrame = renderFrame;
-            pendingFrameMicros = frameTimeMicros;
+            pendingFrameMicros = f;
         }
         if (down) {
             held |= k.bit();
@@ -714,13 +728,22 @@ final class ClientInput {
             held &= ~k.bit();
             pending.add(PlayerIntake.Delta.release(k, stampMicros, slot));
         }
-        own(k, down, stampMicros, frameTimeMicros, slot);
+        own(k, down, stampMicros, f, slot);
+    }
+
+    /** The frame time a press stamped {@code stampMicros} in a frame of {@code frameTimeMicros} goes out with. */
+    private long frameTime(long stampMicros, long frameTimeMicros) {
+        OwnMoves.Rules r = ownRules();
+        return r != null
+                ? presses.frameTime(stampMicros, frameTimeMicros, r.rules().timing())
+                : frameTimeMicros;
     }
 
     /**
-     * What a press or release the server will see starts of its own ({@link OwnPresses}), acting in the next tick, as
-     * the server will judge it (its frame time's half early, the radial brought up to it); a Step dashes from its
-     * start, at once or from the buffer, along the movement keys held now.
+     * What a press or release the server will see starts of its own ({@link OwnPresses}), acting in the engine step the
+     * server judges it into, by the frame time it goes out with ({@code frameTimeMicros}, the radial and its moves
+     * brought up to it in the server's order); a Step dashes from its start, at once or from the buffer, along the
+     * movement keys held now.
      */
     private void own(PlayerIntake.Key k, boolean down, long stampMicros, long frameTimeMicros, int slot) {
         OwnMoves.Rules r = ownRules();
@@ -739,17 +762,9 @@ final class ClientInput {
                     o.keyUp.isDown(), o.keyDown.isDown(), o.keyLeft.isDown(), o.keyRight.isDown());
         }
         presses.key(
-                k,
-                down,
-                clientTick + 1,
-                stampMicros,
-                frameTimeMicros,
-                slot,
-                r,
-                combat.view().snapshot(),
-                inCombat(Util.getNanos()));
+                k, down, stampMicros, frameTimeMicros, slot, r, combat.view().snapshot(), inCombat(Util.getNanos()));
         if (step) {
-            startStep(r);
+            startStep(r, clientTick + 1, lastPose == NONE ? NONE : lastPose + 1);
         }
     }
 
@@ -814,9 +829,9 @@ final class ClientInput {
     }
 
     /**
-     * The tick's start for {@link OwnMoves}, at the end of the engine step its pose frame carries ({@link #poseTick}),
-     * as the server's step runs it ({@link OwnPresses#tick}): the radial opens or closes first (an attack that ends now
-     * lets it open), then what its own moves held back runs, a Step's dash from this tick.
+     * The tick's start for {@link OwnMoves}: every engine step up to the one its pose frame carries ({@link #poseTick})
+     * has ended, as the server runs them ({@link OwnPresses#tick}): at each the radial opens or closes first (an attack
+     * that ends there lets it open), then what its own moves held back runs, a Step's dash from this tick.
      */
     private void ownTick(long nanos) {
         ClientClock clock = combat.clock();
@@ -824,8 +839,9 @@ final class ClientInput {
         if (clock == null || !clock.inputOpen() || r == null) {
             return;
         }
-        presses.tick(clientTick, poseTick(clock), r, combat.view().snapshot(), inCombat(nanos));
-        startStep(r);
+        lastPose = poseTick(clock);
+        presses.tick(lastPose, r, combat.view().snapshot(), inCombat(nanos));
+        startStep(r, clientTick, lastPose);
     }
 
     /** {@code ClientTickEvent.Post}, after vanilla's movement and tick-end packets: the tick's pose frame. */
@@ -867,7 +883,8 @@ final class ClientInput {
      */
     void onEpoch() {
         lastTickTime = Long.MIN_VALUE;
-        own.epoch();
+        lastPose = NONE;
+        presses.epoch();
         jumpAt = Long.MIN_VALUE; // the dev hook's, on the old timeline
         radial.cancel(); // its press is on the old timeline: the release carries no slot
     }
@@ -894,9 +911,15 @@ final class ClientInput {
         int n = Math.min(pending.size(), NetCodec.MAX_DELTAS);
         List<PlayerIntake.Delta> out = new ArrayList<>(pending.subList(0, n));
         pending.subList(0, n).clear(); // the rest go in the next frame
+        long stamp = clock.micros(nanos);
         ClientPacketDistributor.sendToServer(new NetMessage.InputFrame(
-                new PlayerIntake.Frame(seq++, clock.micros(nanos), frameTime, tickTime, clock.epoch(), held, out)));
+                new PlayerIntake.Frame(seq++, stamp, frameTime, tickTime, clock.epoch(), held, out)));
         heldSent = held;
+        OwnMoves.Rules r = ownRules();
+        if (r != null) {
+            // the server's input horizon reaches it (InputHorizon.frame): no press still to come is judged before it
+            presses.sent(stamp, frameTime, r, combat.view().snapshot(), inCombat(nanos));
+        }
     }
 
     // ------------------------------------------------------------------------------------------------- the overlay

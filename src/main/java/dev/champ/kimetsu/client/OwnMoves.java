@@ -23,12 +23,13 @@ import org.jspecify.annotations.Nullable;
  * radial's "blocked", the Step's dash and the attack gate all read one answer. Kept free of game state, so its cases
  * are a table test.
  *
- * <p>A press acts in the client tick after the one it's polled in, as it goes out at that tick's start; its stamp, the
- * combat clock's µs as the server judges it ({@link OwnPresses}: half its frame early), judges its beat, and the
- * Breath it spends is counted at the engine step it acts in ({@code Micros.stepOf}). Each press runs at once if the state its own moves left allows it; otherwise the buffer
- * keeps it ({@code buffer_ticks}, the newest of each kind), and {@link #tick} runs it at the first tick start that does,
- * as the server's step polls its buffer: a Step by the attack's Step cancel or once its state is NEUTRAL or GUARD, a
- * Pommel from NEUTRAL, an attack from NEUTRAL or into the Light Chain's window. The guard comes up
+ * <p>Ticks are engine steps, run in the server's order ({@link OwnPresses}): a press acts in the step it's judged
+ * into, before that step's end; its stamp, the combat clock's µs as the server judges it, judges its beat, and the
+ * Breath it spends is counted at that step. Each press runs at once if the state its own moves left allows it;
+ * otherwise the buffer keeps it ({@code buffer_ticks}, the newest of each kind), and {@link #tick} runs it at the first
+ * step's end that does, as the server's step polls its buffer: a Step by the attack's Step cancel or once its state is
+ * NEUTRAL or GUARD, a Pommel from NEUTRAL, an attack from NEUTRAL or into the Light Chain's window, which closes at its
+ * deadline whether or not a press waits for it. The guard comes up
  * {@code guard_hold_ticks} after its press, so offence pressed before then runs from NEUTRAL. A guard press or a Step
  * drops a held attack and Pommel; the radial aiming (the server's RADIAL) holds them all, and its close with nothing
  * fired lets them run, unless a hit closed it. A guard press in a form's Feint window ends it (its Breath back, the Feint's paid);
@@ -232,9 +233,10 @@ final class OwnMoves {
     }
 
     /**
-     * The client tick {@code tick} starts at {@code micros} ({@code Combatant.advance}), the spends {@code shown} already
+     * Engine step {@code tick} ends at {@code micros} ({@code Combatant.advance}), the spends {@code shown} already
      * shows let go: the radial's limit closes it, a guard held into a recovery cancels it, a guard that comes up ends
-     * the Light Chain, presses held past the buffer go, and the rest that can run now do, Step first.
+     * the Light Chain, presses held past the buffer go, the rest that can run now do, Step first, and a Light Chain past
+     * its window's deadline starts over.
      */
     void tick(long tick, long micros, NetMessage.@Nullable Snapshot shown, Rules r) {
         if (shown != null) {
@@ -276,6 +278,9 @@ final class OwnMoves {
         }
         if (bufferedAttack != NONE && runAttack(tick, bufferedAttackStamp, r, false)) {
             bufferedAttack = NONE;
+        }
+        if (chainNext > 0 && micros >= chainUntil) {
+            resetChain(); // no press by the end of the next beat's window: it starts over, a held one too
         }
     }
 

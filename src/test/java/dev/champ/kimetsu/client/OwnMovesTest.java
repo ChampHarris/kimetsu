@@ -321,6 +321,11 @@ class OwnMovesTest {
                 row(
                         "a guard let go before it comes up doesn't",
                         r -> r.attack(13).guard(25).unguard(26).attack(27).running(27, C2)),
+                row(
+                        "the chain starts over at its deadline, though a press in its window waits in the buffer",
+                        // Combatant.advance: the next beat's window ends at 1,420 ms, so step 29's end restarts it;
+                        // the press the radial held (on beat 2) runs at step 30 as Chain 1 (the parity test's seed 657)
+                        r -> r.attack(13).aim(25).attack(27).closes(30).running(30, C1)),
 
                 // ---- should-fix 2: a Feint or Water's guard-cancel ends the form's gate
                 row(

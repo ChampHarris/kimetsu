@@ -22,8 +22,10 @@ import org.jspecify.annotations.Nullable;
  * <p>The aim ends at a guard press (the radial cancels into GUARD), at the end of its opening step plus the radial's
  * limit (none on assist, D-036), where the server's {@code advance} closes it (a release judged in that last step still
  * meets it), or when a snapshot settled in or after the opening step shows a hit, a hold or a fall that closed the
- * radial; ended, it doesn't aim again until a release, as the server's {@code radialSpent}. A snapshot settled before
- * the opening step that shows one only delays it: the server couldn't have opened the radial yet. At the release
+ * radial, or shows anything else but RADIAL: the server never opened it (a windup it held, a press it cut or dropped,
+ * none of which the client sees), the backstop of D-112; ended, it doesn't aim again until a release, as the server's
+ * {@code radialSpent}. A snapshot settled before the opening step only delays it: the server couldn't have opened the
+ * radial yet. At the release
  * the slot is the on-axis sector the stroke points into ({@link #slot}), or −1 inside {@code machine.radial_flick_deg}
  * or when it isn't aiming. It's drawn once Breathe has been held to {@code machine.radial_reveal_ms} while it aims, so a
  * practised flick fires without the menu appearing.
@@ -160,6 +162,8 @@ final class RadialStroke {
             long close = limitMicros != NO_LIMIT ? openStep + limitMicros / Micros.PER_TICK : NONE;
             if (!opens) {
                 end(shownSettledMicros >= Micros.ofTicks(openStep)); // settled before it: the server hadn't opened it
+            } else if (shown != State.RADIAL && shown != null && shownSettledMicros >= Micros.ofTicks(openStep)) {
+                end(true); // the backstop: settled where the server would show it open, it never opened it (D-112)
             } else if (close != NONE && (stepEnd ? step >= close : step > close)) {
                 end(true); // it closed with nothing fired
             }
