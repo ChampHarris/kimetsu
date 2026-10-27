@@ -2791,10 +2791,11 @@ public final class CombatGameTests {
      * A client's assist level reaches the judge and changes only out of combat (5d-2, D-104). Asked for 2 before any
      * fight, a guard pressed 200 ms before a swipe's impact deflects: Rule 2's 150 ms window is ×1.5 on assist 2, where
      * unassisted the early press whiffs and the guard held through the impact blocks. Asked for 3 once that strike is
-     * decided, mid-fight (four times on four ticks, the audio offset moving), the next swipe's press at the same offset
-     * still deflects, where level 3 would make it a Perfect; the 3 lands once the combat flag drops, and the client
-     * hears it then. The fight log's {@code settings} lines carry the fight's first second (asked 2, at 2, the
-     * offsets), the asks mid-fight in at most one line a second (3, still 2), and the change.
+     * decided and the fight's first second logged, mid-fight (four times on four ticks, the audio offset moving, all
+     * before the next swipe starts), the next swipe's press at the same offset still deflects, where level 3 would
+     * make it a Perfect; the 3 lands once the combat flag drops, and the client hears it then. The fight log's {@code
+     * settings} lines carry the fight's first second (asked 2, at 2, the offsets), the asks mid-fight in at most one
+     * line a second (3, still 2), and the change.
      */
     private static void assistChangesOnlyOutOfCombat(GameTestHelper h) {
         floor(h);
@@ -2819,15 +2820,22 @@ public final class CombatGameTests {
         long rtt = Micros.ofMillis(50); // the seam's echo
         List<Long> impacts = new ArrayList<>();
         List<Outbox.StrikeResult> results = new ArrayList<>();
+        List<String> timeline = new ArrayList<>(); // when each strike started and ended, and the asks went
+        int[] asked = {0}; // the settings sent mid-fight: four on four ticks, the offsets moving, as a spammer would
+        int[] askedBySecondSwipe = {-1}; // how many had gone when the second swipe started
         arena.listen(e -> {
             if (e instanceof Outbox.AttackStarted a && a.target() == p.getId()) {
                 impacts.add(Micros.ofTicks(a.impactTick()));
+                timeline.add("started " + arena.lastStep() + " (impact " + a.impactTick() + ")");
+                if (impacts.size() == 2) {
+                    askedBySecondSwipe[0] = asked[0];
+                }
             } else if (e instanceof Outbox.StrikeResult r && r.fighter() == p.getId()) {
                 results.add(r);
+                timeline.add("result " + arena.lastStep());
             }
         });
         int[] sent = {0, 0}; // the guard presses sent, and their releases
-        int[] asked = {0}; // the settings sent mid-fight: four on four ticks, the offsets moving, as a spammer would
         long[] combatUntil = {Long.MIN_VALUE}; // where the flag drops once both strikes are decided
         h.onEachTick(() -> {
             long now = Micros.ofTicks(arena.nextTick());
@@ -2845,9 +2853,14 @@ public final class CombatGameTests {
                     sent[1]++;
                 }
             }
-            if (results.size() >= 1 && asked[0] < 4) {
+            // once the fight's first second is in the log too (any second line is this player's: the arena holds no
+            // other): the log writes the latest settings once a second, so an ask before it would be that second's
+            // line, and the first result's phase against the arenas' seconds, which game time sets, would decide the
+            // test (D-114)
+            if (results.size() >= 1 && asked[0] < 4 && into.getBuffer().indexOf("\"t\":\"second\"") >= 0) {
                 int[] audio = {30, 31, 32, 30};
                 sessions.settingsForTest(p, new NetMessage.ClientSettings(3, audio[asked[0]++], -20));
+                timeline.add("ask " + arena.lastStep());
             }
             PlayerSession s = sessions.session(p.connection);
             Fighter f = s != null ? s.fighter() : null;
@@ -2858,6 +2871,7 @@ public final class CombatGameTests {
         h.succeedWhen(() -> {
             h.assertTrue(results.size() == 2 && combatUntil[0] != Long.MIN_VALUE, "the strikes so far: " + results);
             h.assertValueEqual(results.get(0).kind(), Verdict.Kind.DEFLECT, "the first swipe, guarded 200 ms early");
+            h.assertValueEqual(askedBySecondSwipe[0], 4, "the asks gone as the second swipe started: " + timeline);
             h.assertValueEqual(results.get(1).kind(), Verdict.Kind.DEFLECT, "the second, 3 asked for before it");
             long told = assistTold(got, p, 3);
             h.assertTrue(
@@ -2885,7 +2899,8 @@ public final class CombatGameTests {
                             30,
                             "visualOffsetMs",
                             -20),
-                    "no settings line in the fight's first second");
+                    "no settings line in the fight's first second: " + timeline + "; the log's settings and seconds: "
+                            + settingsAndSeconds(lines, id));
             int mid = count(lines, "settings", "id", id, "assistAsked", 3, "assist", 2);
             h.assertTrue(mid >= 1 && mid <= 2, mid + " lines for the four asks mid-fight: at most one a second");
             h.assertTrue(has(lines, "settings", "id", id, "assistAsked", 3, "assist", 3), "none for the change to 3");
@@ -3086,6 +3101,23 @@ public final class CombatGameTests {
         } finally {
             KimetsuSyncedConfig.overrideForTest(null);
         }
+    }
+
+    /** Player {@code id}'s {@code settings} lines whole and its {@code second} lines' steps, for a failure's message. */
+    private static String settingsAndSeconds(List<JsonObject> lines, int id) {
+        StringBuilder b = new StringBuilder();
+        for (JsonObject o : lines) {
+            String t = o.get("t").getAsString();
+            if (!o.has("id") || o.get("id").getAsInt() != id) {
+                continue;
+            }
+            if (t.equals("settings")) {
+                b.append(o).append(' ');
+            } else if (t.equals("second")) {
+                b.append("second ").append(o.get("n").getAsLong()).append(' ');
+            }
+        }
+        return b.toString();
     }
 
     /** Whether a line of type {@code t} has each key-value pair of {@code pairs} (numbers as ints). */
