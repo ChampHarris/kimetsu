@@ -4,7 +4,7 @@
 
 ## Now
 
-- **Date:** 2026-10-27 · **Milestone:** M1. Spec `m1-combat-core` **APPROVED** (D-032). Slice 5d (`cryptic-hatching-pearl.md`, D-096); 5d-1 committed. 5d-2 (`C:/Users/morga/.claude/plans/swift-flicking-crane.md`, D-104): Steps 1–3 committed (D-105 to D-113). CI on b2a6fa7: one GameTest flaked on game time's phase, fixed test-side (D-114, `code-reviewer`: ship).
+- **Date:** 2026-10-27 · **Milestone:** M1. Spec `m1-combat-core` **APPROVED** (D-032). Slice 5d (`cryptic-hatching-pearl.md`, D-096); 5d-1 committed. 5d-2 (`C:/Users/morga/.claude/plans/swift-flicking-crane.md`, D-104): Steps 1–3 committed (D-105 to D-113). CI on b2a6fa7: one GameTest flaked on game time's phase, fixed test-side (D-114, `code-reviewer`: ship), committed as b4b5945 (Champ's OK), CI green.
 - **Next:**
   1. The plan's Step 4, lock-on (`swift-flicking-crane.md`; Champ, D-104: the cone 30° each side): red first, build, mutants, gate, MCTest, `code-reviewer`, commit with Champ's OK. Its survey is done (below).
 - **Waiting on Champ:** D-113's craft calls (a) and (c); D-112's craft calls (a) to (g) and errata; D-111's review nits and craft calls (a), (b), (d); D-109's found item (a tap's Inhale at its press or its release); the craft calls of D-109 back to D-105; D-104's errata; older items as before (D-103 back to D-071's errata and calls, the two hand checks, OMC's routing, the GDD merges and R-items).
