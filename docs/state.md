@@ -1,6 +1,6 @@
 # State
 
-`/session-close` rewrites the `## Now` section; `## History` is append-only.
+`/session-close` rewrites the `## Now` section; `## Later milestones` holds notes for specs not yet written; `## History` is append-only.
 
 ## Now
 
@@ -15,6 +15,11 @@
 - **Still unverified from 5c-3a:** a Step's CLEARED end to end; Left Alt under a real alt-tab; tapped jumps on stairs or under a low ceiling; `slippery_scale` (from vanilla's physics, no blue-ice trace yet).
 - **Known limits:** a relog or a portal mid-fight starts a fresh fighter out of combat (D-068), and so lets the assist level change mid-fight (D-106, deferred); after a re-anchor the client's flag can sit on the old numbering until frames flow; presses out of the fight, or that `leave()`/`retime` discard, reach no log; a log file keeps its opening date; lines under `/tick freeze` wait for the next flush (D-069). From 5b: MCTest sent stray clicks after a respawn (5b's −100 ms HIT after a grab didn't recur in 10 tries, D-091; its record would name the gate). New (D-071 to D-073): a free dash of up to 4.78 blocks, more than a Step, since honest stair-running covers 3.98 (D-070's limit, grown; the flag counts flat ones, and a cheater who climbs 1.5 evades it); a teleport that fires no `EntityTeleportEvent` is clamped and walks after the player (none in M1); a Step ends vanilla's sprint (no forward impulse during the dash); momentum carried off ice past the window is clamped; Swiftness III and up gain more than `speed_gain` models (beyond vanilla survival). From D-079's netcode review: a client that ignores the push, stalls or inflates its RTT never splats; a launch can land early (downward moves freely); the push opens the bound 2 blocks in any direction and up; pose stamps within tolerance shift a contact up to 80 ms. From D-082 and D-084: a flush wall is logged on the push's first tick even for a client that starts it a tick late; a second push replaces one still waiting; a splat whose contact left the ring publishes nothing; a Step during a running push is sent while its dash is dropped; a single-player pause plays a push out without moving the player. From D-085: a hop before a push arrives; a throw's floor (a hop while GRABBED); the KNOCKDOWN hold a round trip late at both ends; a modified client can always Tech (before PvP); movement keys free while down (step 5). From D-086: a graze that slides onto a slab or stair can still splat (no step-up in the sweep); a pose within a touch of a wall counts as touching it; From D-088: a demon grazing onto a slab or stair stops at its riser (no step-up in the slide); a demon looks for a wall only during its push. Unexplained, harmless so far: `moveRise` read 0.757 in the second after two of three leaps (no clamps).
 - **Unverified until the grey box:** the real reach sizes and dodge windows (D-040), the lunge standoff, the clang recoil and escape reel by feel, chipping and the guard counter, a beat's warning of the head turn, the overdue string's window, the 40-tick air limit, the demon's walk and circle; D-057's RTT rule against real jitter (step 5).
+
+## Later milestones
+Read a milestone's notes before `/forge` writes its spec.
+- **M3 (demon core and Kizuki path), D-124, PROPOSED:** the spec must (1) add a demon-side duel sim (a demon player against a Slayer bot) beside `tools/sims/duel_sim.py`; (2) make the gate measure enjoyment on both sides, not only the GDD's 45–55% Slayer vs demon win rate: every tester plays both sides, and the demon side rates at least as fun as the Slayer side; (3) check that a demon player has meaningful things to do by day (lairs, shade and underground routes) and isn't starved at night. No design yet.
+- **M6 (paths and endgame powers), D-124, PROPOSED:** cover Hybrid players' fights the same way when M6 is specced.
 
 ## History
 - 2026-10-12 to 10-16: GDD Rounds 1–5 on claude.ai (see `docs/gdd/merge-log.md`).
