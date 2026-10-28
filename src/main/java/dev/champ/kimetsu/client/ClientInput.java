@@ -2,7 +2,9 @@ package dev.champ.kimetsu.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.champ.kimetsu.combat.LevelGround;
+import dev.champ.kimetsu.config.KimetsuClientConfig;
 import dev.champ.kimetsu.core.clock.Micros;
+import dev.champ.kimetsu.core.data.FightRules;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.MachineRules;
 import dev.champ.kimetsu.core.data.Moveset;
@@ -28,8 +30,10 @@ import net.minecraft.client.resources.language.I18n;
 import net.minecraft.commands.arguments.EntityAnchorArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.util.Mth;
 import net.minecraft.util.Util;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
@@ -57,7 +61,9 @@ import org.jspecify.annotations.Nullable;
  * Presses of vanilla's Jump go out the same way and stay vanilla's (D-083; Sneak waits for the
  * juggle cut's drop, D-085). Breathe held past the radial's hold aims the radial while the server could open it
  * ({@link RadialStroke}): the camera holds still, the mouse's motion is the stroke, and a real key-up carries the slot it
- * points into; every release a screen, the pause, the blade or the lost focus forces carries none. Main thread only.
+ * points into; every release a screen, the pause, the blade or the lost focus forces carries none. Lock-on's key is the
+ * client's own and never goes on the wire ({@link LockOn}, Rule 13.3): its press is taken under the combat keys' rule, a
+ * tap or a hold acts on it, and each render frame the lock eases the look toward its target. Main thread only.
  */
 final class ClientInput {
     private static final int GUARDS = 16; // guard presses kept for the overlay's offsets
@@ -106,6 +112,11 @@ final class ClientInput {
     private @Nullable CombatData labelsData;
     private String labelsLanguage = "";
 
+    // lock-on (Rule 13.3, D-104): the client's own, no wire key
+    private final LockOn lock = new LockOn();
+    private @Nullable LocalPlayer lockPlayer; // the player object that locked: a respawn makes a new one, with its id
+    private boolean turned; // this render frame's turn event ran, and eased the lock
+
     // the dev hook (spec Tools: a guard press at an exact combat time)
     private boolean armed;
     private long armOffsetMicros;
@@ -138,6 +149,9 @@ final class ClientInput {
             return;
         }
         InputConstants.Key key = InputConstants.Type.MOUSE.getOrCreate(e.getButton());
+        if (KimetsuKeys.lockOn(key) && lockKey(e.getAction() == InputConstants.PRESS, true, nanos)) {
+            e.setCanceled(true); // vanilla's pick block never sees it
+        }
         PlayerIntake.Key k = KimetsuKeys.combatKey(key);
         if (k != null && capture(k, key, e.getAction() == InputConstants.PRESS, true, nanos)) {
             e.setCanceled(true);
@@ -160,6 +174,9 @@ final class ClientInput {
                 && !key.equals(InputConstants.UNKNOWN)
                 && KimetsuKeys.DEBUG_OVERLAY.getKey().equals(key)) {
             overlay = !overlay;
+        }
+        if (KimetsuKeys.lockOn(key)) {
+            lockKey(e.getAction() == InputConstants.PRESS, false, nanos); // a key event can't be cancelled
         }
         PlayerIntake.Key k = KimetsuKeys.combatKey(key);
         if (k != null) {
@@ -254,16 +271,23 @@ final class ClientInput {
 
     /**
      * Vanilla's attack or use triggered anyway: stopped, with no swing and no punch packet, while the blade is held,
-     * except an attack that mines (D-055), whose held click keeps mining only while it's still away from fights.
+     * except an attack that mines (D-055), whose held click keeps mining only while it's still away from fights; and
+     * pick block on lock-on's key, the capture's backstop ({@link CaptureRules#stopPick}).
      */
     void interaction(InputEvent.InteractionKeyMappingTriggered e) {
         LocalPlayer p = Minecraft.getInstance().player;
-        if (p != null
-                && CaptureRules.stopVanilla(
-                        NichirinItem.isBlade(p.getMainHandItem()),
+        if (p == null) {
+            return;
+        }
+        boolean blade = NichirinItem.isBlade(p.getMainHandItem());
+        if (CaptureRules.stopVanilla(
+                        blade,
                         e.isAttack() && !CaptureRules.mines(true, onBlock(), combat.fighting(p, Util.getNanos())),
                         e.isUseItem(),
-                        Minecraft.getInstance().options.keyShift.isDown())) {
+                        Minecraft.getInstance().options.keyShift.isDown())
+                || (e.isPickBlock()
+                        && CaptureRules.stopPick(
+                                blade, KimetsuKeys.lockOn(e.getKeyMapping().getKey())))) {
             e.setCanceled(true);
             e.setSwingHand(false);
         }
@@ -394,13 +418,16 @@ final class ClientInput {
     }
 
     /**
-     * {@code CalculatePlayerTurnEvent}, once a render frame as the mouse turns the camera (only while it's grabbed):
-     * while the radial aims, the frame's motion is its stroke ({@code getXVelocity}/{@code getYVelocity} are this
-     * frame's pixel deltas, not velocities) and the camera holds still, at vanilla's exact zero with the cinematic camera
-     * off, so its smoother keeps no remainder to play out after the hold. A release's frame stays frozen too
-     * ({@link #slotAtRelease}).
+     * {@code CalculatePlayerTurnEvent}, once a render frame as the mouse turns the camera (only while it's grabbed),
+     * after the frame's client ticks and before it's drawn: lock-on eases the look ({@link #easeLock}), and while the
+     * radial aims, the frame's motion is its stroke ({@code getXVelocity}/{@code getYVelocity} are this frame's pixel
+     * deltas, not velocities) and the mouse turns nothing, at vanilla's exact zero with the cinematic camera off, so its
+     * smoother keeps no remainder to play out after the hold; the lock still turns it, so a flicked form fires at the
+     * target. A release's frame stays frozen too ({@link #slotAtRelease}).
      */
     void turn(CalculatePlayerTurnEvent e, long nanos) {
+        turned = true;
+        easeLock(); // the mouse turns the look on top of it, so it still aims
         boolean aiming = aim(nanos);
         if (aiming) {
             MouseHandler mouse = Minecraft.getInstance().mouseHandler;
@@ -606,12 +633,16 @@ final class ClientInput {
         }
     }
 
-    /** The level went (a dimension change, a respawn): no dash carries over, nor a first tap, nor the dev hook's Jump. */
+    /**
+     * The level went (a dimension change, a respawn): no dash carries over, nor a first tap, nor the dev hook's Jump, nor
+     * the lock.
+     */
     void leftLevel() {
         dash.cancel();
         steps.reset();
         radial.cancel(); // the release then carries no slot
         own.reset();
+        lock.drop();
         jumpAt = Long.MIN_VALUE; // still armed: the next push sets it again (code review)
     }
 
@@ -771,8 +802,8 @@ final class ClientInput {
     // ------------------------------------------------------------------------------------------------- frames
 
     /**
-     * {@code RenderFrameEvent.Pre}: the frame time the next presses carry, the dev hook's presses when due, and the
-     * radial's aim, which the turn event updates too but only while the mouse is grabbed.
+     * {@code RenderFrameEvent.Pre}: the frame time the next presses carry, the dev hook's presses when due, the radial's
+     * aim, which the turn event updates too but only while the mouse is grabbed, and lock-on's frame.
      */
     void frameStart(long nanos) {
         if (lastFrameNanos != Long.MIN_VALUE) {
@@ -784,6 +815,7 @@ final class ClientInput {
         devRadial(nanos);
         flushDeferred(nanos);
         aim(nanos);
+        lockFrame(nanos);
     }
 
     /** {@code ClientTickEvent.Pre}: the releases a screen or a lost blade forces, then the presses since the last tick. */
@@ -821,6 +853,7 @@ final class ClientInput {
                 pending.clear(); // nothing can be stamped; the next frame's held state releases them
             }
         }
+        lockTick(nanos);
         ownTick(nanos);
         if (!pending.isEmpty()) {
             send(nanos, InputHorizon.NO_TICK, pendingFrameMicros);
@@ -949,6 +982,176 @@ final class ClientInput {
             // the server's input horizon reaches it (InputHorizon.frame): no press still to come is judged before it
             presses.sent(stamp, frameTime, r, combat.view().snapshot(), inCombat(nanos));
         }
+    }
+
+    // ------------------------------------------------------------------------------------------------- lock-on
+
+    /**
+     * Lock-on's key (Rule 13.3): its press is the mod's under the combat keys' rule (the blade in hand, no screen; a
+     * mouse button's press is cancelled, so vanilla's pick block never sees it), and its key-up is a tap, answered at
+     * once, or ends a hold ({@link LockOn}). Returns whether vanilla must not see this event.
+     */
+    private boolean lockKey(boolean down, boolean mouseButton, long nanos) {
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer p = mc.player;
+        if (p == null) {
+            return false;
+        }
+        if (!down) {
+            CombatData d = combat.data();
+            if (d != null && lock.release(nanos, d.rules().fights())) {
+                lockTap(p, d.rules().fights());
+            }
+            return false; // never cancel a release
+        }
+        CaptureRules.Action a = CaptureRules.press(
+                NichirinItem.isBlade(p.getMainHandItem()),
+                mc.gui.screen() != null || mc.gui.overlay() != null,
+                mouseButton,
+                false,
+                mc.options.keyShift.isDown(),
+                mc.isWindowActive() && !mc.mouseHandler.isMouseGrabbed()); // grabMouse() needs the window active
+        if (a == CaptureRules.Action.PASS) {
+            return false;
+        }
+        lock.press(nanos);
+        return a == CaptureRules.Action.TAKE_AND_CANCEL;
+    }
+
+    /**
+     * A tap of lock-on: the hostile combatants within its range, each with one sight line from the player's eyes to
+     * theirs, for {@link LockOn#tap} to lock or switch among.
+     */
+    private void lockTap(LocalPlayer p, FightRules r) {
+        List<Entity> hostiles = new ArrayList<>();
+        combat.hostiles(p, hostiles);
+        Vec3 eyes = p.getEyePosition();
+        List<LockOn.Candidate> candidates = new ArrayList<>(hostiles.size());
+        for (Entity e : hostiles) {
+            Vec3 at = e.getEyePosition();
+            if (eyes.distanceTo(at) <= r.lockRangeBlocks()) { // no sight line spent on one that can't lock
+                candidates.add(new LockOn.Candidate(e.getId(), at.x, at.y, at.z, inSight(p, eyes, at)));
+            }
+        }
+        lock.tap(eyes.x, eyes.y, eyes.z, p.getYRot(), p.getXRot(), candidates, r);
+        if (lock.locked()) {
+            lockPlayer = p;
+        }
+    }
+
+    /** Whether nothing that stops movement stands between {@code from} and {@code to} in {@code p}'s level. */
+    private static boolean inSight(LocalPlayer p, Vec3 from, Vec3 to) {
+        return p.level()
+                        .clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, p))
+                        .getType()
+                == HitResult.Type.MISS;
+    }
+
+    /**
+     * The client tick's start for lock-on: the lock and the key's press drop where {@link LockOn#drops} says (a
+     * dimension change drops them in {@link #leftLevel}). Else the target is checked where Rule 13.3 breaks it, with
+     * one sight line a tick ({@link LockOn#check}).
+     */
+    private void lockTick(long nanos) {
+        if (!lock.locked() && !lock.held()) {
+            lockPlayer = null;
+            return;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer p = mc.player;
+        CombatData d = combat.data();
+        if (p == null || d == null || lockDrops(mc, p)) {
+            lock.drop();
+            lockPlayer = null;
+            return;
+        }
+        if (!lock.locked()) {
+            return;
+        }
+        Entity t = combat.hostile(p, lock.target());
+        if (t == null) {
+            lock.check(nanos, false, 0, false, d.rules().fights()); // died, or left the level or the fight
+            return;
+        }
+        Vec3 eyes = p.getEyePosition();
+        Vec3 at = t.getEyePosition();
+        lock.check(
+                nanos,
+                true,
+                eyes.distanceTo(at),
+                inSight(p, eyes, at),
+                d.rules().fights());
+    }
+
+    /** Whether the lock drops for player {@code p} now ({@link LockOn#drops}). */
+    @SuppressWarnings("ReferenceEquality") // the very player object: a respawn makes a new one with the same id
+    private boolean lockDrops(Minecraft mc, LocalPlayer p) {
+        return LockOn.drops(
+                !lock.locked() || p == lockPlayer,
+                p.isDeadOrDying(),
+                p.isSpectator(),
+                NichirinItem.isBlade(p.getMainHandItem()),
+                mc.gui.screen() != null || mc.gui.overlay() != null);
+    }
+
+    /**
+     * The render frame's start for lock-on: a hold releases the lock at its mark, and a frame whose turn event didn't
+     * run (the window inactive or the mouse free, as under MCTest) eases here instead, shown a frame later, since the
+     * frame's camera was already read.
+     */
+    private void lockFrame(long nanos) {
+        CombatData d = combat.data();
+        if (d != null) {
+            lock.frame(nanos, d.rules().fights());
+        }
+        if (!turned) {
+            easeLock();
+        }
+        turned = false;
+    }
+
+    /**
+     * Lock-on's ease for this render frame ({@link LockOn#ease}): the look turned from the player's eyes toward the
+     * target's, both where they're drawn this frame, at the partial tick the camera reads, by the CLIENT config's
+     * smoothing over the last frame's time. A lock whose target went, or that drops ({@link #lockDrops}), turns
+     * nothing while it waits for the tick to end it, so a screen opened between ticks isn't eased behind.
+     */
+    private void easeLock() {
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer p = mc.player;
+        CombatData d = combat.data();
+        Entity t = p != null && lock.locked() ? combat.hostile(p, lock.target()) : null;
+        if (p == null || d == null || t == null || lockDrops(mc, p)) {
+            return;
+        }
+        float pt = partialTick(mc, p);
+        float tt = partialTick(mc, t);
+        if (lock.ease(
+                Mth.lerp(pt, p.xo, p.getX()),
+                Mth.lerp(pt, p.yo, p.getY()) + p.getEyeHeight(),
+                Mth.lerp(pt, p.zo, p.getZ()),
+                p.getYRot(),
+                p.getXRot(),
+                Mth.lerp(tt, t.xo, t.getX()),
+                Mth.lerp(tt, t.yo, t.getY()) + t.getEyeHeight(),
+                Mth.lerp(tt, t.zo, t.getZ()),
+                KimetsuClientConfig.client().lockOnSmoothing(),
+                frameMicros,
+                d.rules().hits().maxTurnDegPerTick())) {
+            p.turn(lock.turnYaw() / LockOn.TURN_SCALE, lock.turnPitch() / LockOn.TURN_SCALE);
+        }
+    }
+
+    /** The partial tick {@code e} is drawn at this frame, as the camera reads its own entity's ({@code Camera}). */
+    private static float partialTick(Minecraft mc, Entity e) {
+        return e.level().tickRateManager().isEntityFrozen(e)
+                ? 1
+                : mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
+    }
+
+    /** The lock, for the overlay's line. */
+    LockOn lock() {
+        return lock;
     }
 
     // ------------------------------------------------------------------------------------------------- the overlay

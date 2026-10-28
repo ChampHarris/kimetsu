@@ -123,16 +123,43 @@ public final class ClientCombat {
      * {@code p}, in its level: the server's own count ({@code Arena.hostileWithin}), so a demon in no arena never makes
      * the blade only the Attack.
      */
-    @SuppressWarnings("ReferenceEquality") // the very level instance: the client has one at a time
     boolean hostileWithin(Player p, double blocks) {
         double limit = blocks * blocks;
         for (int i = 0; i < combatants.size(); i++) {
             Entity e = combatants.get(i);
-            if (e.isAlive() && view.fights(e.getId()) && e.level() == p.level() && e.distanceToSqr(p) <= limit) {
+            if (hostile(e, p) && e.distanceToSqr(p) <= limit) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** The hostile combatant {@code id} ({@link #hostileWithin}'s kind), or null: lock-on's target (Rule 13.3). */
+    @Nullable
+    Entity hostile(Player p, int id) {
+        for (int i = 0; i < combatants.size(); i++) {
+            Entity e = combatants.get(i);
+            if (e.getId() == id) {
+                return hostile(e, p) ? e : null;
+            }
+        }
+        return null;
+    }
+
+    /** Adds every hostile combatant in {@code p}'s level to {@code out}: what a tap of lock-on chooses among. */
+    void hostiles(Player p, List<Entity> out) {
+        for (int i = 0; i < combatants.size(); i++) {
+            Entity e = combatants.get(i);
+            if (hostile(e, p)) {
+                out.add(e);
+            }
+        }
+    }
+
+    /** Alive, in {@code p}'s level, and in a fight on the server ({@link ClientView#fights}). */
+    @SuppressWarnings("ReferenceEquality") // the very level instance: the client has one at a time
+    private boolean hostile(Entity e, Player p) {
+        return e.isAlive() && view.fights(e.getId()) && e.level() == p.level();
     }
 
     // ------------------------------------------------------------------------------------------------- drawing
@@ -253,6 +280,12 @@ public final class ClientCombat {
                 r.aiming() ? "aiming" : "closed",
                 r.lastSlot(),
                 r.lastLength()));
+        LockOn l = c.input.lock();
+        lines.add(
+                l.locked()
+                        ? String.format(
+                                Locale.ROOT, "lock #%d  out of sight %.1f s", l.target(), l.hiddenNanos(nanos) / 1e9)
+                        : "lock off");
         for (int i = 0; i < c.combatants.size(); i++) {
             Entity e = c.combatants.get(i);
             Outbox.MobState m = c.view.mob(e.getId());

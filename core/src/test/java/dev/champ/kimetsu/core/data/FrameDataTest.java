@@ -960,8 +960,18 @@ class FrameDataTest {
                 () -> new MachineRules(
                         3, 150, 2, 1, 10, 60, 6, 4, 1, 13, 20, 8, 40, 10, 3, 16, 300, 7, 330, Double.NaN),
                 "radial_flick_deg");
-        rejects(() -> new FightRules(0.5, 1200), "engage_blocks");
-        rejects(() -> new FightRules(32, 0), "end_ticks");
+        assertDoesNotThrow(Fixtures::fights);
+        rejects(() -> new FightRules(0.5, 1200, 30, 16, 24, 500, 2000), "engage_blocks");
+        rejects(() -> new FightRules(32, 0, 30, 16, 24, 500, 2000), "end_ticks");
+        rejects(() -> new FightRules(32, 1200, 0.5, 16, 24, 500, 2000), "lock_cone_deg");
+        rejects(() -> new FightRules(32, 1200, 90.5, 16, 24, 500, 2000), "lock_cone_deg"); // it'd lock behind you
+        rejects(() -> new FightRules(32, 1200, Double.NaN, 16, 24, 500, 2000), "lock_cone_deg");
+        rejects(() -> new FightRules(32, 1200, 30, 0.5, 24, 500, 2000), "lock_range_blocks");
+        rejects(() -> new FightRules(32, 1200, 30, 16, 15.9, 500, 2000), "lock_break_blocks"); // breaks as it locks
+        assertDoesNotThrow(() -> new FightRules(32, 1200, 30, 16, 16, 500, 2000));
+        rejects(() -> new FightRules(32, 1200, 30, 16, 24, 49, 2000), "lock_release_ms"); // no press could be a tap
+        rejects(() -> new FightRules(32, 1200, 30, 16, 24, 500, -1), "lock_sight_grace_ms");
+        assertDoesNotThrow(() -> new FightRules(32, 1200, 30, 16, 24, 50, 0));
         assertDoesNotThrow(Fixtures::movement);
         rejects(() -> new MoveRules(0, 2.82, 1.5, 2.35, 1.5, 0.225, 2, 2.0), "window_ticks");
         rejects(() -> new MoveRules(6, 0, 1.5, 2.35, 1.5, 0.225, 2, 2.0), "window_blocks");

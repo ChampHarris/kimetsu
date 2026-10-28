@@ -473,7 +473,12 @@ public final class CombatCodecs {
 
     static final Codec<FightRules> FIGHTS = RecordCodecBuilder.create(i -> i.group(
                     Codec.DOUBLE.fieldOf("engage_blocks").forGetter(FightRules::engageBlocks),
-                    Codec.INT.fieldOf("end_ticks").forGetter(FightRules::endTicks))
+                    Codec.INT.fieldOf("end_ticks").forGetter(FightRules::endTicks),
+                    Codec.DOUBLE.fieldOf("lock_cone_deg").forGetter(FightRules::lockConeDeg),
+                    Codec.DOUBLE.fieldOf("lock_range_blocks").forGetter(FightRules::lockRangeBlocks),
+                    Codec.DOUBLE.fieldOf("lock_break_blocks").forGetter(FightRules::lockBreakBlocks),
+                    Codec.INT.fieldOf("lock_release_ms").forGetter(FightRules::lockReleaseMs),
+                    Codec.INT.fieldOf("lock_sight_grace_ms").forGetter(FightRules::lockSightGraceMs))
             .apply(i, FightRules::new));
 
     static final Codec<MoveRules> MOVE_RULES = RecordCodecBuilder.create(i -> i.group(

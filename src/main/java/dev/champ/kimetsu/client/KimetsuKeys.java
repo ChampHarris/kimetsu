@@ -11,10 +11,11 @@ import net.neoforged.neoforge.client.settings.KeyConflictContext;
 import org.jspecify.annotations.Nullable;
 
 /**
- * The combat keys (the spec's key table; lock-on and the radial's flick come in 5d): Attack on left mouse, Guard on
- * right mouse (vanilla's use moves to Sneak + right mouse), Breathe on Left Alt, a separate Inhale (unbound), Pommel
- * Strike on R and Step on Mouse 5 (a double-tap of vanilla's left, back or right steps too, {@link StepInput}), plus
- * the debug overlay's toggle (unbound). All rebindable, in their own category.
+ * The combat keys (the spec's key table): Attack on left mouse, Guard on right mouse (vanilla's use moves to Sneak +
+ * right mouse), Breathe on Left Alt, a separate Inhale (unbound), Pommel Strike on R and Step on Mouse 5 (a double-tap
+ * of vanilla's left, back or right steps too, {@link StepInput}); lock-on on middle mouse (pick block without the blade),
+ * the client's own and never on the wire ({@link LockOn}); and the debug overlay's toggle (unbound). All rebindable, in
+ * their own category.
  */
 public final class KimetsuKeys {
     /**
@@ -47,6 +48,7 @@ public final class KimetsuKeys {
     static final KeyMapping INHALE = key("inhale", InputConstants.UNKNOWN, Combat.INSTANCE);
     static final KeyMapping POMMEL = key("pommel", keyboard(InputConstants.KEY_R), Combat.INSTANCE);
     static final KeyMapping STEP = key("step", mouse(InputConstants.MOUSE_BUTTON_5), Combat.INSTANCE); // SDL's 5
+    static final KeyMapping LOCK_ON = key("lock_on", mouse(InputConstants.MOUSE_BUTTON_MIDDLE), Combat.INSTANCE);
     static final KeyMapping DEBUG_OVERLAY = key("debug_overlay", InputConstants.UNKNOWN, KeyConflictContext.IN_GAME);
 
     private static final KeyMapping[] COMBAT = {ATTACK, GUARD, BREATHE, INHALE, POMMEL, STEP};
@@ -78,6 +80,7 @@ public final class KimetsuKeys {
         for (KeyMapping k : COMBAT) {
             event.register(k);
         }
+        event.register(LOCK_ON);
         event.register(DEBUG_OVERLAY);
     }
 
@@ -92,5 +95,10 @@ public final class KimetsuKeys {
             }
         }
         return null;
+    }
+
+    /** Whether {@code key} is lock-on's, matched by the bound key alone as the combat keys are. */
+    static boolean lockOn(InputConstants.Key key) {
+        return !key.equals(InputConstants.UNKNOWN) && LOCK_ON.getKey().equals(key);
     }
 }

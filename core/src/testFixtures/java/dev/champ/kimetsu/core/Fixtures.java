@@ -226,8 +226,14 @@ public final class Fixtures {
     }
 
     public static FightRules fights() {
-        // Input frames, D-055: a hostile combatant within 32 blocks engages; Rule 13.1: a fight ends after 60 s
-        return new FightRules(32, 1200);
+        return new FightRules(
+                32, // Input frames, D-055: a hostile combatant within 32 blocks engages
+                1200, // Rule 13.1: a fight ends after 60 s
+                30, // Rule 13.3: lock-on's cone, 30° either side of the crosshair (Champ, D-104)
+                16, // ... within 16 blocks
+                24, // ... and it breaks beyond 24
+                500, // ... held 0.5 s releases it
+                2000); // ... and it survives 2 s out of sight
     }
 
     public static MoveRules movement() {

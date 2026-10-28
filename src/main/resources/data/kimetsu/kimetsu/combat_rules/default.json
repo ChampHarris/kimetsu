@@ -124,7 +124,12 @@
   },
   "fights": {
     "engage_blocks": 32.0,
-    "end_ticks": 1200
+    "end_ticks": 1200,
+    "lock_cone_deg": 30.0,
+    "lock_range_blocks": 16.0,
+    "lock_break_blocks": 24.0,
+    "lock_release_ms": 500,
+    "lock_sight_grace_ms": 2000
   },
   "movement": {
     "window_ticks": 6,

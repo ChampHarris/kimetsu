@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import dev.champ.kimetsu.core.data.FightRules;
+import dev.champ.kimetsu.core.Fixtures;
 import dev.champ.kimetsu.core.fight.Fights;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.fight.PlayerIntake;
@@ -98,7 +98,7 @@ class FightLogJsonTest {
     void theLogsOwnLinesParse_afterItsHeader() {
         StringWriter into = new StringWriter();
         FightLog log = FightLog.toMemory("minecraft:overworld", into);
-        Fights fights = new Fights(new FightRules(32, 1200), log);
+        Fights fights = new Fights(Fixtures.fights(), log);
         fights.accept(new Outbox.AttackStarted(1, 10, 1, "swipe", 87, 90, 92, 100, 1, true), 87);
         fights.defeated(10, 120);
         log.dropped(121, 1, PlayerIntake.Delta.press(PlayerIntake.Key.GUARD, 6_000_000), PlayerIntake.Drop.OLD_EPOCH);

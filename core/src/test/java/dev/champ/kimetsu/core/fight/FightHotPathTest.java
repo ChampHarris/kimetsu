@@ -162,7 +162,7 @@ class FightHotPathTest {
     @Test
     void aStepWithNoTriggerEndsNoFightAndAllocatesNothing() {
         // the arena's fights after every step (D-068): six open fights and strikes waiting for their impacts
-        Fights fights = new Fights(new FightRules(32, Integer.MAX_VALUE), new Fights.Listener() {
+        Fights fights = new Fights(new FightRules(32, Integer.MAX_VALUE, 30, 16, 24, 500, 2000), new Fights.Listener() {
             @Override
             public void started(Fights.Fight f, long step) {}
 

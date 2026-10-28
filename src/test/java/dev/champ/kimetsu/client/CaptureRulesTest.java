@@ -72,4 +72,16 @@ class CaptureRulesTest {
         assertFalse(CaptureRules.stopVanilla(false, true, false, false));
         assertFalse(CaptureRules.stopVanilla(true, false, false, false)); // pick block
     }
+
+    /**
+     * The key table: lock-on is middle mouse, pick block only without the blade. Its press is captured and cancelled
+     * like the others; vanilla's pick block triggered anyway on the lock-on key is stopped with the blade, the backstop.
+     * Lock-on bound elsewhere leaves pick block alone.
+     */
+    @Test
+    void pickBlockOnTheLockOnKeyNeverRunsWithTheBlade() {
+        assertTrue(CaptureRules.stopPick(true, true));
+        assertFalse(CaptureRules.stopPick(false, true));
+        assertFalse(CaptureRules.stopPick(true, false));
+    }
 }

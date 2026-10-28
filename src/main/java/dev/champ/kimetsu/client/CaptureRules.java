@@ -70,4 +70,13 @@ final class CaptureRules {
     static boolean stopVanilla(boolean bladeInMainHand, boolean attack, boolean use, boolean sneaking) {
         return bladeInMainHand && (attack || (use && !sneaking));
     }
+
+    /**
+     * Whether vanilla's pick block, triggered anyway, is stopped: with the blade, when its key is lock-on's (the key
+     * table: middle mouse picks blocks only without the blade). The capture cancels lock-on's press, so this is the
+     * backstop; lock-on bound to another key leaves pick block alone.
+     */
+    static boolean stopPick(boolean bladeInMainHand, boolean lockOnKey) {
+        return bladeInMainHand && lockOnKey;
+    }
 }

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.champ.kimetsu.core.Fixtures;
 import dev.champ.kimetsu.core.data.FightRules;
 import dev.champ.kimetsu.core.fight.Fights.End;
 import dev.champ.kimetsu.core.fight.Fights.Fight;
@@ -28,7 +29,7 @@ class FightsTest {
     private static final int E = 11;
 
     private final List<String> log = new ArrayList<>();
-    private final Fights fights = new Fights(new FightRules(32, 1200), new Fights.Listener() {
+    private final Fights fights = new Fights(Fixtures.fights(), new Fights.Listener() {
         @Override
         public void started(Fight f, long step) {
             log.add("start " + f.id() + " @" + step);
@@ -142,7 +143,7 @@ class FightsTest {
                 new Outbox.HoldEnded(1, D, P, 200, Release.THROWN, 1.0),
                 new Outbox.ClashStarted(1, D, P, 100, 5_000_000));
         for (Outbox.Event e : triggers) {
-            Fights f = new Fights(new FightRules(32, 1200), new Quiet());
+            Fights f = new Fights(Fixtures.fights(), new Quiet());
             f.accept(e, 100);
             assertNotNull(f.fight(P), e + " opened no fight for the player");
             assertNotNull(f.fight(D), e + " opened no fight for the demon");
@@ -160,7 +161,7 @@ class FightsTest {
                 new Outbox.MobLeft(D, 100),
                 new Outbox.AttackCancelled(1, 100, "feint"));
         for (Outbox.Event e : quiet) {
-            Fights f = new Fights(new FightRules(32, 1200), new Quiet());
+            Fights f = new Fights(Fixtures.fights(), new Quiet());
             f.accept(e, 100);
             assertTrue(f.open().isEmpty(), e + " opened a fight");
         }
@@ -224,7 +225,7 @@ class FightsTest {
     @Test
     void newRulesSetTheEnd() {
         fights.accept(commit(1, D, P, 120), 100);
-        fights.rules(new FightRules(32, 200));
+        fights.rules(new FightRules(32, 200, 30, 16, 24, 500, 2000));
         fights.endStep(299);
         assertNotNull(fights.fight(P));
         fights.endStep(300);

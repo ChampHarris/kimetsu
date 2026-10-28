@@ -12,8 +12,8 @@ import net.neoforged.neoforge.common.TranslatableEnum;
  * The CLIENT config (spec Config, D-104): the player's own, in {@code config/kimetsu-client.toml}. Only client classes
  * read it, and only through {@link #client}: a dedicated server never loads it, where its spec's getters throw. It
  * holds slice 5d-2's options: {@code debug_overlay}, the assist level and the offsets are read ({@code ClientCombat}:
- * the last three go to the server as {@code ClientSettings}); lock-on smoothing from Step 4 and the guard mode from
- * Step 5b. Reduced
+ * the last three go to the server as {@code ClientSettings}), and lock-on smoothing ({@code ClientInput}'s ease); the
+ * guard mode from Step 5b. Reduced
  * shake, flashing and motion, cue volume and HUD scale come with their consumers (slices 5d-3 to 5d-5).
  */
 public final class KimetsuClientConfig {
