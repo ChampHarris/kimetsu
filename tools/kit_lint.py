@@ -246,6 +246,40 @@ def lint(root: Path) -> list[str]:
                                                                                              str(ps.get("sha", ""))):
                 errs.append(f".claude/settings.json: plugin `{pl.get('name')}` in `{mk}` isn't pinned to a full "
                             f"commit sha")
+    # MCP servers run unsandboxed like plugins, so an npx source is pinned too: a git source to a full commit sha
+    # (a tag can be moved), a registry package to an exact version (a range or a dist-tag pulls whatever is newest)
+    # (npx, bunx, `pnpm dlx`, `yarn dlx` and `npm exec` take npm's syntax; uvx takes Python's `pkg==1.2.3`)
+    mp = root / ".mcp.json"
+    if mp.is_file():
+        try:
+            doc = json.loads(mp.read_text(encoding="utf-8-sig"))
+        except ValueError as e:
+            errs.append(f".mcp.json: not valid JSON ({e})")
+            doc = {}
+        servers = doc.get("mcpServers") if isinstance(doc, dict) else None
+        if not isinstance(servers, dict):
+            if doc:
+                errs.append(".mcp.json: `mcpServers` isn't an object")
+            servers = {}
+        for name, srv in servers.items():
+            if not isinstance(srv, dict):
+                errs.append(f".mcp.json: server `{name}` isn't an object")
+                continue
+            args = srv.get("args") if isinstance(srv.get("args"), list) else []
+            argv = [str(srv.get("command", ""))] + [str(a) for a in args]
+            names = [Path(a.replace("\\", "/")).name.lower().removesuffix(".cmd").removesuffix(".exe") for a in argv]
+            at = next((i for i, n in enumerate(names) if n in ("npx", "bunx", "uvx")
+                       or (n in ("pnpm", "yarn") and names[i + 1:i + 2] == ["dlx"])
+                       or (n == "npm" and names[i + 1:i + 2] == ["exec"])), None)
+            if at is None:
+                continue
+            start = at + (1 if names[at] in ("npx", "bunx", "uvx") else 2)
+            spec = next((a for a in argv[start:] if not a.startswith("-")), "")
+            if spec.startswith(("github:", "git+", "git:", "https://", "http://")) or "github.com" in spec:
+                if not re.search(r"#[0-9a-f]{40}$", spec):
+                    errs.append(f".mcp.json: server `{name}` runs `{spec}`, not pinned to a full commit sha")
+            elif not re.fullmatch(r"(@[\w.-]+/)?[\w.-]+(@|==)\d+\.\d+\.\d+([-+.][\w.-]+)?", spec):
+                errs.append(f".mcp.json: server `{name}` runs `{spec}`, not pinned to an exact version")
     for where, cmd in commands:
         for script in re.findall(r"run\.sh\"?\s+([\w.-]+\.py)", cmd):
             if not (hooks_dir / script).is_file():

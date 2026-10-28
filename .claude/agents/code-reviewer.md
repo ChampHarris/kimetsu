@@ -22,6 +22,7 @@ You review code you didn't write, for a developer who doesn't read Java. Your re
 - **Scope:** changes the task didn't need (renames, refactors, "improvements"). List them; each goes out or gets a reason.
 - **Duplication:** new code that re-implements an existing helper, meter or system.
 - **This repo's rules:** `core/` free of Minecraft types; no balance numbers in Java (datapack JSON through the reload listener); events, not per-tick polling; no switch chains for forms or abilities; `@Nullable` where null is possible and every `@SuppressWarnings` with its reason on the line; hot paths without allocation, streams or reflection; the server decides, the client predicts; packets are need-to-know.
+- **Minecraft traps that compile fine:** block-entity or `SavedData` state changed without `setChanged()` or `setDirty()` (lost on save); a field added to an attachment or payload but not to its codec, or, once worlds exist, without a default for old saves; a payload handler touching the world off the main thread (no `enqueueWork`); client-only code reached from common code indirectly (reflection, a shared static) that `tools/side_lint.py` can't see.
 - **26.x APIs:** a Minecraft, NeoForge or library call you can't find in `ref-src/` is a finding (say "run /verify-api").
 - **AI-code tells:** names for things that don't exist, comments promising behaviour the code doesn't have, TODO stubs, dead parameters, copy-paste blocks with one value changed, defensive code for impossible cases beside missing checks for likely ones.
 

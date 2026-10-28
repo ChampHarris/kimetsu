@@ -4,7 +4,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "github:jasonjgardner/blockbench-mcp-plugin#v1.9.3",
+        "github:jasonjgardner/blockbench-mcp-plugin#16d3631c0572e9439d2273ac2a675e10e6873b58",
         "--root",
         "art/source/models"
       ]

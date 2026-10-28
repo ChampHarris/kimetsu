@@ -6,6 +6,8 @@
   "autoMemoryEnabled": false,
   "idleCompaction": false,
   "cleanupPeriodDays": 90,
+  "inputNeededNotifEnabled": true,
+  "agentPushNotifEnabled": true,
   "statusLine": {
     "type": "command",
     "command": "sh \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/run.sh\" statusline.py",
@@ -14,7 +16,8 @@
   "env": {
     "PYTHONUTF8": "1",
     "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1",
-    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "4"
+    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "4",
+    "CLAUDE_CODE_RETRY_WATCHDOG": "1"
   },
   "permissions": {
     "allow": [
@@ -44,6 +47,8 @@
       "Bash(python .claude/hooks/tests/test_comms.py*)",
       "Bash(python .claude/hooks/tests/test_quality.py*)",
       "Bash(python tools/kit_lint.py*)",
+      "Bash(python tools/side_lint.py*)",
+      "Bash(python tools/tests/test_side_lint.py*)",
       "Bash(python tools/session_mine.py*)",
       "Bash(python tools/tests/test_kit_lint.py*)",
       "Bash(python tools/vanilla_scope.py*)",
@@ -68,6 +73,8 @@
       "Bash(python3 .claude/hooks/tests/test_comms.py*)",
       "Bash(python3 .claude/hooks/tests/test_quality.py*)",
       "Bash(python3 tools/kit_lint.py*)",
+      "Bash(python3 tools/side_lint.py*)",
+      "Bash(python3 tools/tests/test_side_lint.py*)",
       "Bash(python3 tools/session_mine.py*)",
       "Bash(python3 tools/tests/test_kit_lint.py*)",
       "Bash(python3 tools/vanilla_scope.py*)",
@@ -92,6 +99,8 @@
       "Bash(py -3 .claude/hooks/tests/test_comms.py*)",
       "Bash(py -3 .claude/hooks/tests/test_quality.py*)",
       "Bash(py -3 tools/kit_lint.py*)",
+      "Bash(py -3 tools/side_lint.py*)",
+      "Bash(py -3 tools/tests/test_side_lint.py*)",
       "Bash(py -3 tools/session_mine.py*)",
       "Bash(py -3 tools/tests/test_kit_lint.py*)",
       "Bash(py -3 tools/vanilla_scope.py*)",

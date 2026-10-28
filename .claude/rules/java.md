@@ -14,6 +14,7 @@ paths:
 - `core/`: plain Java 25 plus JUnit. The rules live here: meters (Breath, Posture, Rhythm, Hunger), the Pulse clock, frame data, the combat state machine, hit resolution. No Minecraft, NeoForge or library imports (the PreToolUse hook blocks them); the one exception is JSpecify's nullness annotations, compile-only (D-033). Deterministic: time comes in as ticks and milliseconds, never from `System.currentTimeMillis()`.
 - The mod module adapts `core/` to the game: events, attachments, payloads, entities, rendering. Rendering stays in a `client.render` package (see `rendering.md`).
 - Gradle: use `implementation`, not `modImplementation` (26.x is unobfuscated). Pin every dependency to an exact version in `gradle.properties`. Parchment is unnecessary on 26.x.
+- **Client-only code lives in `client` packages,** entered through `@Mod(value = MOD_ID, dist = Dist.CLIENT)`, client event subscribers and `RegisterClientPayloadHandlersEvent`. Any other file that names `net.minecraft.client`, `com.mojang.blaze3d`, `com.mojang.renderpearl` or NeoForge's client packages crashes a dedicated server when its class loads. `tools/side_lint.py` checks each edited Java file (post-edit hook) and CI checks the tree. `@OnlyIn` strips nothing on NeoForge 21.6+, and 26.3 warns when a mod uses it.
 
 ## Patterns
 - Per-entity state: Data Attachments, synced only when the value changes, never every tick.
@@ -23,6 +24,7 @@ paths:
 - Damage: map the GDD pipeline onto the 26.x damage events after checking their names and order in `ref-src/` (they changed shape across 1.21.x). Mod damage replaces vanilla invulnerability frames with per-attacker, per-swing cooldowns.
 - Config: `ModConfigSpec` (client: assist level, reduced shake, guard hold/toggle; server: timing windows, caps).
 - Logging: SLF4J via `LogUtils.getLogger()`. No `System.out`.
+- 26.3 traps that AI guides get wrong (checked 2026-10-28 against the 26.3 primer and NeoForge's source; FML isn't in `ref-src/`): `@EventBusSubscriber` takes only `value` (the dist) and `modid`, no `bus`; 26.3 removed `Block#codec`, `simpleCodec`, `propertiesCodec` and the block-type codec registry, so delete those overrides; `neoforge.mods.toml` keeps `logoFile` (and `logoBlur`), and there is no `iconFile`.
 - Hot paths (per tick, per entity): no allocation in loops, no streams, no reflection.
 - Quality gates (D-033, ADR 0002; `gradle/quality.gradle`), all run by `./gradlew build` and CI:
   - **Nullness:** every package is `@NullMarked` in its `package-info.java`, as Minecraft's are. A new package without one fails the build (`RequireExplicitNullMarking`). Mark what may be null `@Nullable` (JSpecify, placed as a type annotation: `private @Nullable TickRecord sent`); NullAway fails the build otherwise. It doesn't check tests.

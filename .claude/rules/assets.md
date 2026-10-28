@@ -15,7 +15,7 @@ paths:
 - **Text:** kanji are illegible on a 16 px block face. Put text on UI, two-block decorations or entity-rendered signs, and use mon crests on single blocks. Render exact kanji from a font first; image generators garble characters.
 - **Models:** Blockbench, 1 texel = 1 unit, no mixels. Humanoids follow the KHR-1 rig (`docs/art/art-bible.md`). Budgets (PROPOSED): a common mob ≤ 40 bones and ≤ 150 cubes on one texture, sized by the model at 1 texel per unit (64×64 for a humanoid); a townsperson ≤ 30 bones.
 - **Sound:** OGG Vorbis; mono for anything positional (stereo never attenuates); 44.1 or 48 kHz; `"stream": true` for music and long ambience; a subtitle for every event.
-- Source files (`.aseprite`, `.bbmodel`, `.blend`, `.kra`) live in `art/source/` under Git LFS.
+- Source files (`.aseprite`, `.bbmodel`, `.blend`, `.kra`) live in `art/source/` under Git LFS. The headless Blockbench MCP (`bbmodel`, 1.10.1) only renders textures inside its `--root`, `art/source/models`: keep a model's textures there or embedded in the `.bbmodel`.
 - Before calling an asset batch done, run:
   - `python tools/texture_lint.py`
   - `python tools/vanilla_style.py --all`

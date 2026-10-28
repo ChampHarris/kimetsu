@@ -12,6 +12,12 @@
       "glob": "src/main/resources/data/*/kimetsu/arcs/*.json",
       "command": ["{python}", "tools/validate_arcs.py", "{file}"],
       "timeout": 20
+    },
+    {
+      "name": "client code stays in client packages",
+      "glob": "src/*/java/*.java",
+      "command": ["{python}", "tools/side_lint.py", "{file}"],
+      "timeout": 20
     }
   ]
 }

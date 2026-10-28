@@ -17,7 +17,7 @@ The renderer changes every drop: 26.2 removed `MultiBufferSource` and `Tesselato
 - **Never override vanilla core shaders.** Mojang calls it unsupported. Register your own pipelines and post chains.
 - Shaders: ShaderC rules on both backends: `#include` (not `#moj_import`), explicit `layout(location = N)` on every in/out, GLSL compiled to SPIR-V.
 - **Depth is reversed** (26.2+): near = 1.0, depth test `GREATER_THAN_OR_EQUAL`, clear to 0. Any effect that reads depth must handle it.
-- Translucency: 26.3 uses order-independent transparency. Test every translucent effect against water, stained glass and particles.
+- Translucency: 26.3 uses order-independent transparency. Test every translucent effect against water, stained glass and particles. A translucent pass joins OIT through an `OitPipelineSet` (`client.renderer.oit`; depth-bounds, transmittance and accumulate phases) set with `RenderSetup.RenderSetupBuilder#setOitPipelines` and drawn with `PreparedRenderType#drawFromBufferOit` (vanilla's `RenderTypes` uses `RenderPipelines.OIT_ENTITY_CULL`; all in `ref-src/`). Per the 26.3 primer, OIT shaders include `minecraft:oit.glsl` and branch on `OIT_ALPHA_ONLY`, and NeoForge registers a set in `RegisterRenderPipelinesEvent#registerOitPipelineSet`; build the set with `OitPipelineSet.builder(Identifier, RenderPipeline.Builder)` (the `String` overload is deprecated).
 
 ## How the look is built (kfx)
 - Blade trails: ribbons from the `blade_base`/`blade_tip` locators, sampled every rendered frame, faded over about 0.4 s, stepped on twos (12 fps) for the anime cadence, shaded with the ink-wash flow map.

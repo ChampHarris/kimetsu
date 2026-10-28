@@ -5,8 +5,8 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: pip install pillow
@@ -32,8 +32,12 @@ jobs:
         run: python tools/tests/test_vanilla_scope.py
       - name: Fight report tests (D-089)
         run: python tools/tests/test_fight_report.py
+      - name: Client-only code stays in client packages (side lint)
+        run: |
+          python tools/side_lint.py
+          python tools/tests/test_side_lint.py
       - name: Cache the 26.3 vanilla data
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ref-src/vanilla-data
           key: vanilla-data-26.3-${{ hashFiles('tools/refsrc.py') }}
@@ -57,12 +61,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "25"
-      - uses: gradle/actions/setup-gradle@v4
+      # v5 is the Node 24 release. v6's default caching is a proprietary component under Gradle's Terms of Use,
+      # so moving past v5 is Champ's call (docs/tools/kit-watch.md).
+      - uses: gradle/actions/setup-gradle@v5
       # The code quality gates (ADR 0002, D-033). Every Gradle step checks each dependency it resolves against
       # gradle/verification-metadata.xml; strict is the default, and the flag keeps a local override from loosening it.
       - name: Formatting (Spotless, palantir-java-format)

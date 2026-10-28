@@ -200,6 +200,30 @@ try:
     planted("a marketplace whose name doesn't match its key", lambda t: (t / ".claude/settings.json").write_text(
         json.dumps({"extraKnownMarketplaces": {"other": pinned}})), "they must match")
 
+    def mcp(spec, command="npx", pre=()):
+        return lambda t: (t / ".mcp.json").write_text(json.dumps(
+            {"mcpServers": {"s": {"command": command, "args": [*pre, "-y", spec, "--root", "art"]}}}))
+    planted("an MCP server from a git tag", mcp("github:x/y#v1.0.0"), "not pinned to a full commit sha")
+    planted("an MCP server from a branch", mcp("github:x/y"), "not pinned to a full commit sha")
+    planted("an MCP package on a range", mcp("pkg@^1.2.3"), "not pinned to an exact version")
+    planted("an MCP package on latest", mcp("@scope/pkg@latest"), "not pinned to an exact version")
+    planted("an MCP package with no version, through cmd /c", mcp("pkg", command="cmd", pre=("/c", "npx")),
+            "not pinned to an exact version")
+    planted("broken .mcp.json", lambda t: (t / ".mcp.json").write_text("{"), ".mcp.json: not valid JSON")
+    planted("an MCP server from a github.com URL in scp form", mcp("git@github.com:x/y#v1.0.0"),
+            "not pinned to a full commit sha")
+    planted("an MCP package through bunx on latest", mcp("pkg@latest", command="bunx"), "not pinned to an exact version")
+    planted("an MCP package through pnpm dlx with no version", mcp("pkg", command="pnpm", pre=("dlx",)),
+            "not pinned to an exact version")
+    planted("an MCP package through npm exec on a range", mcp("pkg@~1.2.0", command="npm", pre=("exec",)),
+            "not pinned to an exact version")
+    planted("a Python MCP package through uvx with no version", mcp("mcp-server-x", command="uvx"),
+            "not pinned to an exact version")
+    planted("an MCP server entry that isn't an object", lambda t: (t / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"s": "npx pkg"}})), "server `s` isn't an object")
+    planted("mcpServers that isn't an object", lambda t: (t / ".mcp.json").write_text(
+        json.dumps({"mcpServers": ["npx pkg"]})), "`mcpServers` isn't an object")
+
     shutil.rmtree(tmp)
     tmp.mkdir()
     make(tmp)
@@ -215,9 +239,16 @@ try:
         "---\nname: red-team\ndescription: Breaks specs.\nmodel: opus\nexperimental:\n  cacheTtl: 1h\n---\n")
     (tmp / ".gitattributes").write_text("*.sh text eol=lf\n")
     (tmp / ".claude/hooks/run.sh").write_bytes(b"#!/bin/sh\nexec python3 \"$@\"\n")
+    (tmp / ".mcp.json").write_text(json.dumps({"mcpServers": {
+        "a": {"command": "npx", "args": ["-y", "github:x/y#" + "b" * 40, "--root", "art"]},
+        "b": {"command": "npx", "args": ["-y", "@scope/pkg@0.3.0"]},
+        "c": {"command": "cmd", "args": ["/c", "npx", "-y", "pkg@1.2.3-beta.1"]},
+        "e": {"command": "uvx", "args": ["mcp-server-x==0.4.1"]},
+        "f": {"command": "pnpm", "args": ["dlx", "@scope/pkg@2.0.0"]},
+        "d": {"url": "http://127.0.0.1:64342/stream", "type": "http"}}}))
     e = kit_lint.lint(tmp)
-    case("current fields, quoted values, a YAML list where lists are allowed, an LF launcher and a pinned "
-         "plugin pass", e == [], e)
+    case("current fields, quoted values, a YAML list where lists are allowed, an LF launcher, a pinned "
+         "plugin and pinned MCP servers pass", e == [], e)
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
 

@@ -40,7 +40,7 @@ Compatibility targets (tested, not depended on): Sodium 0.9.3-beta.1 (Vulkan-cap
 
 Not on 26.3, so not used: Veil and Lodestone (1.21.1 only), Photon2 (its newest 26.x build is a 26.2 beta, 26.2.2.3, and it now needs KilaGraph), AAA Particles (native OpenGL; newest build is for 26.1.2), Epic Fight (1.21.1; the 26.2 branch is unreleased, and on 2026-10-13 its licence changed from GPL-3.0 to All Rights Reserved), official Create (1.21.1).
 
-Tools: Blockbench 5.2.2 with the GeckoLib plugin 4.2.5, the headless Blockbench MCP 1.9.3 (`.mcp.json`), Aseprite 1.3.18, Krita, Blender with the Emotecraft PAL rig (Blender 5.2+), Python 3.10+ with Pillow, ffmpeg. The design, test and debug tools (IntelliJ's MCP server, MCTest, RenderDoc, JetBrains Runtime, aseprite-mcp, the Blender Lab MCP and the dev-instance mods) are in ADR 0002.
+Tools: Blockbench 5.2.2 with the GeckoLib plugin 4.2.5, the headless Blockbench MCP 1.10.1 (`.mcp.json`; 1.9.3 until 2026-10-28), Aseprite 1.3.18, Krita, Blender with the Emotecraft PAL rig (Blender 5.2+), Python 3.10+ with Pillow, ffmpeg. The design, test and debug tools (IntelliJ's MCP server, MCTest, RenderDoc, JetBrains Runtime, aseprite-mcp, the Blender Lab MCP and the dev-instance mods) are in ADR 0002.
 
 **Maven coordinates:** don't trust memory. Take each one from the library's README or wiki at the pinned version (`/verify-api` can look them up), then fetch the POM: a wiki can be stale. Modrinth's Maven works for most projects as a fallback: repository `https://api.modrinth.com/maven`, artifact `maven.modrinth:<project-slug>:<version ID>`. Use the version ID, not the version number: numbers repeat across loaders and Minecraft versions, and by number three of these five resolve to the wrong jar.
 

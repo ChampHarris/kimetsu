@@ -55,6 +55,8 @@ repositories {
 
 neoForge {
     version = project.neo_version
+    // An access transformer line that names a missing class or member fails the build instead of doing nothing.
+    validateAccessTransformers = true
 
     runs {
         client {

@@ -194,7 +194,7 @@ Run `claude mcp list`: `bbmodel`, `mctest` and, once added, `aseprite` and `blen
 | aseprite-mcp | make the sugi sample and run the blend check | the preview and `vanilla_style.py` output |
 | Blender Lab | screenshot the rig | the viewport image |
 | RenderDoc | read a capture you saved | Claude names the passes from the debug labels |
-| Effort check | answer a design request in a new session | the Effort question, four options, the recommended one first (`docs/tools/effort.md`) |
+| Effort check | answer a design request in a new session | one line naming the effort Claude picked and why; no question (D-115, `docs/tools/effort.md`) |
 | Quality gates | run `./gradlew spotlessCheck build` | BUILD SUCCESSFUL; when one fails, it names the file and line, the check, or the artifact |
 
 ## 12. Code quality gates (D-033)
