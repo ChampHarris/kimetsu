@@ -248,9 +248,10 @@ public final class Sessions {
 
     /**
      * {@code p} starts tracking {@code target} (vanilla fires this after the spawn bundle): its events reach {@code p}
-     * from now on, and a ready session is caught up on what the target's live trackers already have, through its
-     * arena's router (Step 5). One that isn't ready yet is caught up as it turns ready ({@link #ready}): live events
-     * reach only ready viewers, so a strike's start buffered before then could go out without its cancel.
+     * from now on, and a ready session still tracking it at the next step is caught up on what the target's live
+     * trackers have then, through its arena's router (Step 5). One that isn't ready yet is caught up as it turns ready
+     * ({@link #ready}): live events reach only ready viewers, so a strike's start buffered before then could go out
+     * without its cancel.
      */
     void startTracking(ServerPlayer p, Entity target) {
         if (!(target instanceof ArenaMember) && !(target instanceof Player)) {

@@ -3,6 +3,8 @@ package dev.champ.kimetsu.combat;
 import dev.champ.kimetsu.core.fight.Audience;
 import dev.champ.kimetsu.core.fight.Outbox;
 import dev.champ.kimetsu.core.strike.PendingStrike;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.LongPredicate;
 
@@ -21,6 +23,8 @@ final class Router implements Arena.Listener {
     private final Routing routing;
     private final CatchUp kept = new CatchUp();
     private final LongPredicate pending = this::pending; // made once: endStep runs every step
+    private final List<PlayerSession> dueTo = new ArrayList<>(); // the catch-ups the next step takes, in order
+    private final IntArrayList dueMob = new IntArrayList();
 
     Router(Arena arena, Sessions sessions, Trackers trackers) {
         this.arena = arena;
@@ -30,6 +34,7 @@ final class Router implements Arena.Listener {
 
     @Override
     public void accept(Outbox.Event e) {
+        takeCatchUps();
         kept.record(e);
         List<PlayerSession> viewers = sessions.viewersIn(arena.level());
         for (int i = 0; i < viewers.size(); i++) {
@@ -42,6 +47,7 @@ final class Router implements Arena.Listener {
 
     @Override
     public void endStep(long n) {
+        takeCatchUps();
         List<PlayerSession> viewers = sessions.viewersIn(arena.level());
         for (int i = 0; i < viewers.size(); i++) {
             viewers.get(i).flush(n);
@@ -51,17 +57,42 @@ final class Router implements Arena.Listener {
     }
 
     /**
-     * Ready viewer {@code v} starts seeing mob {@code mob}, or turned ready ({@link Audience#NOBODY}: every mob): what
-     * live trackers already have of it goes into its buffer, each event {@link Routing} lets it see, so the next
-     * {@code Tick} carries it ahead of that step's own events; a strike's replayed start lets it see the strike's rest.
+     * Ready viewer {@code v} starts seeing mob {@code mob}, or turned ready ({@link Audience#NOBODY}: every mob): at the
+     * next step, before its own events, what live trackers then have of it goes into its buffer, each event
+     * {@link Routing} lets it see, so that step's {@code Tick} carries it first; a strike's replayed start lets it see
+     * the strike's rest. Taken at the step, not now: vanilla pairs a player in the level tick and can unpair it before
+     * the step, and a catch-up taken at once still reached it, with the rest of each strike it replayed (D-102).
      */
     void catchUp(PlayerSession v, int mob) {
-        int id = v.combatId();
-        kept.replay(mob, e -> {
-            if (routing.reaches(e, id)) {
-                v.seeAgain(e);
+        for (int i = 0; i < dueTo.size(); i++) {
+            int due = dueMob.getInt(i);
+            if (dueTo.get(i) == v && (due == mob || due == Audience.NOBODY)) {
+                return; // re-paired before the step (as under /tick freeze, where none runs): once is enough
             }
-        });
+        }
+        dueTo.add(v);
+        dueMob.add(mob);
+    }
+
+    /** The catch-ups due, for the viewers still in this arena's level (another level's strike ids aren't its). */
+    private void takeCatchUps() {
+        if (dueTo.isEmpty()) {
+            return;
+        }
+        List<PlayerSession> viewers = sessions.viewersIn(arena.level());
+        for (int i = 0; i < dueTo.size(); i++) {
+            PlayerSession v = dueTo.get(i);
+            if (viewers.contains(v)) {
+                int id = v.combatId();
+                kept.replay(dueMob.getInt(i), e -> {
+                    if (routing.reaches(e, id)) {
+                        v.seeAgain(e);
+                    }
+                });
+            }
+        }
+        dueTo.clear();
+        dueMob.clear();
     }
 
     private boolean pending(long strike) {

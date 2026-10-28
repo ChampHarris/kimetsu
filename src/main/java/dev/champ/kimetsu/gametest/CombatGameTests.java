@@ -166,6 +166,7 @@ public final class CombatGameTests {
             FUNCTIONS.register(
                     "late_tracking_gets_the_strike_once_ready", () -> CombatGameTests::lateTrackingOnceReady),
             FUNCTIONS.register("late_tracking_gets_the_cancel", () -> CombatGameTests::lateTrackingGetsTheCancel),
+            FUNCTIONS.register("late_tracking_gets_the_result", () -> CombatGameTests::lateTrackingGetsTheResult),
             FUNCTIONS.register(
                     "a_circling_demon_aims_at_its_target", () -> CombatGameTests::aCirclingDemonAimsAtItsTarget),
             FUNCTIONS.register(
@@ -1000,7 +1001,9 @@ public final class CombatGameTests {
      * holds nothing of any other mob, and one copy of each, though it re-paired before the flush (as under {@code /tick
      * freeze}, where no step flushes) and turned spectator in the same tick, which takes it out of the fight but not out
      * of sight (netcode review). Tracking the demon again once the string is over, it gets the demon's view and no
-     * strike. A session player that doesn't track the demon gets none of it.
+     * strike. A session player that doesn't track the demon gets none of it, though it was paired with the demon and
+     * unpaired again before the step, mid-string: vanilla pairs a mock player in the level tick as it notices the snap
+     * to the test, which the test's stop follows (D-102's flake: about one placement in sixteen).
      */
     private static void lateTrackingGetsTheStrike(GameTestHelper h) {
         lateTracking(h, false);
@@ -1090,6 +1093,9 @@ public final class CombatGameTests {
                 h.assertTrue(view[i] != null, "the demon never sent its view's part " + i);
                 shown[i] = view[i];
             }
+            CombatServer.onStartTracking(
+                    new PlayerEvent.StartTracking(s, demon)); // paired and unpaired before the step
+            stopTracking(s, demon);
             CombatServer.onStartTracking(new PlayerEvent.StartTracking(v, demon));
             if (opensLate) {
                 combat(h).sessions().readyForTest(v);
@@ -1172,8 +1178,8 @@ public final class CombatGameTests {
      * Late tracking, then a cancel (D-093's review nit): a session player caught up on the demon's strike mid-windup
      * gets that strike's cancel when the demon dies before the impact, after the start, and the demon's death, so its
      * client keeps no phantom strike. The catch-up's start enrols it for the strike's rest. It asserts only what holds
-     * whichever way the start came, since vanilla can pair a mock player with the demon between the test's
-     * {@code stopTracking}s (D-102: {@code late_tracking_gets_the_strike} sees that in about 1 run in 20).
+     * whichever way the start came: before D-122, vanilla pairing a mock player with the demon between the test's
+     * {@code stopTracking}s could deliver it too (D-102's flake).
      */
     private static void lateTrackingGetsTheCancel(GameTestHelper h) {
         floor(h);
@@ -1232,6 +1238,59 @@ public final class CombatGameTests {
                 died |= e instanceof Outbox.MobDied d && d.mob() == demon.getId();
             }
             h.assertTrue(died, "the late player never heard the demon died: " + after);
+        });
+    }
+
+    /**
+     * Late tracking, then the result in the same step (D-102's fix): a session player that starts tracking the demon
+     * the tick before its strike is decided is caught up at that step, before the step's own events, so its catch-up's
+     * start enrols it for the result the step decides. Caught up after them, it would get the start of a strike already
+     * decided and never its result: a windup its client keeps showing.
+     */
+    private static void lateTrackingGetsTheResult(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        TestDummy dummy = dummy(h, arena, 4, 6.5, 180);
+        List<NetMessage> late = new ArrayList<>();
+        ServerPlayer v = player(h, arena, 14.5, 0.5, late::add); // clear of the sweep, as in lateTracking
+        FrameData swipe = attack(h, arena.data(), "swipe");
+        long start = arena.nextTick();
+        M1Demon demon = demon(h, arena, 4, 4, 0, b -> new ScriptedBrain(b, dummy::getId).at(start + 20, swipe));
+        stopTracking(v, demon);
+        long[] strike = {Long.MIN_VALUE, Long.MIN_VALUE}; // its id and impact tick
+        long[] decided = {Long.MIN_VALUE}; // the step its result came in
+        arena.listen(e -> {
+            if (e instanceof Outbox.AttackStarted a && a.attacker() == demon.getId()) {
+                strike[0] = a.strike();
+                strike[1] = a.impactTick();
+            } else if (e instanceof Outbox.StrikeResult r && r.strike() == strike[0]) {
+                decided[0] = arena.nextTick() - 1;
+            }
+        });
+        int[] from = {-1}; // how many messages the late player had when it started tracking
+        long[] tracked = {Long.MIN_VALUE}; // the step its catch-up came in
+        h.onEachTick(() -> {
+            if (from[0] >= 0) {
+                return;
+            }
+            stopTracking(v, demon);
+            if (strike[0] != Long.MIN_VALUE && arena.nextTick() == strike[1]) { // the next step is the impact's
+                CombatServer.onStartTracking(new PlayerEvent.StartTracking(v, demon));
+                from[0] = late.size();
+                tracked[0] = arena.nextTick();
+            }
+        });
+        h.succeedWhen(() -> {
+            h.assertTrue(from[0] >= 0, "the strike never came to its impact");
+            h.assertTrue(decided[0] != Long.MIN_VALUE, "strike " + strike[0] + " was never decided");
+            h.assertValueEqual(decided[0], tracked[0], "the step that decided the strike (the catch-up's)");
+            List<Outbox.Event> after = events(late, from[0]);
+            int started = indexOf(after, Outbox.AttackStarted.class, strike[0]);
+            int result = indexOf(after, Outbox.StrikeResult.class, strike[0]);
+            h.assertTrue(started >= 0, "the late player never got strike " + strike[0] + "'s start: " + after);
+            h.assertTrue(
+                    result > started,
+                    "strike " + strike[0] + "'s result came at " + result + ", its start at " + started + ": " + after);
         });
     }
 

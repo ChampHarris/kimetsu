@@ -52,6 +52,8 @@ public final class ClockEstimator {
     private boolean frozen;
     private double frozenValue;
     private boolean clientPaused;
+    private long pausedAt;
+    private long resumedAt;
 
     private boolean seen;
     private int newestEpoch;
@@ -87,7 +89,7 @@ public final class ClockEstimator {
             return;
         }
         if (awaitingNewer) { // the unpause burst is answered before the first tick back
-            if (record.epoch() == newestEpoch && record.tick() <= newestTick) {
+            if ((record.epoch() == newestEpoch && record.tick() <= newestTick) || fromBeforeThePause(record)) {
                 return;
             }
             awaitingNewer = false;
@@ -154,12 +156,13 @@ public final class ClockEstimator {
     }
 
     /**
-     * The client paused the integrated server. It skips its tick events, so no frozen record can come, while its
-     * network thread still answers pings with the last record from before the pause; until {@link #resume}, records
-     * are ignored and the estimate stays where it is.
+     * The client paused the integrated server at its {@code now}. It skips its tick events, so no frozen record can
+     * come, while its network thread still answers pings with the last record from before the pause; until
+     * {@link #resume}, records are ignored and the estimate stays where it is.
      */
     public void pause(long now) {
         clientPaused = true;
+        pausedAt = now;
         awaitingNewer = seen; // after resume, only a record from after the pause counts
         if (anchored && !frozen) {
             frozenValue = value(now);
@@ -167,9 +170,19 @@ public final class ClockEstimator {
         }
     }
 
-    /** The client unpaused: the next record (the pong burst after the unpause) sets the clock going again. */
-    public void resume() {
+    /**
+     * The client unpaused at its {@code now}: the first record from after the pause sets the clock going again. The
+     * unpause burst can all be answered before the server's first tick back, with the record from its last tick before
+     * the pause, which is often newer than any the client had (D-121).
+     */
+    public void resume(long now) {
         clientPaused = false;
+        resumedAt = now;
+    }
+
+    /** Whether the clock still waits for a record from after the last pause, from the pause until one comes. */
+    public boolean awaitingResume() {
+        return awaitingNewer;
     }
 
     /** Vanilla dropped its backlog (Rule 1.8): the next record sets the clock, even backwards. */
@@ -207,6 +220,17 @@ public final class ClockEstimator {
         frozenValue = Micros.ofTicks(record.tick());
         anchored = true;
         frozen = true;
+    }
+
+    /**
+     * Whether {@code record}'s tick started nearer the pause's start than its end, on the client's clock. The server's
+     * last tick before the pause starts before it, or just after if the server read the flag before it changed; its
+     * first tick back starts on vanilla's schedule near the unpause, which a paused server keeps. Extrapolated across
+     * the pause, the first would put the clock the pause's length on, held there as long (D-121).
+     */
+    private boolean fromBeforeThePause(TickRecord record) {
+        double start = record.startNanos() - theta;
+        return start - pausedAt <= resumedAt - start;
     }
 
     private double value(long clientNanos) {

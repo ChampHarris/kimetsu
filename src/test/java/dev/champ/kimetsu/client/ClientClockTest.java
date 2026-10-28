@@ -1,11 +1,16 @@
 package dev.champ.kimetsu.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.champ.kimetsu.core.Fixtures;
+import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.TickRecord;
+import dev.champ.kimetsu.net.NetMessage;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -71,6 +76,41 @@ class ClientClockTest {
         assertEquals(List.of(65L, 66L, 67L, 68L, 69L), pings(c, 65, 70, true));
         c.onRecord(record(501), at(70));
         assertEquals(List.of(89L), pings(c, 70, 100, true), "a record from after the pause ends the wait");
+    }
+
+    /** A pong received at client tick {@code t}, the server's wall clock the client's, carrying {@code r}. */
+    private static void pong(ClientClock c, long t, TickRecord r) {
+        c.onPong(new NetMessage.ClockPong(at(t) - 10_000_000L, at(t) - 5_000_000L, at(t) - 5_000_000L, r), at(t));
+    }
+
+    /**
+     * D-121: the server runs on past the client's newest record (a pong a second) until it reads the pause, and its
+     * network thread answers the unpause burst with that last tick's record. Newer than any the client had, it isn't
+     * from after the pause, and neither is a pong held up across it: input stays shut and a ping goes every tick until
+     * a tick that started after the pause comes, and the stamps then follow the server's line.
+     */
+    @Test
+    void afterAnUnpauseOnlyATickThatStartedAfterThePauseOpensInput() {
+        ClientClock c = new ClientClock(Fixtures.clock(), BEAT_TICKS, 0);
+        c.onRecord(record(19), at(19)); // the session's first record; the server's tick t starts at the client's tick t
+        assertEquals(List.of(19L, 20L, 21L, 22L), pings(c, 19, 23, true));
+        for (long t = 20; t < 24; t++) {
+            pong(c, t, record(t)); // the burst's answers
+        }
+        assertTrue(c.inputOpen());
+        assertEquals(List.of(42L), pings(c, 23, 45, true));
+        c.paused(true, at(45));
+        pong(c, 46, record(42)); // the answer to tick 42's ping, held up until the game had paused
+        c.paused(false, at(245)); // a 10 s pause
+        assertFalse(c.inputOpen(), "open on a pong from before the pause");
+        pong(c, 246, record(45)); // the server's last tick before it read the pause, answered before its first one back
+        assertFalse(c.inputOpen(), "open on the record from before the pause");
+        assertEquals(
+                LongStream.range(246, 256).boxed().toList(), pings(c, 246, 256, true), "a ping a tick until it comes");
+        double first = at(245) + 20_000_000.0; // the server's first tick back, re-anchored on vanilla's schedule
+        c.onRecord(new TickRecord(46, first, 50_000_000.0, false, false, false, 0), at(256));
+        assertTrue(c.inputOpen());
+        assertEquals(Micros.ofTicks(46) + (at(266) - (long) first) / 1000, c.micros(at(266)), "off the server's line");
     }
 
     @Test

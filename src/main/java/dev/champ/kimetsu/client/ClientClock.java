@@ -15,8 +15,9 @@ import org.jspecify.annotations.Nullable;
  * Rule 13.1), and in a burst of 4, one a
  * client tick, when the first record arrives, after an unpause, an unfreeze, a sprint and an epoch. No ping goes before
  * a record (the server answers none without one) or while the game is paused. After an unpause, input waits until a
- * record from a later tick than the pause's arrives, since the estimate stands still until then, and a ping goes every
- * tick until it does: the unpause burst can all be answered before the server's first tick back. Main thread only.
+ * record from a tick that started after the pause arrives ({@link ClockEstimator#awaitingResume}), since the estimate
+ * stands still until then, and a ping goes every tick until it does: the unpause burst can all be answered before the
+ * server's first tick back. Main thread only.
  */
 final class ClientClock {
     private static final int BURST = 4;
@@ -30,8 +31,6 @@ final class ClientClock {
     private long lastPingNanos = Long.MIN_VALUE;
     private long intervalNanos; // between the last two pings, for the overlay (S524's MCTest check)
     private boolean paused;
-    private long resumeAfter = Long.MIN_VALUE; // a record from a tick after this one ends the pause's wait
-    private int epochAtPause;
 
     ClientClock(ClockRules rules, int beatTicks, int epoch) {
         this.rules = rules;
@@ -64,9 +63,6 @@ final class ClientClock {
             newest = r;
         }
         epoch = Math.max(epoch, r.epoch());
-        if (resumeAfter != Long.MIN_VALUE && (r.tick() > resumeAfter || r.epoch() > epochAtPause)) {
-            resumeAfter = Long.MIN_VALUE;
-        }
     }
 
     void onEpoch(int e) {
@@ -83,11 +79,8 @@ final class ClientClock {
         paused = now;
         if (now) {
             estimator.pause(nowNanos);
-            TickRecord n = newest;
-            resumeAfter = n != null ? n.tick() : Long.MIN_VALUE;
-            epochAtPause = epoch;
         } else {
-            estimator.resume();
+            estimator.resume(nowNanos);
             burst = BURST;
         }
     }
@@ -111,7 +104,7 @@ final class ClientClock {
         long interval = (inCombat ? rules.syncIntervalCombatMs() : rules.syncIntervalIdleMs()) * 1_000_000L;
         if (burst > 0) {
             burst--;
-        } else if (resumeAfter == Long.MIN_VALUE
+        } else if (!estimator.awaitingResume()
                 && lastPingNanos != Long.MIN_VALUE
                 && nowNanos - lastPingNanos < interval) {
             return false;
@@ -135,7 +128,7 @@ final class ClientClock {
 
     /** Whether presses may be stamped and sent: the clock is set, the game runs and no unpause is being waited out. */
     boolean inputOpen() {
-        return ready() && !paused && resumeAfter == Long.MIN_VALUE;
+        return ready() && !paused && !estimator.awaitingResume();
     }
 
     /** Whether the server's ticking is frozen ({@code /tick freeze}), which pins the clock at 50·G. */

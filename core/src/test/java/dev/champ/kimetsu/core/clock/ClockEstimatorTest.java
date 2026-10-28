@@ -14,6 +14,7 @@ import java.util.Random;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class ClockEstimatorTest {
     private static final long MS = 1_000_000L;
@@ -189,8 +190,8 @@ class ClockEstimatorTest {
         pong(est, at + 2000 * MS, at20(219, 0)); // answered on the network thread mid-pause
         assertTrue(est.frozen());
         assertEquals(e, est.estimateMicros(at + 4000 * MS));
-        est.resume();
         long back = at + 5000 * MS; // the server re-anchored at its first tick back
+        est.resume(back);
         est.onRecord(back, new TickRecord(220, back, 50.0 * MS, false, false, false, 0), BEAT);
         assertFalse(est.frozen());
         assertEquals(e, est.estimateMicros(back)); // it picks up where it stopped
@@ -205,12 +206,47 @@ class ClockEstimatorTest {
         long at = now + 50 * MS;
         long e = est.estimateMicros(at);
         est.pause(at);
-        est.resume();
         long back = at + 10_000 * MS; // a 10 s pause
+        est.resume(back);
         pong(est, back, at20(200, 0)); // still tick 200: it would put the clock 10 s on
         assertEquals(e, est.estimateMicros(back));
         est.onRecord(back + 50 * MS, new TickRecord(201, back + 50 * MS, 50.0 * MS, false, false, false, 0), BEAT);
         assertTrue(est.estimateMicros(back + 1000 * MS) < e + 2_000_000, "ran ahead after the pause");
+    }
+
+    /**
+     * D-121: the server ticks on past the client's newest record (a pong a second) until it reads the pause, and its
+     * network thread answers the unpause burst with that last tick's record. Newer than any the client had, it still
+     * started before the pause, here even just after the client paused (the server read the flag before it changed),
+     * and across the pause it put the clock 10 s on, pinned there for 10 s. The test reads tick starts on the client's
+     * clock, so it holds with the server's clock ahead too.
+     */
+    @ParameterizedTest
+    @ValueSource(longs = {0, 8_000})
+    void afterAPauseARecordFromATickTheClientHadNotSeenIsStaleToo(long serverAheadMs) {
+        long ahead = serverAheadMs * MS;
+        ClockEstimator est = new ClockEstimator(Fixtures.clock());
+        long now = 10_000 * MS;
+        for (long k = 3; k >= 0; k--) { // the join burst; newest record: tick 200
+            long t = now - k * 50 * MS;
+            pong(est, t, ahead, at20(t / (50 * MS), -serverAheadMs));
+        }
+        long at = now + 990 * MS;
+        long e = est.estimateMicros(at);
+        est.pause(at);
+        long back = at + 10_000 * MS; // a 10 s pause
+        est.resume(back);
+        // the server's last tick before the pause, started 10 ms after the client paused
+        pong(est, back, ahead, at20(220, -serverAheadMs));
+        assertEquals(e, est.estimateMicros(back), "took the record from before the pause");
+        long first = back + 20 * MS; // the server's first tick back, re-anchored on vanilla's schedule
+        est.onRecord(first + 5 * MS, new TickRecord(221, first + ahead, 50.0 * MS, false, false, false, 0), BEAT);
+        assertEquals(Micros.ofTicks(221) + 1_005_000, est.estimateMicros(first + 1005 * MS)); // on the server's line
+    }
+
+    /** A pong with the server's wall clock {@code ahead} ns ahead of the client's. */
+    private static void pong(ClockEstimator est, long now, long ahead, TickRecord record) {
+        est.onPong(now - 10 * MS, now - 5 * MS + ahead, now - 5 * MS + ahead, now, record, BEAT);
     }
 
     @Test
