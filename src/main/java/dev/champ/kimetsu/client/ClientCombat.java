@@ -66,8 +66,10 @@ public final class ClientCombat {
     private boolean sentReady;
     private final ClientView view = new ClientView();
     private final Pose pose = new Pose();
-    private final ClientInput input =
-            new ClientInput(this, KimetsuClientConfig.client().debugOverlay());
+    private final ClientInput input = new ClientInput(
+            this,
+            KimetsuClientConfig.client().debugOverlay(),
+            KimetsuClientConfig.client().guardMode() == KimetsuClientConfig.GuardMode.TOGGLE);
     private final List<Entity> combatants = new ArrayList<>(); // the hostile ones this client has (M1: the demon)
     private final long loginNanos = Util.getNanos();
 
@@ -361,12 +363,17 @@ public final class ClientCombat {
     }
 
     /**
-     * The CLIENT config changed (the screen's save, a file edit): the server gets the new settings, once it has had the
-     * first ones, which go just before {@code Ready} (main thread).
+     * The CLIENT config changed (the screen's save, a file edit): the guard mode applies, and the server gets the new
+     * settings, once it has had the first ones, which go just before {@code Ready} (main thread).
      */
     static void settingsChanged() {
         ClientCombat c = current;
-        if (c != null && c.sentReady) {
+        if (c == null) {
+            return;
+        }
+        c.input.guardMode(
+                KimetsuClientConfig.client().guardMode() == KimetsuClientConfig.GuardMode.TOGGLE, Util.getNanos());
+        if (c.sentReady) {
             ClientPacketDistributor.sendToServer(settings());
         }
     }

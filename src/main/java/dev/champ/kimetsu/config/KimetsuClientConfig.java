@@ -12,16 +12,16 @@ import net.neoforged.neoforge.common.TranslatableEnum;
  * The CLIENT config (spec Config, D-104): the player's own, in {@code config/kimetsu-client.toml}. Only client classes
  * read it, and only through {@link #client}: a dedicated server never loads it, where its spec's getters throw. It
  * holds slice 5d-2's options: {@code debug_overlay}, the assist level and the offsets are read ({@code ClientCombat}:
- * the last three go to the server as {@code ClientSettings}), and lock-on smoothing ({@code ClientInput}'s ease); the
- * guard mode from Step 5b. Reduced
- * shake, flashing and motion, cue volume and HUD scale come with their consumers (slices 5d-3 to 5d-5).
+ * the last three go to the server as {@code ClientSettings}), lock-on smoothing ({@code ClientInput}'s ease) and the
+ * guard mode ({@code ClientInput}, through {@code GuardToggle}). Reduced shake, flashing and motion, cue volume and HUD
+ * scale come with their consumers (slices 5d-3 to 5d-5).
  */
 public final class KimetsuClientConfig {
     /** How the guard key works (Open Question 1, D-104). */
     public enum GuardMode implements TranslatableEnum {
         /** The guard is up while the key is held. */
         HOLD,
-        /** Each tap is a guard press, and the guard stays up until the next action or a double-tap. */
+        /** Each tap is a guard press, and the guard stays up until the next action or a double-tap while it's up. */
         TOGGLE;
 
         @Override
@@ -67,8 +67,8 @@ public final class KimetsuClientConfig {
                 .defineInRange("assist_level", 0, 0, 3);
         GUARD_MODE = b.comment(
                         "HOLD keeps the guard up while the key is held. TOGGLE makes each tap a guard press and keeps"
-                                + " the guard up until your next attack, Pommel Strike, Step or Breathe, or a"
-                                + " double-tap.")
+                                + " the guard up until your next attack, Pommel Strike, Step, Breathe or Inhale, or a"
+                                + " double-tap while it's up.")
                 .translation(key("guard_mode"))
                 .defineEnum("guard_mode", GuardMode.HOLD);
         LOCK_ON_SMOOTHING = b.comment(

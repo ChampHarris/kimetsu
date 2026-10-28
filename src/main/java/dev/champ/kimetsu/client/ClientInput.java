@@ -63,7 +63,10 @@ import org.jspecify.annotations.Nullable;
  * ({@link RadialStroke}): the camera holds still, the mouse's motion is the stroke, and a real key-up carries the slot it
  * points into; every release a screen, the pause, the blade or the lost focus forces carries none. Lock-on's key is the
  * client's own and never goes on the wire ({@link LockOn}, Rule 13.3): its press is taken under the combat keys' rule, a
- * tap or a hold acts on it, and each render frame the lock eases the look toward its target. Main thread only.
+ * tap or a hold acts on it, and each render frame the lock eases the look toward its target. With {@code guard_mode}
+ * TOGGLE the guard key's taps go as a holder's presses and releases would ({@link GuardToggle}): the held state's guard
+ * bit is the toggled guard, and an Attack, Pommel, Step, Breathe or Inhale press lets go of it at its own stamp first.
+ * Main thread only.
  */
 final class ClientInput {
     private static final int GUARDS = 16; // guard presses kept for the overlay's offsets
@@ -90,6 +93,10 @@ final class ClientInput {
     private final FocusRelease focus = new FocusRelease();
     private long breatheDownMicros = NONE; // the stamp of the last Breathe press taken
     private long deferredUp = NONE; // a Breathe release the lost focus restamped: it goes once its stamp has passed
+
+    // the guard toggle (D-104's Open Question 1): in TOGGLE the held state's guard bit is the toggled guard
+    private final GuardToggle guardToggle = new GuardToggle();
+    private boolean toggle; // guard_mode TOGGLE, changed only by guardMode, which lets go of a guard the old mode held
 
     // the Step (D-070): its keys and its dash; and what its own presses start on the server, which gates the dash,
     // the radial and the attack until the client predicts (step 5; D-107's review)
@@ -133,9 +140,10 @@ final class ClientInput {
     private long devReleaseAt = NONE; // set once its press went
     private boolean devStroked;
 
-    ClientInput(ClientCombat combat, boolean overlay) {
+    ClientInput(ClientCombat combat, boolean overlay, boolean toggle) {
         this.combat = combat;
         this.overlay = overlay;
+        this.toggle = toggle;
     }
 
     boolean overlay() {
@@ -307,6 +315,10 @@ final class ClientInput {
             return false;
         }
         if (!down) {
+            if (k == PlayerIntake.Key.GUARD && toggle) {
+                guardToggle.keyUp(guardRaised(), d -> take(k, d, nanos)); // the pair's second tap lets go
+                return false;
+            }
             if (CaptureRules.release((held & k.bit()) != 0) == CaptureRules.Action.TAKE) {
                 FocusRelease.Up up = k == PlayerIntake.Key.BREATHE
                         ? focus.breatheUp(mc.isWindowActive(), deferredUp != NONE)
@@ -345,8 +357,44 @@ final class ClientInput {
         if (k == PlayerIntake.Key.STEP && dash.pushWaiting()) {
             return a == CaptureRules.Action.TAKE_AND_CANCEL; // dropped, never sent: as a double-tap's (both reviews)
         }
-        take(k, true, nanos);
+        if (k == PlayerIntake.Key.GUARD && toggle) {
+            tapGuard(nanos);
+        } else {
+            take(k, true, nanos);
+        }
         return a == CaptureRules.Action.TAKE_AND_CANCEL;
+    }
+
+    /**
+     * A tap of the guard key in TOGGLE ({@link GuardToggle}): a guard press, with the guard up a release and a press at
+     * the tap's stamp, as a holder's quickest re-press. With no data there's no double-tap window, so no pair.
+     */
+    private void tapGuard(long nanos) {
+        CombatData d = combat.data();
+        guardToggle.keyDown(
+                guardRaised(),
+                clientTick + 1,
+                d != null ? d.rules().machine().doubleTapTicks() : -1,
+                down -> take(PlayerIntake.Key.GUARD, down, nanos));
+    }
+
+    /** Whether the guard is held, as the frames tell the server: in TOGGLE, whether the toggled guard is up. */
+    private boolean guardRaised() {
+        return (held & PlayerIntake.Key.GUARD.bit()) != 0;
+    }
+
+    /**
+     * The guard mode changed (the CLIENT config, on the main thread): a guard the old mode holds is let go, so a toggled
+     * guard never waits for a key-up that already came, nor a held key's guard for a tap.
+     */
+    void guardMode(boolean toggle, long nanos) {
+        if (toggle == this.toggle) {
+            return;
+        }
+        this.toggle = toggle;
+        if (guardRaised()) {
+            take(PlayerIntake.Key.GUARD, false, nanos);
+        }
     }
 
     /**
@@ -732,6 +780,11 @@ final class ClientInput {
      * and its own moves judge it by alike.
      */
     private void delta(PlayerIntake.Key k, boolean down, long stampMicros, int slot, long frameTimeMicros) {
+        if (down && toggle) {
+            // the toggled guard drops at the action's stamp, sent first so it acts first, as a holder's let-go would
+            GuardToggle.pressed(
+                    k, guardRaised(), g -> delta(PlayerIntake.Key.GUARD, g, stampMicros, -1, frameTimeMicros));
+        }
         if (!pending.isEmpty() && pendingFrame != renderFrame) {
             sendAhead(stampMicros); // another render frame
         }
@@ -1175,7 +1228,8 @@ final class ClientInput {
     /**
      * Arms a guard press {@code offsetMs} from the next white-cued impact on this player (negative: before it), timed
      * from the impact tick, which the judge measures from too; if the strike goes before the press (a feint), the next
-     * one gets it.
+     * one gets it. It's a holder's press and release whatever the guard mode: in TOGGLE it presses onto a raised guard
+     * and its release lets go of it, so a deflect check run in TOGGLE doesn't play as a tap would.
      */
     void arm(int offsetMs) {
         armed = true;

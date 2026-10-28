@@ -376,6 +376,34 @@ class OwnPressesTest {
         r.running(30, WATER.radial(0));
     }
 
+    @Test
+    void aReleaseAndAPressAtOneStampActInTheirOrder_asTheServersTimelineRunsThem() {
+        // the guard toggle's re-press and its drop before an action (GuardToggle), TimelineTest's twin
+        Run r = new Run();
+        r.key(PlayerIntake.Key.GUARD, true, 110_000, 0); // step 3
+        r.to(6);
+        r.key(PlayerIntake.Key.GUARD, false, 320_000, 0); // step 7
+        r.key(PlayerIntake.Key.GUARD, true, 320_000, 0);
+        r.to(7);
+        assertTrue(r.p.moves.blocked(7), "let go, then down again: the guard holds the radial back");
+
+        Run reversed = new Run();
+        reversed.key(PlayerIntake.Key.GUARD, true, 110_000, 0);
+        reversed.to(6);
+        reversed.key(PlayerIntake.Key.GUARD, true, 320_000, 0);
+        reversed.key(PlayerIntake.Key.GUARD, false, 320_000, 0);
+        reversed.to(7);
+        assertFalse(reversed.p.moves.blocked(7), "the other way round it ends let go");
+
+        Run attack = new Run();
+        attack.key(PlayerIntake.Key.GUARD, true, 110_000, 0);
+        attack.to(6);
+        attack.key(PlayerIntake.Key.GUARD, false, 320_000, 0);
+        attack.key(PlayerIntake.Key.ATTACK, true, 320_000, 0);
+        attack.to(7);
+        attack.running(7, C1);
+    }
+
     /** One run: presses act in the step they're judged into, client tick t's start at step t's end. */
     private static final class Run {
         final OwnPresses p = new OwnPresses();

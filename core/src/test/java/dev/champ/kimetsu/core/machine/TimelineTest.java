@@ -250,4 +250,35 @@ class TimelineTest {
         }
         assertTrue(client.live().sameAs(server.live()));
     }
+
+    /**
+     * The guard toggle (D-104) sends a tap while the guard is up as a release and a press at one stamp, and drops the
+     * guard before an action as a release at the action's stamp, sent first: presses at one stamp act in the order they
+     * came, so the release acts first, as a holder's let-go before the key goes down again. A re-press then ends with
+     * the guard down (the other order would end let go); an action starts in its own step (pressed into the guard it
+     * would wait in the buffer for the release, which runs it at the same step's end).
+     */
+    @Test
+    void aReleaseAndAPressAtOneStampActInTheOrderTheyCame() {
+        long tap = Rig.during(6, 20); // acts in step 7
+        Server s = new Server().deliver(Input.guard(Rig.during(2, 10))).through(5);
+        assertEquals(State.GUARD, s.live().state());
+        s.deliver(Input.of(Input.Kind.GUARD_UP, tap)).deliver(Input.guard(tap)).through(7);
+        assertTrue(s.live().guardDown(), "let go, then down again");
+        assertEquals(State.NEUTRAL, s.live().state(), "rising for guard_hold_ticks, as a holder's re-press");
+        assertEquals(State.GUARD, s.through(8).live().state());
+
+        Server reversed = new Server().deliver(Input.guard(Rig.during(2, 10))).through(5);
+        reversed.deliver(Input.guard(tap))
+                .deliver(Input.of(Input.Kind.GUARD_UP, tap))
+                .through(7);
+        assertFalse(reversed.live().guardDown(), "the other way round it ends let go");
+
+        Server attack = new Server().deliver(Input.guard(Rig.during(2, 10))).through(5);
+        attack.deliver(Input.of(Input.Kind.GUARD_UP, tap))
+                .deliver(Input.of(Input.Kind.ATTACK, tap))
+                .through(7);
+        assertEquals(State.ATTACK, attack.live().state());
+        assertEquals(7, attack.live().attackStart(), "in its own step");
+    }
 }

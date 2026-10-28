@@ -35,7 +35,7 @@
   "kimetsu.configuration.assist_level": "Rhythm Assist",
   "kimetsu.configuration.assist_level.tooltip": "PvE only. 1 shows the metronome ring and the impact notch; 2 also widens the timing windows; 3 also keeps the Rhythm for you, for less damage. The server may cap it.",
   "kimetsu.configuration.guard_mode": "Guard",
-  "kimetsu.configuration.guard_mode.tooltip": "Hold: the guard is up while the key is held. Toggle: each tap is a guard press, and the guard stays up until your next attack, Pommel Strike, Step or Breathe, or a double-tap.",
+  "kimetsu.configuration.guard_mode.tooltip": "Hold: the guard is up while the key is held. Toggle: each tap is a guard press, and the guard stays up until your next attack, Pommel Strike, Step, Breathe or Inhale, or a double-tap while it's up.",
   "kimetsu.configuration.guard_mode.hold": "Hold",
   "kimetsu.configuration.guard_mode.toggle": "Toggle",
   "kimetsu.configuration.lock_on_smoothing": "Lock-On Camera Ease",
