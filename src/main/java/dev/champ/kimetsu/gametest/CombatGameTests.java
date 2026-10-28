@@ -42,6 +42,7 @@ import dev.champ.kimetsu.entity.M1Demon;
 import dev.champ.kimetsu.entity.TestDummy;
 import dev.champ.kimetsu.item.KimetsuItems;
 import dev.champ.kimetsu.net.NetMessage;
+import io.netty.channel.embedded.EmbeddedChannel;
 import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -66,6 +67,7 @@ import net.minecraft.gametest.framework.GameTestRunner;
 import net.minecraft.gametest.framework.TestData;
 import net.minecraft.gametest.framework.TestEnvironmentDefinition;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ClientboundSwingAnimationPacket;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
@@ -79,6 +81,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -156,6 +159,8 @@ public final class CombatGameTests {
             FUNCTIONS.register("a_landing_is_the_servers", () -> CombatGameTests::aLandingIsTheServers),
             FUNCTIONS.register(
                     "the_falling_form_needs_two_blocks", () -> CombatGameTests::theFallingFormNeedsTwoBlocks),
+            FUNCTIONS.register(
+                    "your_swing_spans_the_windup_and_the_cut", () -> CombatGameTests::yourSwingSpansTheWindupAndTheCut),
             FUNCTIONS.register("a_pushed_dummy_is_never_clamped", () -> CombatGameTests::aPushedDummyIsNeverClamped),
             FUNCTIONS.register("late_tracking_gets_the_strike", () -> CombatGameTests::lateTrackingGetsTheStrike),
             FUNCTIONS.register(
@@ -2586,6 +2591,64 @@ public final class CombatGameTests {
     }
 
     /**
+     * Your swing (slice 5d-2 Step 5; Champ, D-104): a session player's Attack press, its Pommel and a form (Breathe
+     * held 300 ms, released toward slot 2) each start one swing of its arm, its own client told too, from the step the
+     * attack's windup starts, lasting its windup and active frames. A mock player's swing never ticks (its connection
+     * isn't ticked), so each swing is read as its packet goes out, from the server's swing and the packet both.
+     */
+    private static void yourSwingSpansTheWindupAndTheCut(GameTestHelper h) {
+        floor(h);
+        Arena arena = arena(h);
+        ServerPlayer p = player(h, arena, 4, 4);
+        if (!(p.connection.getConnection().channel() instanceof EmbeddedChannel wire)) {
+            throw h.assertionException("a mock player's connection has no embedded channel");
+        }
+        Frames frames = new Frames(h, p);
+        long start = arena.nextTick() + STAND_TICKS; // standing until it has joined
+        long form = start + 80;
+        long released = form + 6; // 300 ms: past the radial's threshold
+        List<String> swings = new ArrayList<>();
+        h.onEachTick(() -> {
+            for (Object o = wire.readOutbound(); o != null; o = wire.readOutbound()) {
+                if (o instanceof ClientboundSwingAnimationPacket s && s.entityId() == p.getId()) {
+                    Combatant c = fighterOf(h, p).timeline().live();
+                    FrameData a = c.attack();
+                    LivingEntity.SwingDescription d = p.getCurrentSwing();
+                    swings.add((a != null ? a.id() : "no attack")
+                            + " for " + s.animation().duration()
+                            + "/" + (d != null ? d.durationTicks() : -1)
+                            + " ticks from step " + (arena.lastStep() - c.attackStart()) + " of it");
+                }
+            }
+            long n = arena.nextTick();
+            if (n == start) {
+                frames.press(PlayerIntake.Key.ATTACK);
+            } else if (n == start + 40) {
+                frames.press(PlayerIntake.Key.POMMEL);
+            } else if (n == form) {
+                frames.press(PlayerIntake.Key.BREATHE);
+            } else if (n == released) {
+                frames.release(PlayerIntake.Key.BREATHE, 2);
+            }
+            frames.send(n, 4, 1, 4);
+        });
+        CombatData data = arena.data();
+        List<String> expected = new ArrayList<>();
+        for (String id : List.of("kimetsu:light_chain/1", "kimetsu:pommel", "kimetsu:water/fourth_form")) {
+            FrameData a = data.frames().get(id);
+            if (a == null) {
+                throw h.assertionException(id + " isn't loaded");
+            }
+            int ticks = a.windup() + a.active();
+            expected.add(id + " for " + ticks + "/" + ticks + " ticks from step 0 of it");
+        }
+        h.succeedWhen(() -> {
+            h.assertTrue(arena.lastStep() >= released + 45, "the form hasn't run its course");
+            h.assertValueEqual(swings, expected, "the swings and their attacks");
+        });
+    }
+
+    /**
      * The dummy is unbounded by default (D-071); bounded on tight rules (1 block over 6 ticks), the heavy's 2-block push
      * still isn't clamped, since the push opens the bound (Rule 7.10), while the same 2 blocks over 4 ticks with no
      * push is.
@@ -2643,13 +2706,17 @@ public final class CombatGameTests {
     /**
      * A session player's client for a test: before each step {@code n} the player stands where the test puts it and
      * the frame of client tick {@code n − 1} arrives with that pose, sent the seam's RTT/2 earlier, carrying the presses
-     * asked for since the last.
+     * and releases asked for since the last, and the keys held.
      */
     private static final class Frames {
         private static final long RTT = Micros.ofMillis(50); // the seam's echo
+
+        private record Change(PlayerIntake.Key key, boolean down, int slot) {}
+
         private final GameTestHelper h;
         private final ServerPlayer p;
-        private final List<PlayerIntake.Key> presses = new ArrayList<>();
+        private final List<Change> changes = new ArrayList<>();
+        private int held; // the frame's held state
         private long seq;
 
         Frames(GameTestHelper h, ServerPlayer p) {
@@ -2658,7 +2725,16 @@ public final class CombatGameTests {
         }
 
         void press(PlayerIntake.Key key) {
-            presses.add(key);
+            changes.add(new Change(key, true, -1));
+            if (key.releasable()) {
+                held |= key.bit();
+            }
+        }
+
+        /** {@code key} let go, toward radial slot {@code slot} (−1: none). */
+        void release(PlayerIntake.Key key, int slot) {
+            changes.add(new Change(key, false, slot));
+            held &= ~key.bit();
         }
 
         /** Before step {@code n}: the player at {@code (x, y, z)} from the test's corner; returns its pose's time. */
@@ -2668,10 +2744,13 @@ public final class CombatGameTests {
             long tickTime = Micros.ofTicks(n - 1);
             long sent = Micros.ofTicks(n) - RTT / 2;
             List<PlayerIntake.Delta> deltas = new ArrayList<>();
-            for (PlayerIntake.Key k : presses) {
-                deltas.add(PlayerIntake.Delta.press(k, sent));
+            for (Change c : changes) {
+                deltas.add(
+                        c.down()
+                                ? PlayerIntake.Delta.press(c.key(), sent)
+                                : PlayerIntake.Delta.release(c.key(), sent, c.slot()));
             }
-            presses.clear();
+            changes.clear();
             combat(h)
                     .sessions()
                     .frameForTest(
@@ -2682,7 +2761,7 @@ public final class CombatGameTests {
                                     FRAME_MICROS,
                                     tickTime,
                                     combat(h).epoch(),
-                                    0,
+                                    held,
                                     deltas),
                             Micros.ofTicks(n));
             return tickTime;

@@ -40,10 +40,13 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Util;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.item.SwingAnimationType;
+import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.level.block.Blocks;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jspecify.annotations.Nullable;
@@ -94,6 +97,7 @@ public final class PlayerSession implements ArenaMember {
     private TimingRules timing;
     private @Nullable Arena arena;
     private @Nullable Fighter fighter;
+    private final ArmSwing swing = new ArmSwing(); // your swing: the attack it last swung the arm for
     private boolean ready;
     private boolean echoed;
     private boolean recordSent;
@@ -825,6 +829,11 @@ public final class PlayerSession implements ArenaMember {
         Fighter f = fighter;
         if (f == null) {
             return;
+        }
+        int swingTicks = swing.after(f.timeline().live(), n);
+        if (swingTicks > 0) { // to its own client too; on the entity itself, so its attack ticker isn't reset
+            // false when vanilla refuses it in the current swing's first half (startIfAble): expected, never retried
+            player.swing(InteractionHand.MAIN_HAND, new SwingAnimation(SwingAnimationType.WHACK, swingTicks), true);
         }
         long settled = f.timeline().settledThrough(intake.newestFrameMicros(), f.earliestHeldMicros());
         if (settled == Long.MIN_VALUE) {
