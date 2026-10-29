@@ -6,12 +6,16 @@ Denied outright:
     reference/ (local study clips, never shipped), .git/ internals (.git/info/exclude is fine)
   * Minecraft/loader/library imports inside core/ (the version-proof combat core)
   * raw OpenGL in mod code (crashes or no-ops on the Vulkan backend; use RenderPipelines)
-  * setting a design spec to APPROVED through the shell (only Champ approves)
+  * setting a design spec to APPROVED through the shell (approval comes from the recorded red-team review or Champ)
   * force push, a download piped into a shell, recursive delete of a project root or home, git settings that make
     git run programs on its own (core.hooksPath, core.fsmonitor)
 Asked first (Champ confirms in the permission prompt):
-  * setting a spec to APPROVED with an edit tool, unless Champ picked Approve for that exact revision (spec_approval.py
-    records it; the edit may change only the status line); editing an APPROVED spec; editing specs through the shell
+  * setting a spec to APPROVED with an edit tool, unless spec_approval.py recorded an approval for that exact revision
+    (the red-team agent's APPROVE line since Champ delegated approval on 2026-10-28, or Champ's own Approve; the edit
+    may change only the status line). The status is read both ways (the guard's first status line and check_spec's
+    last); a second status line, an added "status: approved" anywhere, or an Edit it can't place exactly also asks.
+    Editing an APPROVED spec that stays APPROVED (reopening it to REVIEW in the same edit is allowed, so it goes back
+    through the review); editing specs through the shell
   * the gates (.claude/hooks/, .claude/settings.json, tools/check_spec.py) and the hooks' own state (.claude/.state/)
   * the doctrine and the other checks (ADR 0003: Claude doesn't rewrite its own rules quietly): any CLAUDE.md,
     CLAUDE.local.md, .claude/{agents,skills,rules,output-styles,workflows,commands}/, .claude/settings.local.json,
@@ -48,7 +52,8 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import emit, load_state_json, project_dir, read_input, read_text, rel_path, spec_rev  # noqa: E402
+from _common import (emit, load_state_json, project_dir, read_input, read_text, rel_path, said_not_yet,  # noqa: E402
+                     spec_rev)
 from _quality import GATE_LOOSEN  # noqa: E402
 
 # ---------------------------------------------------------------- what is guarded
@@ -92,6 +97,8 @@ RAW_GL = re.compile(
 FRONT_MATTER = re.compile(r"\A\ufeff?---\s*\n(.*?)\n---", re.S)
 STATUS_RE = re.compile(r"^\s*status\s*:\s*[\"']?([A-Za-z]+)", re.M | re.I)
 STATUS_LINE = re.compile(r"^(\s*status\s*:\s*)[\"']?[A-Za-z]+[\"']?", re.M | re.I)
+STATUS_ADDED = re.compile(r"status\s*:\s*[\"']?approved", re.I)  # an approval written anywhere in the added text
+U_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})")
 APPROVAL_TTL = 24 * 3600
 
 REASONS = {
@@ -351,7 +358,7 @@ class Shell:
         if c:
             cat, rel = c
             if cat == "specs" and re.search(r"approved", text, re.I):
-                self.flags.append(("deny", "Only Champ approves specs, and not through the shell either. Set "
+                self.flags.append(("deny", "Specs are approved through the recorded review (or by Champ), never through the shell. Set "
                                            "`status: REVIEW` with the Edit tool."))
             self.hits.append((cat, rel, how))
 
@@ -979,16 +986,55 @@ def spec_status(text: str) -> str:
     return m.group(1).upper() if m else ""
 
 
+def checked_status(text: str) -> tuple[str, int]:
+    """The status as tools/check_spec.py reads it (its parse_front_matter: the file opens with `---`, the block ends
+    at the next line starting `---`, the last `status:` line wins), and how many status lines that block has."""
+    if not text.startswith("---"):
+        return "", 0
+    end = text.find("\n---", 3)
+    if end == -1:
+        return "", 0
+    vals = [line.split(":", 1)[1].split("#", 1)[0].strip().strip("\"'").upper()
+            for line in text[3:end].strip("\n").splitlines()
+            if ":" in line and not line.lstrip().startswith("#") and line.split(":", 1)[0].strip().lower() == "status"]
+    return (vals[-1] if vals else ""), len(vals)
+
+
+def status_readings(text: str) -> set[str]:
+    """Every status a reader could take from the text: the guard's (the first status line) and check_spec's (the
+    last), plus "MULTI" when either front matter block holds more than one status line. The two parsers differ on
+    purpose-built front matter (D-133), so the guard acts on all of them."""
+    checked, count = checked_status(text)
+    fm = FRONT_MATTER.search(text)
+    multi = count > 1 or (fm is not None and len(STATUS_RE.findall(fm.group(1))) > 1)
+    return {spec_status(text), checked} | ({"MULTI"} if multi else set())
+
+
+def unescape(s: str) -> str:
+    """The Edit tool's fallback when old_string isn't in the file: \\uXXXX escapes read as their characters."""
+    return U_ESCAPE.sub(lambda m: chr(int(m.group(1), 16)), s)
+
+
+def spec_id(text: str) -> str:
+    fm = FRONT_MATTER.search(text)
+    m = re.search(r"^\s*id\s*:\s*[\"']?([\w.\-]+)", fm.group(1), re.M) if fm else None
+    return m.group(1) if m else ""
+
+
 def champ_approved(root: Path, old: str, new: str) -> bool:
-    """True when spec_approval.py recorded Champ's Approve for this spec at this exact revision within the last day,
-    and the edit changes nothing but the status line. Anything odd in the record counts as no approval."""
+    """True when spec_approval.py recorded an approval (the red-team review's, or Champ's own) for this spec at this
+    exact revision within the last day, and the edit changes nothing but the status line. A review's approval also
+    needs no review to have said NOT YET at that revision (the ledger or the state file; Champ's own stands over
+    one). Anything odd in the record counts as no approval."""
     try:
-        fm = FRONT_MATTER.search(old)
-        m = re.search(r"^\s*id\s*:\s*[\"']?([\w.\-]+)", fm.group(1), re.M) if fm else None
-        if not m:
+        sid = spec_id(old)
+        if not sid:
             return False
-        rec = load_state_json(root, "spec_approvals.json").get("approvals", {}).get(m.group(1))
+        state = load_state_json(root, "spec_approvals.json")
+        rec = state.get("approvals", {}).get(sid)
         if not isinstance(rec, dict) or rec.get("rev") != spec_rev(old):
+            return False
+        if "by" in rec and said_not_yet(root, state, sid, rec["rev"]):
             return False
         age = time.time() - float(rec.get("at"))
         if not 0 <= age <= APPROVAL_TTL:
@@ -998,26 +1044,50 @@ def champ_approved(root: Path, old: str, new: str) -> bool:
         return False
 
 
-def resulting_text(tool: str, tin: dict, path: Path) -> tuple[str, str]:
-    """(old_text, new_text) of the file after the edit, best effort."""
+def approval_note(root: Path, old: str) -> str:
+    """Why a review of this revision wasn't recorded, from spec_approval.py's notes, so a refusal is never silent."""
+    try:
+        sid, rev = spec_id(old), spec_rev(old)
+        state = load_state_json(root, "spec_approvals.json")
+        rec = state.get("refused", {}).get(sid)
+        note = (f" The red-team review of this revision wasn't recorded: {str(rec.get('why', ''))[:400]}."
+                if isinstance(rec, dict) and rec.get("rev") == rev else "")
+        if sid and said_not_yet(root, state, sid, rev):
+            note += " A review said NOT YET at this revision: fix its findings (any edit makes a new revision)."
+        return note
+    except (TypeError, ValueError, AttributeError):
+        return ""
+
+
+def resulting_text(tool: str, tin: dict, path: Path) -> tuple[str, str, bool]:
+    """(old_text, new_text, exact) of the file after the edit, best effort. An old_string not in the file is tried
+    again with its \\uXXXX escapes read, as the Edit tool does; `exact` is False when one still isn't found, so the
+    guard can't know what the tool will write."""
     old = read_text(path)
     if tool == "Write":
-        return old, tin.get("content", "") or ""
+        return old, tin.get("content", "") or "", True
     if tool == "Edit":
         edits = [tin]
     elif tool == "MultiEdit":
         edits = tin.get("edits", []) or []
     else:
-        return old, ""
-    new = old
+        return old, "", True
+    new, exact = old, True
     for e in edits:
         a, b = e.get("old_string", "") or "", e.get("new_string", "") or ""
         if not a:  # an empty old_string only happens when the edit creates the file
             if not new:
                 new = b
             continue
+        if a not in new and unescape(a) in new:
+            a, b = unescape(a), unescape(b)
+        if a not in new:
+            exact = False  # the tool may still place it (its curly-quote matching, D-133), so the guard can't know
+            continue
+        if b == "" and not a.endswith("\n") and a + "\n" in new:
+            a += "\n"      # the Edit tool drops the newline after old_string when new_string is empty
         new = new.replace(a, b) if e.get("replace_all") else new.replace(a, b, 1)
-    return old, new
+    return old, new, exact
 
 
 def added_text(tool: str, tin: dict) -> str:
@@ -1070,18 +1140,30 @@ def check_write(tool: str, tin: dict, root: Path) -> bool:
                           f"check to get green; do it only when Champ decided it (name the decision).")
             return True
     if cat == "specs" and rel.endswith(".md"):
-        old, new = resulting_text(tool, tin, root / rel)
-        old_s, new_s = spec_status(old), spec_status(new)
-        if new_s == "APPROVED" and old_s != "APPROVED":
-            if champ_approved(root, old, new):
-                return False  # Champ picked Approve for this exact revision (spec_approval.py); status line only
-            decide("ask", "Only Champ approves specs. Approving this prompt counts as Champ approving the spec, so "
-                          "decline it unless he picked Approve. The normal path: set `status: REVIEW` with every Open "
-                          "Question answered, and the Stop hook has you ask \"Approve spec <id> (rev ...)?\".")
+        old, new, exact = resulting_text(tool, tin, root / rel)
+        if not exact:
+            decide("ask", "The guard can't place this edit in the spec exactly (an old_string that isn't in the file "
+                          "as written, e.g. straight quotes against curly ones), so it can't tell what status the "
+                          "file will have. Copy old_string from the file as it is.")
             return True
-        if old_s == "APPROVED":
-            decide("ask", "This spec is APPROVED. Changing it reopens it: confirm with Champ, and set "
-                          "`status: REVIEW` unless the change is a typo.")
+        old_r, new_r = status_readings(old), status_readings(new)
+        claims = "APPROVED" in new_r or "MULTI" in new_r or bool(STATUS_ADDED.search(unescape(text)))
+        if claims and "APPROVED" not in old_r:
+            if exact and new_r == {"APPROVED"} and champ_approved(root, old, new):
+                return False  # an approval is recorded for this exact revision (spec_approval.py); status line only
+            decide("ask", "No approval is recorded for this revision, or this edit does more than change the one "
+                          "status line." + approval_note(root, old) + " Approving this prompt counts as Champ "
+                          "approving the spec, so don't rely on it. The normal path: set `status: REVIEW` with every "
+                          "Open Question answered; the Stop hook sends it to the red-team agent, whose APPROVE line is "
+                          "recorded.")
+            return True
+        if "APPROVED" in old_r and (new_r != {"REVIEW"} or not exact):
+            decide("ask", "This spec is APPROVED. To change it, set `status: REVIEW` in the same edit: that reopens it "
+                          "and it goes back through the red-team review. An edit that keeps it APPROVED needs Champ.")
+            return True
+        if "APPROVED" in old_r and spec_id(new) != spec_id(old):
+            decide("ask", "Reopening an APPROVED spec keeps its id: the reopened text must still be the spec that was "
+                          "approved. A different spec goes in its own file.")
             return True
     return False
 

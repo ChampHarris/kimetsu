@@ -95,6 +95,56 @@ def load_state_json(root: Path, name: str) -> dict:
         return {}
 
 
+NOT_YET_LEDGER = "spec_not_yet.jsonl"
+
+
+def append_not_yet(root: Path, rows: list[dict]) -> bool:
+    """Adds review NOT YETs ({"spec", "rev", ...}) to the append-only ledger, one JSON line each. spec_approval.py
+    writes it before anything else and never rewrites it, so a lost or damaged spec_approvals.json can't lose one."""
+    if not rows:
+        return True
+    try:
+        with open(state_dir(root) / NOT_YET_LEDGER, "a", encoding="utf-8") as f:
+            f.write("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+        return True
+    except OSError:
+        return False
+
+
+def said_not_yet(root: Path, state: dict, sid: str, rev: str) -> bool:
+    """Whether a review said NOT YET for spec `sid` at revision `rev`: in the ledger, or in the state file's `not_yet`
+    lists. Anything odd (a ledger line that doesn't parse, a `not_yet` of another shape) counts as a NOT YET, so a
+    damaged record never lets a review's approval through."""
+    revs = state.get("not_yet") if isinstance(state, dict) else None
+    if revs is not None:
+        if not isinstance(revs, dict):
+            return True
+        v = revs.get(sid)
+        if isinstance(v, str):
+            if v == rev:
+                return True
+        elif isinstance(v, list) and all(isinstance(x, str) for x in v):
+            if rev in v:
+                return True
+        elif v is not None:
+            return True
+    try:
+        p = state_dir(root) / NOT_YET_LEDGER
+        lines = p.read_text(encoding="utf-8").splitlines() if p.exists() else []
+    except (OSError, ValueError):
+        return True
+    for ln in lines:
+        if not ln.strip():
+            continue
+        try:
+            row = json.loads(ln)
+        except (ValueError, RecursionError):
+            return True
+        if not isinstance(row, dict) or (row.get("spec") == sid and row.get("rev") == rev):
+            return True
+    return False
+
+
 def save_state_json(root: Path, name: str, data: dict) -> bool:
     """Write a state file atomically (a temp file per process, then a rename). On Windows the rename fails while
     another process has the file open (a parallel hook, an antivirus scan), so it retries briefly. State is

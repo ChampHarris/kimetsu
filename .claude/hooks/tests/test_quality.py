@@ -49,9 +49,9 @@ def put(d, rel, text, mtime=None):
         os.utime(p, (mtime, mtime))
 
 
-def commit(d, msg="c"):
+def commit(d, msg="c", allow_empty=False):
     git(d, "add", "-A")
-    git(d, "commit", "-qm", msg)
+    git(d, "commit", *(["--allow-empty"] if allow_empty else []), "-qm", msg)
 
 
 def run(d, hook, payload, hooks_dir=HOOKS):
@@ -666,7 +666,9 @@ case("carry-over: a resumed session reports what changed while it was closed", c
      "before this session" in err and "BarTest.java" in err and "FooTest.java" not in err, (code, err))
 put(CO, "src/test/java/a/BarTest.java", FOO2.replace("FooTest", "BarTest"))
 put(CO, "src/test/java/a/FooTest.java", FOO2)
-commit(CO, "restored")
+# the tree is back as committed, so nothing is new (it only had a __pycache__ to commit when Python wrote bytecode;
+# with PYTHONDONTWRITEBYTECODE set the commit was empty and git refused it, D-133)
+commit(CO, "restored", allow_empty=True)
 start("co3")
 stop(CO, "co3", "Here's the plan.")
 put(CO, "src/test/java/a/FooTest.java", FOO1)
