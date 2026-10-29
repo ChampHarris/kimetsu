@@ -1,6 +1,6 @@
 ---
 name: retro
-description: Improve the Claude Code kit from evidence — mine recent sessions, gotchas, blockers and the quality-gate logs, check what changed in Claude Code since the last review, and propose ranked changes to hooks, skills, agents, rules and CLAUDE.md for Champ to approve. Champ runs it monthly or at the end of a milestone.
+description: Improve the Claude Code kit from evidence — mine recent sessions, gotchas, blockers and the quality-gate logs, check what changed in Claude Code since the last review, and make the ranked changes to hooks, skills, agents, rules and CLAUDE.md that tighten or simplify (loosening one waits for Champ). Champ runs it monthly or at the end of a milestone.
 argument-hint: "[days, default 30]"
 disable-model-invocation: true
 allowed-tools: Read Grep Glob Bash(python tools/session_mine.py*) Bash(python3 tools/session_mine.py*) Bash(py -3 tools/session_mine.py*) Bash(python tools/kit_lint.py*) Bash(python3 tools/kit_lint.py*) Bash(py -3 tools/kit_lint.py*) Bash(git log*) Bash(git diff*)
@@ -8,7 +8,7 @@ allowed-tools: Read Grep Glob Bash(python tools/session_mine.py*) Bash(python3 t
 
 # /retro $ARGUMENTS
 
-The kit (CLAUDE.md, hooks, agents, skills, rules, CI) should get better every month and never bigger without a reason. This is how: evidence in, a short list of changes out, Champ approves each.
+The kit (CLAUDE.md, hooks, agents, skills, rules, CI) should get better every month and never bigger without a reason. This is how: evidence in, a short list of changes out. Claude makes the ones that tighten or simplify; one that loosens a gate, test, check or permission waits for Champ (`docs/tools/decision-rights.md`).
 
 ## 1. Gather (read-only)
 - `python tools/session_mine.py --days <N>` (N = $ARGUMENTS, default 30): sessions, corrections from Champ, interrupts, hook blocks by kind, tool errors, compactions, context peaks, repeated commands.
@@ -26,7 +26,7 @@ A table, at most seven rows, ranked by expected effect:
 
 | # | Problem (evidence: counts, session dates) | Change (file, mechanism) | Cost | Risk |
 
-Then ask Champ with AskUserQuestion (header starting "T3 "), multiSelect: which changes to make (your top picks first, labelled "(Recommended)"). The doctrine files are guarded ("ask"), so each approved edit will also show a permission prompt; that's expected.
+Then make your top picks that don't loosen a gate, test, check or permission. Ask Champ only about those that do, with AskUserQuestion (header starting "T3 "), multiSelect. The doctrine files are guarded ("ask"), so each kit edit shows a permission prompt: that's the one prompt Champ keeps on purpose.
 
 ## 4. Apply and record
-Make only the approved changes, each with its test (hook changes: a case in `.claude/hooks/tests/`; then run every hook test and `python tools/kit_lint.py`). Add one line per change to the changelog in `docs/adr/0003-claude-code-kit.md` (date, change, evidence) and update `docs/tools/kit-watch.md`'s "last reviewed" line. Tell Champ in three lines what changed and what to watch next time.
+Make the picked changes (and any Champ approved), each with its test (hook changes: a case in `.claude/hooks/tests/`; then run every hook test and `python tools/kit_lint.py`). Add one line per change to the changelog in `docs/adr/0003-claude-code-kit.md` (date, change, evidence) and update `docs/tools/kit-watch.md`'s "last reviewed" line. Also read `docs/playtest.md`: a kind of call Champ keeps reversing gets flagged for playtest earlier, or moves onto the extremely-important list. Tell Champ in three lines what changed and what to watch next time.

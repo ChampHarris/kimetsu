@@ -9,10 +9,10 @@ Claude agrees with you and reaches for generic ideas when nothing in its context
 |---|---|---|
 | Role | `.claude/output-styles/kimetsu-lead.md` | Replaces "helpful assistant" with "lead designer who disagrees when it should": verdict first, research tags, options, Unasked-but-important |
 | Memory | `CLAUDE.md` (+ `docs/glossary.md`, `docs/taste.md`) | Pillars, non-negotiables, where the truth lives, Champ's taste, the adopt check for proven mechanics, and the genre's generic defaults |
-| Nudges | `.claude/hooks/doctrine_inject.py`, `effort_prompt.py`, `commit_nudge.py`, `statusline.py`, `/inbox` | Every design prompt gets the design checklist injected; every code prompt gets "verify the API, show evidence"; real work starts with Claude asking which effort to use (Ultracode, Max, Extra, High); a status line shows milestone, next step, uncommitted work, whether tests cover it, context size, effort, CI and the inbox; past 200k tokens of context Claude suggests a fresh session; 10+ uncommitted files get a commit suggestion with the test status; `/inbox` runs prompts queued from Cowork (`docs/tools/inbox.md`) |
+| Nudges | `.claude/hooks/doctrine_inject.py`, `effort_prompt.py`, `commit_nudge.py`, `statusline.py`, `/inbox` | Every design prompt gets the design checklist injected; every code prompt gets "verify the API, show evidence"; Claude picks the effort for real work itself (Max, Extra, High) and says it in one line, and only Champ turns on Ultracode; a status line shows milestone, next step, uncommitted work, whether tests cover it, context size, effort, CI and the inbox; past 200k tokens of context Claude suggests a fresh session; 10+ uncommitted files get a commit suggestion with the test status; `/inbox` runs prompts queued from Cowork (`docs/tools/inbox.md`) |
 | Specialists | `.claude/agents/*.md` | Twelve subagents with narrow jobs, all pinned to Opus: canon-keeper, prior-art-scout, api-verifier, systems-designer, red-team, numbers-analyst, netcode-reviewer, render-engineer, art-director, test-engineer, dialogue-writer, code-reviewer (reviewers read the files themselves, never a summary) |
-| Procedures | `.claude/skills/*/SKILL.md`, `.claude/workflows/design-forge.js` | `/forge` runs research → options → numbers → attack → spec; `/design-forge` runs independent designers (one adopts the best existing solution when research finds one), a red team per option and a judge; `/blocked` stops and escalates instead of looping; `/retro` turns a month of friction into kit changes Champ approves |
-| Gates | `.claude/hooks/guard_paths.py`, `quality_gate.py`, `post_edit.py`, `spec_gate.py`, `tools/check_spec.py`, `tools/kit_lint.py` | Things that must happen are enforced, not requested: no Minecraft imports in `core/`, no raw OpenGL, no edits to the GDD snapshot or decompiled sources (also through one-liners and IntelliJ's MCP tools), no self-approved specs, no half-finished specs left behind; a finished spec gets Champ's approval question (`spec_approval.py`); "done" needs test results on disk, and a weakened test or check gets caught (`docs/tools/quality-gates.md`); Claude asks before touching its own rules; the guard fails closed and tests itself at every session start |
+| Procedures | `.claude/skills/*/SKILL.md`, `.claude/workflows/design-forge.js` | `/forge` runs research → options → numbers → attack → spec; `/design-forge` runs independent designers (one adopts the best existing solution when research finds one), a red team per option and a judge; `/blocked` stops instead of looping, records the blocker and decides the way forward (asking Champ only when it's extremely important); `/retro` turns a month of friction into kit changes (Claude makes those that tighten or simplify; one that loosens a check waits for Champ) |
+| Gates | `.claude/hooks/guard_paths.py`, `quality_gate.py`, `post_edit.py`, `spec_gate.py`, `tools/check_spec.py`, `tools/kit_lint.py` | Things that must happen are enforced, not requested: no Minecraft imports in `core/`, no client-only code outside `client` packages (`tools/side_lint.py`), no raw OpenGL, no edits to the GDD snapshot or decompiled sources (also through one-liners and IntelliJ's MCP tools), no self-approved specs, no half-finished specs left behind; a finished spec goes to the red-team review, and only its APPROVE line, recorded by a hook, lets the status change (`spec_approval.py`); "done" needs test results on disk, and a weakened test or check gets caught (`docs/tools/quality-gates.md`); Claude asks before touching its own rules; the guard fails closed and tests itself at every session start |
 
 ## What's inside
 ```
@@ -48,7 +48,7 @@ src/generated/scope/          the vanilla-scope datapack for the current milesto
 src/main/resources/           starters: townsfolk names and trades, Corps Record advancements, a 16 px sample block
 tools/                        check_spec, vanilla_scope, vanilla_coverage, palette_fit, vanilla_style, make_ramp,
                               texture_lint, townsfolk_names, audio_lint, contact_sheet, clip_to_frames, refsrc,
-                              kit_lint, session_mine,
+                              kit_lint, side_lint, session_mine,
                               sims/ (pulse_sim, duel_sim, night_sim, m1_v0.json), tests/
 .github/workflows/ci.yml      specs, textures and the blend check, audio, the vanilla scope, townsfolk names, sims,
                               Gradle build and GameTests
@@ -58,7 +58,7 @@ tools/                        check_spec, vanilla_scope, vanilla_coverage, palet
 1. **Prerequisites:** Claude Code (signed in with your claude.ai account), Git (on Windows: Git for Windows, which the hooks need), Python 3.10+ with `pip install pillow`, ffmpeg on PATH, a JDK 25 (Temurin, or JetBrains Runtime 25 for hot reload), Node 22+ (MCTest), and Git LFS (`git lfs install`).
 2. **Put the kit at the root of the mod repository** (a new empty repo is fine; the first session creates the Gradle project around it). Commit it.
 3. **Java language server:** install the `jdtls` binary (Eclipse JDT Language Server), then in Claude Code run `/plugin install jdtls-lsp@claude-plugins-official`. It gives Claude go-to-definition on Minecraft classes.
-4. **Open Claude Code in the repo.** Approve the project MCP servers (`bbmodel`, `mctest`) when asked. Accept the Savvy Progress plugin when Claude Code offers it, or run `/plugin install savvy-progress@kimetsu-pinned` then `/reload-plugins` (the progress band and `/agents-info` panel, pinned to a reviewed commit; ADR 0003). Check `/hooks` lists twenty hooks (`test_watch.py` six times: Bash and PowerShell, before a command, after it and after a failed one; `effort_prompt.py` and `spec_approval.py` three times each; `guard_paths.py` twice; the rest once) and the status line shows the milestone and next step and `/output-style` shows "Kimetsu Lead".
+4. **Open Claude Code in the repo.** Approve the project MCP servers (`bbmodel`, `mctest`) when asked. Accept the Savvy Progress plugin when Claude Code offers it, or run `/plugin install savvy-progress@kimetsu-pinned` then `/reload-plugins` (the progress band and `/agents-info` panel, pinned to a reviewed commit; ADR 0003). Check `/hooks` lists twenty-one hooks (`test_watch.py` six times: Bash and PowerShell, before a command, after it and after a failed one; `spec_approval.py` four times (the fourth after the red-team agent); `effort_prompt.py` three times; `guard_paths.py` twice; the rest once) and the status line shows the milestone and next step and `/output-style` shows "Kimetsu Lead".
 5. **Your claude.ai connectors** (Firecrawl, Context7, Tavily, Parallel Search and the others on your account) also work in Claude Code when you're signed in with claude.ai; `/mcp` lists them. They make research faster and better sourced.
    - **Optional, for AI textures:** connect a pixel-art generator (Retro Diffusion or PixelLab; paid per image). The one-line `claude mcp add` commands are in `docs/art/art-bible.md` section 11; keys stay on your machine.
 6. **claude.ai Project:** paste `docs/claude-ai-project-instructions.md` into the Project's instructions so design chats there follow the same doctrine.
@@ -69,9 +69,10 @@ Then follow `docs/prompts/first-session.md`.
 
 ## Daily loop
 1. **Design:** describe the problem, not the feature. `/forge <topic>` → a spec in REVIEW. For big, contested calls: `/design-forge "<question>"` (12–14 agents; slower and costlier, much stronger).
-2. **Decide:** read the spec's verdict, recommendation and open questions; answer them; set `status: APPROVED` yourself.
+2. **Approve:** Claude answers the open questions and the red-team agent approves the spec (you delegated it, 2026-10-28; `docs/tools/decision-rights.md`). You're asked only about extremely important calls.
 3. **Build:** Claude implements test-first, checks APIs with `/verify-api`, proves visuals with `/lens`.
-4. **Close:** `/session-close` updates state, decisions and gotchas.
+4. **Play:** `docs/playtest.md` lists what's new to try in game and what to watch for. Tell Claude what feels wrong; your verdict overrides its call.
+5. **Close:** `/session-close` updates state, decisions and gotchas, commits, and pushes a one-line summary to your phone.
 
 | Command | Use it for |
 |---|---|
@@ -97,6 +98,12 @@ Add `[quick]` anywhere in a message to skip the design checklist for a fast answ
 - `/design-forge` spends the most; use it for decisions you'll live with for months.
 - The Stop hook only runs `check_spec` on specs you touched, and the quality gate only reads git and the test results Gradle already wrote; neither runs Gradle.
 - Every agent is pinned to Opus 5.5, so a session switched to Fable doesn't spawn Fable agents. Long sessions cost more and answer worse: one task per session, `/clear` past about 200k tokens.
+
+## When you're away from your desk
+- Turn on Remote Control once: `/config` → "Enable Remote Control for all sessions" (only your user settings can switch it on). The project settings then send your phone a push when Claude asks you something or needs a permission, and a one-line summary when `/session-close` finishes. Answer from the Claude app.
+- Only extremely important calls wait for you (money, losing work, loosening a check; `docs/tools/decision-rights.md`). Everything else Claude decides and records, and `/session-close` asks nothing.
+- `CLAUDE_CODE_RETRY_WATCHDOG` keeps a session going through API overloads and waits out a usage-limit window instead of stopping.
+- Worth a look now and then: `/usage` (where the tokens go, by skill, agent and MCP server), `/skill-doctor` (what each skill costs), `/doctor prompt-audit` (stale or conflicting instructions).
 
 ## Windows notes
 - Hooks are shell commands; Claude Code runs them with Git Bash. Without Git for Windows they can't run, and per the hooks docs a failed hook can block tool calls, so install it before opening the project.

@@ -56,5 +56,5 @@ From the GDD (Part 3, 2026-10-18). Terms marked *R6*, *R7* or *R8* are proposed 
 - *R7* **Blend check**: `tools/vanilla_style.py` measures a texture against vanilla's style for its family (colours, value, contrast, chroma, grain, shading steps). **Ramp**: a material's 5–7 colours built the way vanilla's are (`tools/make_ramp.py`, `art/palettes/world/`).
 - **MCTest**: the dev-only mod and MCP server through which Claude plays the dev client: screenshots, input, commands, tick stepping (ADR 0002).
 - **Build**: the playable build at the end of a milestone (Build 0 = the M1 grey box).
-- **Effort check**: the hook that has Claude ask Champ which effort to use for real work (Ultracode, Max, Extra, High) and keeps his pick for the session; `/max`, `/extra` and `/high` pick directly (`docs/tools/effort.md`).
+- **Effort check**: the hook that has Claude pick the effort for real work itself (Max, Extra, High) and say it in one line, keeping the pick for the session; Champ's `/max`, `/extra` and `/high` override it, and only he turns on Ultracode (`docs/tools/effort.md`).
 - **Adopt check**: the five tests a mechanic from another game must pass before it's adopted (job, pillars, translation, improvement, build; `docs/taste.md`). **Art log**: `art/art-log.csv`, each texture's status and the prompt recipe that made it.

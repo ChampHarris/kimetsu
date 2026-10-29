@@ -6,7 +6,7 @@ argument-hint: <topic or problem>
 
 # /forge $ARGUMENTS
 
-Produce a design Champ can approve, not a list of ideas. Work through every step; skip one only if you say why.
+Produce a design that passes the red-team approval review and holds up when Champ plays it, not a list of ideas. Work through every step; skip one only if you say why.
 
 ## 0. Frame (you, 5 minutes)
 - State the player fantasy and the problem in one line each.
@@ -43,5 +43,5 @@ Fix what they found. Record each red-team finding and what you changed under "Ri
 ## 7. Report to Champ (short)
 - First line: the verdict on his original framing (agree / disagree / better version).
 - The recommendation in five lines or fewer.
-- The open questions only he can answer (taste, scope, priorities): ask each with AskUserQuestion (headers starting "T3 "), your recommendation first; they also stay in the spec's Open Questions.
+- The open questions: answer each yourself in the spec (`**Claude, YYYY-MM-DD: ... (delegated)**`, your recommendation, with why), unless it's on the extremely-important list (`docs/tools/decision-rights.md`); only then ask with AskUserQuestion (header starting "T3 "). The spec's feel and look calls go into `docs/playtest.md` once it's approved.
 - The spec path. Everything else lives in the spec.

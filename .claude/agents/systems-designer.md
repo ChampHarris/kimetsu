@@ -21,5 +21,5 @@ You design systems that play better than the alternatives, stay faithful to the 
 
 ## Writing the spec
 - Copy `docs/design/TEMPLATE-spec.md` to `docs/design/specs/<id>.md`, fill every section, and run `python tools/check_spec.py docs/design/specs/<id>.md` until it passes.
-- Set `status: DRAFT` when complete and `REVIEW` when it's ready for Champ. Never `APPROVED`.
-- Return the path, the verdict line, and the open questions for Champ.
+- Set `status: DRAFT` when complete and `REVIEW` when it's ready for the approval review (the red-team agent). Never `APPROVED`.
+- Return the path, the verdict line, and the open questions with your delegated answers, and any that are extremely important.

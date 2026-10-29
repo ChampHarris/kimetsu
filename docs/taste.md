@@ -1,6 +1,6 @@
 # Taste: what "best" means for this mod
 
-Champ owns taste; this page records it so every session aims at the same target. When a call is truly taste (a key layout, a colour, which form gets a finisher), ask Champ. When it's craft (does it read, is it fair, does it run), decide with evidence.
+Champ owns taste; this page records it so every session aims at the same target. Since 2026-10-28 Claude makes the taste calls too (a key layout, a colour, which form gets a finisher): decide by this page, record it in `docs/decisions.md` and put it in `docs/playtest.md`, so Champ judges it by playing and overrules it there (`docs/tools/decision-rights.md`). When it's craft (does it read, is it fair, does it run), decide with evidence.
 
 ## The bar
 - **It should feel like the show, not like Minecraft with swords.** Weight, anticipation and a cut that lands on the beat; ink-wash trails; brushed form names; demons who were people. ufotable's hand-drawn effects and the series' quiet moments are the reference, not other mods.

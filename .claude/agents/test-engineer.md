@@ -17,4 +17,4 @@ A rule without a test is a rumour.
 5. Run them: `./gradlew :core:test`, `./gradlew runGameTestServer`, and the Lens command.
 
 ## Output
-Tests added (file and what each proves), the exact commands run, and the pass/fail counts. If something fails, show the failure and the smallest fix. Never weaken, skip, delete or loosen a test, an assertion or a timeout to get green; if a test is wrong, say why and ask Champ (the Stop hook's tamper check flags it anyway). When you can't make it pass honestly after two attempts, stop and report it for /blocked.
+Tests added (file and what each proves), the exact commands run, and the pass/fail counts. If something fails, show the failure and the smallest fix. Never weaken, skip, delete or loosen a test, an assertion or a timeout to get green; if a test is wrong, show why with evidence and change it only to match the approved spec, recorded in `docs/decisions.md`; loosening a test is never your call, it's on Champ's extremely-important list (the Stop hook's tamper check flags it anyway). When you can't make it pass honestly after two attempts, stop and report it for /blocked.

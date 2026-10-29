@@ -1,7 +1,7 @@
 ---
 id: area-short-name            # e.g. combat-beat-locked-strikes; same as the file name
 title: One-line name of the feature
-status: WIP                    # WIP -> DRAFT -> REVIEW -> APPROVED (only Champ approves: when REVIEW is finished, Claude asks him)
+status: WIP                    # WIP -> DRAFT -> REVIEW -> APPROVED (approved by the red-team review: docs/tools/spec-approval.md)
 owner: Claude                  # who is driving the spec
 milestone: M1                  # M1..M7 from the GDD build order
 date: 2026-10-18               # last substantive edit
@@ -57,7 +57,10 @@ Each option gets a Verdict: kept / merged / cut, and why. Novelty earns nothing 
 need-to-know rules; behaviour at 20 / 150 / 250 ms RTT. -->
 
 ## Feel & Presentation
-<!-- Animation, VFX (kfx), sound layers, camera, HUD; what it looks and sounds like on the beat. -->
+<!-- Animation, VFX (kfx), sound layers, camera, HUD; what it looks and sounds like on the beat. For anything the
+player does or fights, the feel contract: input (buffer window, what cancels into what), frame data (windup,
+active and recovery ticks; hitstop on contact), the telegraph (cue type and lead), camera and pose feedback,
+the VFX and sound layers on each beat, and the counterplay (how a skilled player answers it). -->
 
 ## Accessibility & Comfort
 <!-- Assist levels, subtitles, colour-blind cues, reduced flashing and shake, remapping. -->
@@ -66,7 +69,8 @@ need-to-know rules; behaviour at 20 / 150 / 250 ms RTT. -->
 <!-- Server ms per tick, client ms per frame, packets per second, memory. -->
 
 ## Edge Cases, Exploits & Griefing
-<!-- What spam, lag, pillars, pearls, logouts, multiple attackers or a 50-player server do to it. -->
+<!-- What spam, lag, pillars, pearls, boats and minecarts, water, lava, doors and fences (pathing traps), kiting at
+range, unloaded chunks, logouts, multiple attackers or a 50-player server do to it. -->
 
 ## Tests
 <!-- At least three, including automated ones: JUnit (core/), GameTest (in-world), a Lens scenario (visual).
@@ -85,7 +89,7 @@ findings here and what you changed because of them. -->
 <!-- 1-3 bullets Champ didn't ask about but will hit. -->
 
 ## Open Questions for Champ
-<!-- Numbered. Only what he must decide: taste, scope, priority. -->
+<!-- Numbered. Answer each yourself as **Claude, YYYY-MM-DD: ... (delegated)** unless it's extremely important (docs/tools/decision-rights.md); then ask Champ and write **Champ, YYYY-MM-DD: ...**. -->
 
 ## Sources
 <!-- At least three: URLs or repo paths (ref-src/..., docs/gdd/..., tools/sims/...). -->

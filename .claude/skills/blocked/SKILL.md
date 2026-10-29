@@ -1,6 +1,6 @@
 ---
 name: blocked
-description: Stop and escalate when work is stuck — two honest attempts failed the same way, a check can't pass without weakening it, an API doesn't exist in 26.x, or a design question blocks the build. Records the blocker in docs/blockers.md with the evidence and asks Champ how to proceed. Use instead of a third variation of the same attempt, and never instead of telling the truth about a failing test.
+description: Stop and escalate when work is stuck — two honest attempts failed the same way, a check can't pass without weakening it, an API doesn't exist in 26.x, or a design question blocks the build. Records the blocker in docs/blockers.md with the evidence and decides the way forward, asking Champ only when it's extremely important. Use instead of a third variation of the same attempt, and never instead of telling the truth about a failing test.
 argument-hint: <what is blocked>
 ---
 
@@ -22,7 +22,7 @@ Being stuck is information, not failure. Hiding it, or "fixing" it by weakening 
    - **Options:** A) <path, cost, risk> B) … (one is always "park it and do <next task>")
    - **Needs from Champ:** <the decision or resource>
    ```
-4. **Ask Champ** with AskUserQuestion (header starting "T3 "): "B-<NNN>: <title>. How should I proceed?" with the options (your recommendation first, labelled "(Recommended)"), each with its cost in a few plain words. Plain English: he doesn't read stack traces.
-5. Act on his pick. When it's solved, set `**Status:** resolved` and add one line: the fix, and the gotcha you added to `docs/gotchas.md` so it never costs time twice.
+4. **Decide, unless it's extremely important.** If your recommended option isn't on the extremely-important list (`docs/tools/decision-rights.md`), take it: record it in the entry ("Decided by Claude, delegated") and in `docs/decisions.md`, and say it in the report. If it is (money, losing work, loosening a check), ask Champ with AskUserQuestion (header starting "T3 "): "B-<NNN>: <title>. How should I proceed?" with the options (your recommendation first, labelled "(Recommended)"), each with its cost in a few plain words. Plain English: he doesn't read stack traces.
+5. Act on the choice. When it's solved, set `**Status:** resolved` and add one line: the fix, and the gotcha you added to `docs/gotchas.md` so it never costs time twice.
 
 Never: switch off, skip, delete or loosen a test, an assertion, a timeout or a build check; mark a test optional; or call the work done while the blocker is open.
