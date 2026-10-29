@@ -40,5 +40,14 @@ Entry format:
 - **Knob:** the clack's sound event and volume in the sounds data (built in the slice).
 - **Champ:**
 
+### 2026-10-29 · The demon's poses, its blend onto a strike and back (slice 5d-3a, D-138, D-139)
+- **Changed:** the stand-in demon now shows what the server decided: arms across its chest in its guard (its body turned to the guard's facing), thrown back with arms out when its Posture breaks, kneeling with its head down when it collapses, flat on its back when knocked down, arms locked forward in a clash, arms out clutching when it holds you, and its head snapping back on a clang. Each pose blends in over 3 ticks. As a strike starts, its body slides onto the strike's path over 3 ticks (it used to hop about a third of a block forward, D-139); after a strike its body slides back to where the game has it over 3 ticks instead of snapping, and its arm comes down across the whole recovery. In a string its body stays on the last strike's path until the next one locks, as the server moves it, so a string's next strike that locks a tick late (a swipe after a swipe on Water's beat) no longer steps (D-140).
+- **Try it:** fight the demon (`/kimetsu demon`) with F5 on; let it lunge (the leap), chip its guard, let it grab you. `/kimetsu_dev pose <stance>` shows any pose at once (dev runs; `/tick freeze` holds it).
+- **Watch for:** each pose readable at a glance from 4 blocks; a strike starting and the lunge ending without a hop or a slide you notice; a string's strikes following on from each other with no step, a Feinted one too. Wrong: a pose that reads as a glitch (limbs through the body, sunk in the floor), or a visible jump as a strike locks or ends.
+- **Known limit:** online at a high ping the hop as a strike locks, and a pop as one is cancelled, can come back (the lock and cancel messages arrive late); single player is unaffected. It goes to build step 5's two-client check (D-140), so don't report it as new.
+- **Not taken:** turning the head to its target ourselves (the server already turns it, so it would turn twice).
+- **Knob:** `assets/kimetsu/feel/default.json` `pose_blend_ticks`, `blend_in_ticks` and `blend_back_ticks` (0–10, F3+T reloads; `blend_in_ticks` 0 brings back the hop); the poses' angles are code constants in `client/present/StandInPoses.java` (stand-in only, until the rig).
+- **Champ:**
+
 ## Played
 (none yet)

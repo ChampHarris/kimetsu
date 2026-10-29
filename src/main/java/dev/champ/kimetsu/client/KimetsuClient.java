@@ -4,6 +4,7 @@ import dev.champ.kimetsu.Kimetsu;
 import dev.champ.kimetsu.client.render.CueMarker;
 import dev.champ.kimetsu.client.render.DebugOverlay;
 import dev.champ.kimetsu.client.render.RadialLayer;
+import dev.champ.kimetsu.client.render.SpikeRenderer;
 import dev.champ.kimetsu.client.render.StandInRenderer;
 import dev.champ.kimetsu.config.KimetsuClientConfig;
 import dev.champ.kimetsu.entity.KimetsuEntities;
@@ -16,6 +17,7 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.config.ModConfigEvent;
+import net.neoforged.neoforge.client.event.AddClientReloadListenersEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
 import net.neoforged.neoforge.client.gui.ConfigurationScreen;
@@ -37,6 +39,7 @@ public final class KimetsuClient {
         modBus.addListener(KimetsuClient::onRegisterRenderers);
         modBus.addListener(KimetsuKeys::register);
         modBus.addListener(KimetsuClient::onRegisterLayers);
+        modBus.addListener(KimetsuClient::onReloadListeners);
 
         IEventBus game = NeoForge.EVENT_BUS;
         game.addListener(ClientCombat::onLoggingIn);
@@ -46,6 +49,7 @@ public final class KimetsuClient {
         game.addListener(ClientCombat::onTickEnd);
         game.addListener(ClientCombat::onMovementInput);
         game.addListener(ClientCombat::onFrameStart);
+        game.addListener(ClientCombat::onFrameEnd);
         game.addListener(ClientCombat::onTurn);
         game.addListener(ClientCombat::onMouse);
         game.addListener(ClientCombat::onKey);
@@ -64,10 +68,20 @@ public final class KimetsuClient {
     }
 
     private static void onRegisterRenderers(EntityRenderersEvent.RegisterRenderers event) {
-        event.registerEntityRenderer(
-                KimetsuEntities.M1_DEMON.get(), c -> new StandInRenderer<>(c, texture("demon/m1_demon")));
+        if (Boolean.getBoolean("kimetsu.azure_spike")) { // 5d-3a's AzureLib spike (D-123); the stand-in otherwise
+            event.registerEntityRenderer(
+                    KimetsuEntities.M1_DEMON.get(), c -> new SpikeRenderer(c, texture("demon/m1_demon")));
+        } else {
+            event.registerEntityRenderer(
+                    KimetsuEntities.M1_DEMON.get(), c -> new StandInRenderer<>(c, texture("demon/m1_demon")));
+        }
         event.registerEntityRenderer(
                 KimetsuEntities.TEST_DUMMY.get(), c -> new StandInRenderer<>(c, texture("test_dummy")));
+    }
+
+    /** {@code feel/default.json}, the presentation's timings: a client resource, so F3+T reloads it (D-138). */
+    private static void onReloadListeners(AddClientReloadListenersEvent event) {
+        event.addListener(FeelLoader.KEY, new FeelLoader());
     }
 
     private static void onRegisterLayers(RegisterGuiLayersEvent event) {

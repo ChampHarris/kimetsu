@@ -1,18 +1,16 @@
 package dev.champ.kimetsu.client.render;
 
+import dev.champ.kimetsu.client.present.StandInPose;
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.geom.ModelPart;
 
 /**
- * Vanilla's humanoid model with a code-posed strike (D-052: the stand-in until the rig): the arms rise through the
- * windup, overhead at the impact, and come down through the follow-through. One instance draws every combatant of its
- * type and {@code setupAnim} resets the pose first, so the pose lives in the render state, never here.
+ * Vanilla's humanoid model posed by its {@link StandInPose} (D-052: the stand-in until the rig; 5d-3a Step 3): vanilla
+ * poses it first (its walk and look), then each part goes the pose's weight of the way to the pose's angles, and a
+ * clang's recoil throws the head back on top. One instance draws every combatant of its type and {@code setupAnim}
+ * resets the pose first, so the pose lives in the render state, never here.
  */
 final class StandInModel extends HumanoidModel<StandInState> {
-    private static final float RAISED = -2.6f; // radians: the arm overhead
-    private static final float THROUGH = 0.5f; // and past the hip at the end of the swing
-    private static final float TWIST = 0.35f; // the body winds toward the striking arm
-
     StandInModel(ModelPart root) {
         super(root);
     }
@@ -20,12 +18,23 @@ final class StandInModel extends HumanoidModel<StandInState> {
     @Override
     public void setupAnim(StandInState state) {
         super.setupAnim(state);
-        if (!state.striking) {
+        StandInPose p = state.standIn;
+        apply(head, p, StandInPose.HEAD);
+        apply(body, p, StandInPose.BODY);
+        apply(rightArm, p, StandInPose.RIGHT_ARM);
+        apply(leftArm, p, StandInPose.LEFT_ARM);
+        apply(rightLeg, p, StandInPose.RIGHT_LEG);
+        apply(leftLeg, p, StandInPose.LEFT_LEG);
+        head.xRot -= p.recoil;
+    }
+
+    private static void apply(ModelPart part, StandInPose p, int i) {
+        float w = p.weight[i];
+        if (w <= 0) {
             return;
         }
-        float arm = RAISED * state.windup + (THROUGH - RAISED) * state.swing;
-        rightArm.xRot = arm;
-        leftArm.xRot = arm * 0.6f;
-        body.yRot = TWIST * state.windup * (1 - state.swing);
+        part.xRot += (p.rot[i * 3] - part.xRot) * w;
+        part.yRot += (p.rot[i * 3 + 1] - part.yRot) * w;
+        part.zRot += (p.rot[i * 3 + 2] - part.zRot) * w;
     }
 }

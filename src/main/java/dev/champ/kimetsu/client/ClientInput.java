@@ -1,6 +1,7 @@
 package dev.champ.kimetsu.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import dev.champ.kimetsu.client.present.PresentClock;
 import dev.champ.kimetsu.combat.LevelGround;
 import dev.champ.kimetsu.config.KimetsuClientConfig;
 import dev.champ.kimetsu.core.clock.Micros;
@@ -489,19 +490,19 @@ final class ClientInput {
     }
 
     /**
-     * Fills {@code out} with the radial as it's drawn at the client's {@code nanos}: false when it isn't (Rule 5.4: held
-     * to {@code radial_reveal_ms} while it aims). It reads the aim the frame's start, its turn and its presses left:
+     * Fills {@code out} with the radial as it's drawn at combat time {@code nowMicros} (the frame's own time,
+     * {@code PresentClock.now()}): false when it isn't, or before the clock is set (Rule 5.4: held to
+     * {@code radial_reveal_ms} while it aims). It reads the aim the frame's start, its turn and its presses left:
      * drawing changes nothing (D-110's review).
      */
-    boolean radialMark(RadialMark out, long nanos) {
-        ClientClock clock = combat.clock();
+    boolean radialMark(RadialMark out, long nowMicros) {
         CombatData d = combat.data();
         Moveset moves = combat.moves();
-        if (clock == null || d == null || moves == null || !radial.aiming()) {
+        if (nowMicros == PresentClock.NOT_READY || d == null || moves == null || !radial.aiming()) {
             return false;
         }
         MachineRules m = d.rules().machine();
-        long now = OwnPresses.judged(clock.micros(nanos), frameMicros, d.rules().timing());
+        long now = OwnPresses.judged(nowMicros, frameMicros, d.rules().timing());
         if (!radial.drawn(now, Micros.ofMillis(m.radialRevealMs()))) {
             return false;
         }

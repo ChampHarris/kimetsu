@@ -1,26 +1,27 @@
 package dev.champ.kimetsu.client;
 
-import dev.champ.kimetsu.core.data.FrameData;
-
 /**
- * How a combatant's strike is drawn this frame (the stand-in's code-posed windup until the rig, D-052): how far its
- * windup has come, how far its swing after the impact, its cue, and where the strike path puts its body, the same
- * core math the server sweeps. One reused instance per renderer; the renderer reads it right after it's filled.
+ * How a combatant's strike is drawn this frame: the strike it's in, its model time, and where its body goes, from its
+ * strike path (the same core math the server sweeps) and the blend back after it (spec:534). Its stand-in's pose is
+ * {@code StandInPose}'s. One reused instance per renderer; the renderer reads it right after it's filled.
  */
 public final class StrikeAnim {
-    /** Whether the combatant is in a strike now. */
+    /** Whether the combatant is in a strike now (from its windup's start to its recovery's end or its cancel). */
     public boolean active;
 
-    /** The windup, 0 at its start to 1 at the impact. */
-    public float windup;
+    /** The strike's id and its impact tick (the AzureLib spike's clip is timed to the impact). */
+    public long strike;
 
-    /** The swing after the impact, 0 to 1 over its follow-through. */
-    public float swing;
+    public long impactTick;
 
-    public FrameData.Cue.Type cue = FrameData.Cue.Type.NONE;
+    /** The combatant's model time this frame, in µs ({@code ModelTime}): what the strike was drawn at. */
+    public long modelMicros;
 
-    /** Whether the path placed the body (once the strike locked); then its position and facing. */
-    public boolean placed;
+    /**
+     * How far the body goes from its entity's own position to ({@link #x}, {@link #y}, {@link #z}) facing {@link #yaw}
+     * (degrees): 1 on the strike's path, 0 its own, between while it blends back.
+     */
+    public float place;
 
     public double x;
     public double y;
@@ -29,9 +30,9 @@ public final class StrikeAnim {
 
     void clear() {
         active = false;
-        windup = 0;
-        swing = 0;
-        cue = FrameData.Cue.Type.NONE;
-        placed = false;
+        strike = 0;
+        impactTick = 0;
+        modelMicros = 0;
+        place = 0;
     }
 }

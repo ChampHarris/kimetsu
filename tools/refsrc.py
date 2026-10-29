@@ -6,6 +6,10 @@ where Claude can grep them: ref-src/. This is what "verify every API in ref-src/
   python tools/refsrc.py            # Minecraft + NeoForge sources -> ref-src/minecraft/
   python tools/refsrc.py --assets   # + vanilla assets/minecraft -> ref-src/vanilla/ (for vanilla_coverage.py)
   python tools/refsrc.py --libs     # + sources of pinned libraries found in the Gradle cache -> ref-src/libs/<name>/
+  python tools/refsrc.py --fetch-libs   # only fetch the sources jars of FETCHED_LIBS from their Maven (the version
+                                    #   pinned in gradle.properties), check each against its published sha256 and
+                                    #   extract it -> ref-src/libs/<name>/ (no Gradle: strict dependency verification
+                                    #   refuses the IDE's sources download, D-123)
   python tools/refsrc.py --data     # + vanilla data/minecraft (recipes, loot, tags, worldgen) from the client jar
                                     #   -> ref-src/vanilla-data/ (for vanilla_scope.py); runs the data generator for
                                     #   registries.json when Java and the server jar are available
@@ -43,6 +47,9 @@ SOURCE_PREFIXES = ("net/minecraft/", "com/mojang/", "net/neoforged/")
 LIBS = {"pal": ("playeranim", "player-animation", "playeranimation"), "bendable_cuboids": ("bendable",),
         "azurelib": ("azurelib",), "geckolib": ("geckolib",), "smartbrainlib": ("smartbrainlib", "smart-brain"),
         "iris": ("iris",), "lambdynamiclights": ("lambdynamiclights",), "shouldersurfing": ("shouldersurfing",)}
+# --fetch-libs: name -> (Maven repository, group, artifact with {mc} for minecraft_version, gradle.properties key).
+FETCHED_LIBS = {"azurelib": ("https://maven.azuredoom.com/mods", "mod.azure.azurelib", "azurelib-neo-{mc}",
+                             "azurelib_version")}
 
 
 def props() -> dict[str, str]:
@@ -375,6 +382,51 @@ def vanilla_data(client: Path | None) -> int:
     return 1
 
 
+def fetch_libs(p: dict[str, str]) -> int:
+    """Each FETCHED_LIBS sources jar at its pinned version, checked against the sha256 its Maven publishes beside it,
+    extracted to ref-src/libs/<name>/ with a VERSION file naming the artifact and the hash. A mismatch extracts
+    nothing and fails."""
+    import hashlib
+    mc = p.get("minecraft_version", "?")
+    bad = 0
+    for name, (repo, group, artifact, key) in FETCHED_LIBS.items():
+        version = p.get(key)
+        if not version:
+            print(f"refsrc: {name}: gradle.properties has no {key}", file=sys.stderr)
+            bad += 1
+            continue
+        art = artifact.format(mc=mc)
+        jar_name = f"{art}-{version}-sources.jar"
+        url = f"{repo}/{group.replace('.', '/')}/{art}/{version}/{jar_name}"
+        try:
+            with urllib.request.urlopen(url, timeout=60) as r:
+                data = r.read()
+            with urllib.request.urlopen(url + ".sha256", timeout=20) as r:
+                published = r.read().decode("ascii", "replace").split()[0].strip().lower()
+        except OSError as e:
+            print(f"refsrc: {name}: could not fetch {url}: {e}", file=sys.stderr)
+            bad += 1
+            continue
+        got = hashlib.sha256(data).hexdigest()
+        if got != published:
+            print(f"refsrc: {name}: {jar_name} hashes {got}, its Maven says {published}; nothing extracted",
+                  file=sys.stderr)
+            bad += 1
+            continue
+        ldest = REF / "libs" / name
+        if ldest.exists():
+            shutil.rmtree(ldest)
+        ldest.mkdir(parents=True)
+        tmp = ldest / jar_name
+        tmp.write_bytes(data)
+        k = extract(tmp, ldest, ("",), (".java", ".json"))
+        tmp.unlink()
+        (ldest / "VERSION").write_text(f"artifact={group}:{art}:{version}\nfrom={repo}\nsources_sha256={got}\n"
+                                       f"extracted={dt.date.today().isoformat()}\n", encoding="utf-8", newline="\n")
+        print(f"refsrc: {k} files for {name} from {jar_name} (sha256 {got[:12]}..., as published)")
+    return 1 if bad else 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Extract reference sources into ref-src/.")
     ap.add_argument("--assets", action="store_true", help="also extract vanilla assets/minecraft into ref-src/vanilla/")
@@ -383,11 +435,15 @@ def main(argv=None) -> int:
     ap.add_argument("--mcmeta", metavar="VERSION", help="only fetch vanilla data for VERSION from misode/mcmeta (no Java needed)")
     ap.add_argument("--out", metavar="DIR", help="with --mcmeta: fetch into DIR instead of ref-src/vanilla-data/ "
                     "(for /port-plan: compare a target version without touching the current data)")
+    ap.add_argument("--fetch-libs", action="store_true",
+                    help="only fetch FETCHED_LIBS' sources jars from their Maven, sha256-checked, into ref-src/libs/")
     ap.add_argument("--list", action="store_true", help="only list candidate jars")
     a = ap.parse_args(argv)
     if a.mcmeta:
         return mcmeta(a.mcmeta, Path(a.out).resolve() if a.out else None)
     p = props()
+    if a.fetch_libs:
+        return fetch_libs(p)
     mc, neo = p.get("minecraft_version", "?"), p.get("neo_version") or p.get("neoforge_version", "?")
     print(f"refsrc: minecraft {mc}, neoforge {neo}; searching {', '.join(str(r) for r in search_roots()) or 'nothing'}")
 

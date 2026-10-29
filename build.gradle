@@ -50,6 +50,10 @@ repositories {
         forRepository { maven { url = 'https://api.modrinth.com/maven' } }
         filter { includeGroup 'maven.modrinth' }
     }
+    exclusiveContent {                                          // AzureDoom's Maven, only for AzureLib (ADR 0001, D-123)
+        forRepository { maven { url = 'https://maven.azuredoom.com/mods' } }
+        filter { includeGroup 'mod.azure.azurelib' }
+    }
     mavenCentral()      // the quality tools (gradle/quality.gradle); MDG adds only Mojang's and NeoForged's repositories
 }
 
@@ -61,6 +65,9 @@ neoForge {
     runs {
         client {
             client()
+            // The AzureLib spike (5d-3a, D-123): `./gradlew runClient -PazureSpike=true` draws the M1 demon through
+            // AzureLib instead of the stand-in.
+            systemProperty 'kimetsu.azure_spike', (project.findProperty('azureSpike') ?: 'false').toString()
         }
 
         server {
@@ -114,6 +121,9 @@ configurations {
 }
 
 dependencies {
+    // AzureLib (ADR 0001's demon runtime; 4.1.2 for the 5d-3a spike, D-123): the M1 demon's renderer behind the spike flag.
+    implementation "mod.azure.azurelib:azurelib-neo-${minecraft_version}:${azurelib_version}"
+
     // Dev tools, pinned 2026-10-18 (ADR 0002; Modrinth version IDs because version numbers repeat across loaders).
     localRuntime("com.coolerpromc.mctest:mctest-neoforge-26.3:26.3.0.3") { transitive = false }
     localRuntime("maven.modrinth:spark:HwHxykP9")        // spark 1.10.187 (NeoForge 26.x)
@@ -159,6 +169,7 @@ var generateModMetadata = tasks.register('generateModMetadata', ProcessResources
             mod_name               : mod_name,
             mod_license            : mod_license,
             mod_version            : mod_version,
+            azurelib_version       : azurelib_version,
     ]
     inputs.properties replaceProperties
     expand replaceProperties

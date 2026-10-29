@@ -1,0 +1,9 @@
+{
+  "blend_back_ticks": 3,
+  "blend_in_ticks": 3,
+  "pose_blend_ticks": 3,
+  "meta": {
+    "status": "PROPOSED",
+    "source": "docs/design/specs/m1-combat-core.md#feel--presentation (spec:534's 3-tick blend back); D-138; blend_in_ticks D-139"
+  }
+}

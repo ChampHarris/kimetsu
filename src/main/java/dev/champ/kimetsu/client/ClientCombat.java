@@ -4,7 +4,19 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.logging.LogUtils;
+import dev.champ.kimetsu.client.present.FrameProbe;
+import dev.champ.kimetsu.client.present.Layer;
+import dev.champ.kimetsu.client.present.MobPosture;
+import dev.champ.kimetsu.client.present.ModelTime;
+import dev.champ.kimetsu.client.present.Placement;
+import dev.champ.kimetsu.client.present.Poser;
+import dev.champ.kimetsu.client.present.PresentClock;
+import dev.champ.kimetsu.client.present.StandInPose;
+import dev.champ.kimetsu.client.present.StrikeSource;
+import dev.champ.kimetsu.client.present.StrikeSpan;
+import dev.champ.kimetsu.client.present.Track;
 import dev.champ.kimetsu.config.KimetsuClientConfig;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.TickRecord;
@@ -13,10 +25,9 @@ import dev.champ.kimetsu.core.data.DemonProfile;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.Moveset;
 import dev.champ.kimetsu.core.fight.Outbox;
-import dev.champ.kimetsu.core.hit.Pose;
 import dev.champ.kimetsu.core.machine.Effect;
+import dev.champ.kimetsu.core.machine.State;
 import dev.champ.kimetsu.core.meter.Fixed;
-import dev.champ.kimetsu.core.strike.StrikeView;
 import dev.champ.kimetsu.data.CombatData;
 import dev.champ.kimetsu.data.CombatDataBuilder;
 import dev.champ.kimetsu.data.SlayerProfile;
@@ -29,7 +40,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import net.minecraft.client.Minecraft;
+import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.Component;
 import net.minecraft.util.StrictJsonParser;
 import net.minecraft.util.Util;
 import net.minecraft.world.entity.Entity;
@@ -65,13 +78,26 @@ public final class ClientCombat {
     private @Nullable TickRecord early; // a record before the data (never on an honest server's order)
     private boolean sentReady;
     private final ClientView view = new ClientView();
-    private final Pose pose = new Pose();
     private final ClientInput input = new ClientInput(
             this,
             KimetsuClientConfig.client().debugOverlay(),
             KimetsuClientConfig.client().guardMode() == KimetsuClientConfig.GuardMode.TOGGLE);
     private final List<Entity> combatants = new ArrayList<>(); // the hostile ones this client has (M1: the demon)
     private final long loginNanos = Util.getNanos();
+    private final PresentClock present = new PresentClock(
+            Util::getNanos,
+            this::presentMicros,
+            () -> Micros.ofMillis(KimetsuClientConfig.client().visualOffsetMs()),
+            !FMLEnvironment.isProduction());
+    private final Poser poser = new Poser(); // the stand-in's poses and every body's place (5d-3a Step 3)
+    private final Placement placement = new Placement();
+    private final StrikeSpan span = new StrikeSpan();
+    private List<String> debug = List.of(); // the overlay's lines, built once a client tick
+    private long spikeDelayMicros; // the AzureLib spike's trigger delay (/kimetsu_dev trigger_delay)
+    private long traceUntil = Long.MIN_VALUE; // the hold trace's end, in scheduled µs (/kimetsu_dev hold)
+    private long traced = Long.MIN_VALUE; // the scheduled time it last logged
+    private long placeTraced = Long.MIN_VALUE; // the scheduled time the place trace last logged (/kimetsu_dev trace)
+    private final FrameProbe probe = new FrameProbe(); // /kimetsu_dev frametime
 
     private ClientCombat() {}
 
@@ -99,6 +125,35 @@ public final class ClientCombat {
 
     ClientView view() {
         return view;
+    }
+
+    /** The combat time at the client's {@code nanos}, or {@link PresentClock#NOT_READY} before the clock is set. */
+    private long presentMicros(long nanos) {
+        ClientClock c = clock;
+        return c != null && c.ready() ? c.micros(nanos) : PresentClock.NOT_READY;
+    }
+
+    /** The clock's epoch, which every model read carries, so a new one clears the holds (D-136). */
+    private int clockEpoch() {
+        ClientClock k = clock;
+        return k != null ? k.epoch() : 0;
+    }
+
+    /** Whether the client has entity {@code id}: a combatant's track is made only for one it has (D-093). */
+    private static boolean known(int id) {
+        var level = Minecraft.getInstance().level;
+        return level != null && level.getEntity(id) != null;
+    }
+
+    /** Combatant {@code id}'s own time (spec:569), on its track: made on first use and dropped when it leaves. */
+    private ModelTime model(int id) {
+        return view.trackFor(id).model();
+    }
+
+    /** Combatant {@code id}'s strikes as its body is drawn: the M1 demon's eyes place its paths (M1's one demon). */
+    private StrikeSource strikes(int id, CombatData d) {
+        DemonProfile profile = d.demons().get(CombatDataBuilder.M1_DEMON);
+        return view.strikesBy(id, d.frames(), profile != null ? profile.body().eye() : 0);
     }
 
     /**
@@ -172,29 +227,24 @@ public final class ClientCombat {
         return c != null && c.input.overlay();
     }
 
-    /** Fills {@code out} with the cue of the strike on this player whose cue is showing now; false if none is. */
+    /**
+     * Fills {@code out} with the cue of the strike on this player whose cue is showing now, on the frame's scheduled
+     * time: aimed at it, or one it's involved in; false if none is.
+     */
     public static boolean cue(CueMark out) {
         out.type = FrameData.Cue.Type.NONE;
         out.progress = 0;
         ClientCombat c = current;
-        ClientClock clock = c != null ? c.clock : null;
         CombatData d = c != null ? c.data : null;
         Player self = Minecraft.getInstance().player;
-        if (c == null || clock == null || d == null || self == null || !clock.ready()) {
+        if (c == null || d == null || self == null) {
             return false;
         }
-        long now = clock.micros(Util.getNanos());
-        Outbox.AttackStarted shown = null;
-        for (Outbox.AttackStarted s : c.view.strikes().values()) {
-            long cue = Micros.ofTicks(s.cueTick());
-            long impact = Micros.ofTicks(s.impactTick());
-            if (s.target() == self.getId()
-                    && now >= cue
-                    && now <= impact
-                    && (shown == null || s.impactTick() < shown.impactTick())) {
-                shown = s;
-            }
+        long now = c.present.scheduled();
+        if (now == PresentClock.NOT_READY) {
+            return false;
         }
+        Outbox.AttackStarted shown = c.view.cueAt(self.getId(), now); // aimed at you, or you're involved (Rule 2.9)
         FrameData f = shown != null ? d.frames().get(shown.attack()) : null;
         if (shown == null || f == null) {
             return false;
@@ -207,23 +257,28 @@ public final class ClientCombat {
     }
 
     /**
-     * Fills {@code out} with the radial as it's drawn now: false when it isn't (Rule 5.4: Breathe held to
-     * {@code radial_reveal_ms} while it aims).
+     * Fills {@code out} with the radial as it's drawn now, on the frame's own time (your feedback): false when it isn't
+     * (Rule 5.4: Breathe held to {@code radial_reveal_ms} while it aims).
      */
     public static boolean radial(RadialMark out) {
         out.slots = 0;
         out.selected = -1;
         ClientCombat c = current;
-        return c != null && c.input.radialMark(out, Util.getNanos());
+        return c != null && c.input.radialMark(out, c.present.now());
     }
 
-    /** The debug overlay's lines: only what the server routed here and this client's own clock and presses. */
+    /** The debug overlay's lines, as the last client tick built them (empty out of a world). */
     public static List<String> debugLines() {
-        List<String> lines = new ArrayList<>();
         ClientCombat c = current;
-        if (c == null) {
-            return lines;
-        }
+        return c != null ? c.debug : List.of();
+    }
+
+    /**
+     * The debug overlay's lines: only what the server routed here and this client's own clock and presses. Built on a
+     * client tick, on the clock itself ({@code PresentClock} is the frame's).
+     */
+    private static List<String> buildDebugLines(ClientCombat c) {
+        List<String> lines = new ArrayList<>();
         ClientClock clock = c.clock;
         CombatData d = c.data;
         if (clock == null || d == null) {
@@ -288,11 +343,13 @@ public final class ClientCombat {
                         ? String.format(
                                 Locale.ROOT, "lock #%d  out of sight %.1f s", l.target(), l.hiddenNanos(nanos) / 1e9)
                         : "lock off");
+        DemonProfile demon = d.demons().get(CombatDataBuilder.M1_DEMON); // only M1Demon is a combatant
+        long max = demon != null ? Fixed.of(demon.posture().max()) : Long.MAX_VALUE;
         for (int i = 0; i < c.combatants.size(); i++) {
             Entity e = c.combatants.get(i);
             Outbox.MobState m = c.view.mob(e.getId());
             if (m != null) {
-                long posture = m.posture() + m.postureRate() * Math.max(0, c.view.tick() - m.postureFrom());
+                long posture = MobPosture.at(m, c.view.tick(), max); // the HUD's clamp (5d-3b)
                 lines.add(String.format(
                         Locale.ROOT, "demon #%d %s  Posture %.1f", e.getId(), m.state(), Fixed.toUnits(posture)));
             }
@@ -315,45 +372,141 @@ public final class ClientCombat {
         return lines;
     }
 
-    private static final long SWING_TICKS = 4; // the stand-in's follow-through after an impact
-
     /**
-     * Fills {@code out} with how combatant {@code id}'s strike is drawn now, on this client's combat clock: false (and
-     * {@code out} cleared) when it isn't in one, or before the clock is set.
+     * Fills {@code out} with how combatant {@code id}'s strike is drawn now, on its model time (the frame's scheduled
+     * time less its holds): its strike, and where its body goes (its strike path, then the blend back from it). False
+     * (and {@code out} cleared but for the blend back) when it isn't in a strike, or before the clock is set.
      */
     public static boolean strikeAnim(int id, StrikeAnim out) {
         out.clear();
         ClientCombat c = current;
-        ClientClock clock = c != null ? c.clock : null;
         CombatData d = c != null ? c.data : null;
-        if (c == null || clock == null || d == null || !clock.ready()) {
+        if (c == null || d == null) {
             return false;
         }
-        long now = clock.micros(Util.getNanos());
-        Outbox.AttackStarted s = c.view.strikeBy(id, Micros.tickOf(now), SWING_TICKS);
-        if (s == null) {
+        long scheduled = c.present.scheduled();
+        if (scheduled == PresentClock.NOT_READY) {
             return false;
         }
-        long start = Micros.ofTicks(s.windupStartTick());
-        long impact = Micros.ofTicks(s.impactTick());
+        long now = c.model(id).at(scheduled, c.clockEpoch());
+        out.modelMicros = now;
+        StrikeSource strikes = c.strikes(id, d);
+        c.poser.place(strikes, now, FeelLoader.feel(), c.placement);
+        out.place = c.placement.weight;
+        out.x = c.placement.x;
+        out.y = c.placement.y;
+        out.z = c.placement.z;
+        out.yaw = c.placement.yaw;
+        if (!strikes.newest(now, c.span) || now >= c.span.end()) {
+            return false;
+        }
         out.active = true;
-        out.windup = impact > start ? Math.clamp((now - start) / (float) (impact - start), 0f, 1f) : 1f;
-        out.swing = now <= impact ? 0f : Math.clamp((now - impact) / (float) Micros.ofTicks(SWING_TICKS), 0f, 1f);
-        FrameData f = d.frames().get(s.attack());
-        if (f != null) {
-            out.cue = f.cue().type();
-        }
-        DemonProfile profile = d.demons().get(CombatDataBuilder.M1_DEMON); // M1's one demon
-        StrikeView path = c.view.path(s, d, profile != null ? profile.body().eye() : 0);
-        if (path != null) {
-            path.attackerAtMicros(now, c.pose);
-            out.placed = true;
-            out.x = c.pose.x();
-            out.y = c.pose.y();
-            out.z = c.pose.z();
-            out.yaw = (float) path.yaw();
-        }
+        out.strike = c.span.id();
+        out.impactTick = Micros.tickOf(c.span.impact());
         return true;
+    }
+
+    /**
+     * Fills {@code out} with combatant {@code id}'s stand-in pose now, on its model time: its strike's windup and
+     * follow-through, its state's, hold's and clash's poses blended by {@code feel/default.json}, its clang recoil (the
+     * combat data's length) and its guard's yaw; vanilla's own pose before the clock is set.
+     */
+    public static void standInPose(int id, StandInPose out) {
+        out.clear();
+        ClientCombat c = current;
+        CombatData d = c != null ? c.data : null;
+        if (c == null || d == null) {
+            return;
+        }
+        long scheduled = c.present.scheduled();
+        if (scheduled == PresentClock.NOT_READY) {
+            return;
+        }
+        long now = c.model(id).at(scheduled, c.clockEpoch());
+        DemonProfile profile = d.demons().get(CombatDataBuilder.M1_DEMON); // M1's one demon
+        long recoil = profile != null ? Micros.ofTicks(profile.clang().recoilTicks()) : 0;
+        c.poser.pose(c.view.trackFor(id), c.strikes(id, d), now, FeelLoader.feel(), recoil, out);
+    }
+
+    /**
+     * Combatant {@code id}'s model time this frame, in µs (the frame's scheduled time less its holds), or
+     * {@link PresentClock#NOT_READY} before the clock is set: the AzureLib spike's animation timer reads it (5d-3a).
+     */
+    public static long modelMicros(int id) {
+        ClientCombat c = current;
+        if (c == null) {
+            return PresentClock.NOT_READY;
+        }
+        long s = c.present.scheduled();
+        if (s == PresentClock.NOT_READY) {
+            return PresentClock.NOT_READY;
+        }
+        long m = c.model(id).at(s, c.clockEpoch());
+        if (s <= c.traceUntil && s != c.traced) {
+            c.traced = s;
+            LOGGER.info(
+                    "Kimetsu hold trace: scheduled {} model {} (ticks)",
+                    s / (double) Micros.PER_TICK,
+                    m / (double) Micros.PER_TICK);
+        }
+        return m;
+    }
+
+    /** Whether {@code /kimetsu_dev hold}'s trace runs this frame (dev runs, until two ticks past the repayment). */
+    public static boolean holdTracing() {
+        ClientCombat c = current;
+        if (c == null || c.traceUntil == Long.MIN_VALUE) {
+            return false;
+        }
+        long s = c.present.scheduled();
+        return s != PresentClock.NOT_READY && s <= c.traceUntil;
+    }
+
+    /**
+     * Dev runs, while {@code /kimetsu_dev hold}'s or {@code trace}'s trace runs: logs once per frame where combatant
+     * {@code id}'s stand-in is drawn ({@code x, y, z}) against its entity's own interpolated position ({@code ex, ey,
+     * ez}), with its strike, place weight and layer, for 5d-3a's blend-back check (per-frame positions).
+     */
+    public static void tracePlace(
+            int id, StrikeAnim a, double ex, double ey, double ez, double x, double y, double z, float bodyRot) {
+        ClientCombat c = current;
+        CombatData d = c != null ? c.data : null;
+        if (c == null || d == null || c.traceUntil == Long.MIN_VALUE) {
+            return;
+        }
+        long s = c.present.scheduled();
+        if (s == PresentClock.NOT_READY || s > c.traceUntil || s == c.placeTraced) {
+            return;
+        }
+        c.placeTraced = s;
+        Outbox.AttackStarted st = c.view.strikes().get(a.strike);
+        Layer l = c.poser.layerAt(c.view.trackFor(id), c.strikes(id, d), a.modelMicros);
+        String layer = l.kind() == Layer.Kind.STRIKE ? "strike" : l.stance().name();
+        LOGGER.info(String.format(
+                Locale.ROOT,
+                "Kimetsu place trace: #%d scheduled %.3f model %.3f strike #%d %s impact %d place %.3f layer %s"
+                        + " entity %.4f %.4f %.4f drawn %.4f %.4f %.4f body %.1f",
+                id,
+                s / (double) Micros.PER_TICK,
+                a.modelMicros / (double) Micros.PER_TICK,
+                a.strike,
+                a.active ? (st != null ? st.attack() : c.view.cancelled(a.strike) ? "cancelled" : "?") : "-",
+                a.impactTick,
+                a.place,
+                layer,
+                ex,
+                ey,
+                ez,
+                x,
+                y,
+                z,
+                bodyRot));
+    }
+
+    /** How long the AzureLib spike holds back a strike's clip, in µs ({@code /kimetsu_dev trigger_delay}, dev runs). */
+    public static long spikeTriggerDelayMicros() {
+        ClientCombat c = current;
+        return c != null ? c.spikeDelayMicros : 0;
     }
 
     // ------------------------------------------------------------------------------------------------- events
@@ -398,6 +551,7 @@ public final class ClientCombat {
     static void onTickStart(ClientTickEvent.Pre event) {
         ClientCombat c = current;
         if (c != null) {
+            c.present.tickStarted();
             long nanos = Util.getNanos();
             c.tickStart(nanos);
             c.input.tickStart(nanos);
@@ -420,14 +574,50 @@ public final class ClientCombat {
         ClientCombat c = current;
         if (c != null) {
             c.input.tickEnd(Util.getNanos());
+            c.debug = c.input.overlay() ? buildDebugLines(c) : List.of();
+            c.present.tickEnded();
+        }
+    }
+
+    /** The frame was drawn: the next frame's first render-side read samples the clock again (D-123). */
+    static void onFrameEnd(RenderFrameEvent.Post event) {
+        ClientCombat c = current;
+        if (c != null) {
+            c.probe.frameEnd(Util.getNanos());
+            c.present.endFrame();
         }
     }
 
     static void onFrameStart(RenderFrameEvent.Pre event) {
         ClientCombat c = current;
         if (c != null) {
-            c.input.frameStart(Util.getNanos());
+            long nanos = Util.getNanos();
+            FrameProbe.Summary s = c.probe.frameStart(nanos);
+            if (s != null) {
+                frameTimes(s);
+            }
+            c.input.frameStart(nanos);
         }
+    }
+
+    /** {@code /kimetsu_dev frametime}'s result, in ms, to the log and the chat. */
+    private static void frameTimes(FrameProbe.Summary s) {
+        String line = String.format(
+                Locale.ROOT,
+                "%d frames, %.1f fps; frame p50 %.2f p95 %.2f p99 %.2f max %.2f ms; render pass p50 %.2f p95 %.2f p99"
+                        + " %.2f max %.2f ms",
+                s.frames(),
+                s.fps(),
+                s.intervalP50() / 1e6,
+                s.intervalP95() / 1e6,
+                s.intervalP99() / 1e6,
+                s.intervalMax() / 1e6,
+                s.renderP50() / 1e6,
+                s.renderP95() / 1e6,
+                s.renderP99() / 1e6,
+                s.renderMax() / 1e6);
+        LOGGER.info("Kimetsu frame probe: {}", line);
+        say("Kimetsu dev: " + line);
     }
 
     static void onTurn(CalculatePlayerTurnEvent event) {
@@ -492,7 +682,11 @@ public final class ClientCombat {
      * Dev runs only: {@code /kimetsu_dev guard <ms>}, a guard press at an exact offset from the next impact on you;
      * {@code /kimetsu_dev jump <ms>}, a Jump press at an offset from the next push's first tick (D-083);
      * {@code /kimetsu_dev radial <slot> <holdMs> [beat]}, a flick toward a radial slot released after a hold, or on the
-     * first beat after it (5d-2).
+     * first beat after it (5d-2); {@code /kimetsu_dev hold <ms>}, a hold of the nearest combatant's model time at its
+     * next impact, {@code /kimetsu_dev trigger_delay <ms>}, the AzureLib spike's clips started late, and
+     * {@code /kimetsu_dev frametime <frames>}, the next frames' times to the log (5d-3a); {@code /kimetsu_dev pose
+     * <stance>}, the nearest combatant's stand-in shown in a stance from now (5d-3a Step 3's sheets); {@code
+     * /kimetsu_dev trace <ticks>}, where each stand-in is drawn, per frame, to the log (5d-3a's blend-back check).
      */
     static void onClientCommands(RegisterClientCommandsEvent event) {
         if (FMLEnvironment.isProduction()) {
@@ -531,7 +725,160 @@ public final class ClientCombat {
                                                         .executes(ctx -> armRadial(
                                                                 IntegerArgumentType.getInteger(ctx, "slot"),
                                                                 IntegerArgumentType.getInteger(ctx, "holdMs"),
-                                                                BoolArgumentType.getBool(ctx, "beat"))))))));
+                                                                BoolArgumentType.getBool(ctx, "beat")))))))
+                        .then(Commands.literal("hold")
+                                .then(Commands.argument("ms", IntegerArgumentType.integer(1, 250))
+                                        .executes(ctx -> holdAtImpact(IntegerArgumentType.getInteger(ctx, "ms")))))
+                        .then(Commands.literal("trace")
+                                .then(Commands.argument("ticks", IntegerArgumentType.integer(1, 2400))
+                                        .executes(ctx -> trace(IntegerArgumentType.getInteger(ctx, "ticks")))))
+                        .then(Commands.literal("trigger_delay")
+                                .then(Commands.argument("ms", IntegerArgumentType.integer(0, 1000))
+                                        .executes(ctx -> {
+                                            ClientCombat c = current;
+                                            if (c == null) {
+                                                return 0;
+                                            }
+                                            int ms = IntegerArgumentType.getInteger(ctx, "ms");
+                                            c.spikeDelayMicros = Micros.ofMillis(ms);
+                                            say("Kimetsu dev: the spike's clips start " + ms + " ms late");
+                                            return 1;
+                                        })))
+                        .then(Commands.literal("frametime")
+                                .then(Commands.argument("frames", IntegerArgumentType.integer(10, 100_000))
+                                        .executes(ctx -> {
+                                            ClientCombat c = current;
+                                            if (c == null) {
+                                                return 0;
+                                            }
+                                            c.probe.arm(IntegerArgumentType.getInteger(ctx, "frames"));
+                                            return 1;
+                                        })))
+                        .then(posing()));
+    }
+
+    private static final List<String> POSES =
+            List.of("neutral", "guard", "stagger", "collapsed", "knockdown", "clash", "hold", "recoil");
+
+    private static LiteralArgumentBuilder<CommandSourceStack> posing() {
+        LiteralArgumentBuilder<CommandSourceStack> pose = Commands.literal("pose");
+        for (String name : POSES) {
+            pose.then(Commands.literal(name).executes(ctx -> showPose(name)));
+        }
+        return pose;
+    }
+
+    /**
+     * {@code /kimetsu_dev pose <stance>}: the nearest combatant's track shows {@code name} from the frame's scheduled
+     * tick, as if the server had routed it (a state; a hold or clash 2 s long; a clang's recoil), until a real event
+     * replaces it: the poses' sheets under {@code /tick freeze}, where a solo fight can't make each on demand.
+     */
+    private static int showPose(String name) {
+        ClientCombat c = current;
+        Player p = Minecraft.getInstance().player;
+        long now = c != null ? c.presentMicros(Util.getNanos()) : PresentClock.NOT_READY;
+        if (c == null || p == null || now == PresentClock.NOT_READY) {
+            return 0;
+        }
+        long tick =
+                Micros.tickOf(now + Micros.ofMillis(KimetsuClientConfig.client().visualOffsetMs()));
+        Entity nearest = null;
+        for (int i = 0; i < c.combatants.size(); i++) {
+            Entity e = c.combatants.get(i);
+            if (e.isAlive() && (nearest == null || e.distanceToSqr(p) < nearest.distanceToSqr(p))) {
+                nearest = e;
+            }
+        }
+        if (nearest == null) {
+            say("Kimetsu dev: no combatant to pose");
+            return 0;
+        }
+        Track k = c.view.trackFor(nearest.getId());
+        switch (name) {
+            case "hold" -> {
+                k.hold(tick);
+                k.holdEnded(tick + 40);
+            }
+            case "clash" -> {
+                k.clash(tick, Micros.ofTicks(tick));
+                k.clashEnded(tick + 40);
+            }
+            case "recoil" -> k.clang(tick);
+            default -> k.state(State.valueOf(name.toUpperCase(Locale.ROOT)), tick);
+        }
+        say("Kimetsu dev: #" + nearest.getId() + " shows " + name + " from tick " + tick);
+        return 1;
+    }
+
+    /**
+     * {@code /kimetsu_dev hold <ms>} (5d-3a's spike; 5d-5's hit-stop stands in): the nearest combatant's model time holds
+     * for {@code ms} from its strike's impact, repaid by the strike's recovery end (spec:569, absorbed in recovery). It
+     * needs a strike still in its windup.
+     */
+    private static int holdAtImpact(int ms) {
+        ClientCombat c = current;
+        CombatData d = c != null ? c.data : null;
+        Player p = Minecraft.getInstance().player;
+        if (c == null || d == null || p == null) {
+            return 0;
+        }
+        long now = c.presentMicros(Util.getNanos());
+        if (now == PresentClock.NOT_READY) {
+            say("Kimetsu dev: hold dropped (the clock isn't set)");
+            return 0;
+        }
+        long scheduled = now + Micros.ofMillis(KimetsuClientConfig.client().visualOffsetMs());
+        Entity nearest = null;
+        for (int i = 0; i < c.combatants.size(); i++) {
+            Entity e = c.combatants.get(i);
+            if (e.isAlive() && (nearest == null || e.distanceToSqr(p) < nearest.distanceToSqr(p))) {
+                nearest = e;
+            }
+        }
+        Outbox.AttackStarted s = nearest != null ? c.view.strikeBy(nearest.getId(), Micros.tickOf(scheduled), 0) : null;
+        if (nearest == null || s == null || Micros.ofTicks(s.impactTick()) <= scheduled) {
+            say("Kimetsu dev: hold dropped (no strike in its windup)");
+            return 0;
+        }
+        FrameData f = d.frames().get(s.attack());
+        long end = f != null ? s.impactTick() + f.active() + f.recovery() : s.impactTick();
+        ModelTime m = c.model(nearest.getId());
+        m.hold(Micros.ofTicks(s.impactTick()), Micros.ofMillis(ms));
+        m.repayBy(Micros.ofTicks(end));
+        c.traceUntil = Micros.ofTicks(end + 2);
+        c.traced = Long.MIN_VALUE;
+        say(String.format(
+                Locale.ROOT,
+                "Kimetsu dev: hold %d ms at strike #%d's impact (tick %d), repaid by tick %d",
+                ms,
+                s.strike(),
+                s.impactTick(),
+                end));
+        return 1;
+    }
+
+    /**
+     * {@code /kimetsu_dev trace <ticks>}: the place trace ({@link #tracePlace}) for the next {@code ticks} of scheduled
+     * time, without a hold (5d-3a's blend-back check).
+     */
+    private static int trace(int ticks) {
+        ClientCombat c = current;
+        long now = c != null ? c.presentMicros(Util.getNanos()) : PresentClock.NOT_READY;
+        if (c == null || now == PresentClock.NOT_READY) {
+            return 0;
+        }
+        long scheduled = now + Micros.ofMillis(KimetsuClientConfig.client().visualOffsetMs());
+        c.traceUntil = scheduled + Micros.ofTicks(ticks);
+        c.placeTraced = Long.MIN_VALUE;
+        say("Kimetsu dev: tracing for " + ticks + " ticks");
+        return 1;
+    }
+
+    private static void say(String line) {
+        Player p = Minecraft.getInstance().player;
+        if (p != null) {
+            p.sendSystemMessage(Component.literal(line));
+        }
     }
 
     private static int armRadial(int slot, int holdMs, boolean onBeat) {
@@ -639,7 +986,8 @@ public final class ClientCombat {
     private void tickMessage(NetMessage.Tick t) {
         var player = Minecraft.getInstance().player;
         if (player != null) {
-            Effect.Push p = view.accept(t, player.getId()); // the client's entity ids are the server's
+            Effect.Push p =
+                    view.accept(t, player.getId(), ClientCombat::known); // the client's entity ids are the server's
             if (p != null) {
                 input.push(p);
             }
