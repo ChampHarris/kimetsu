@@ -128,6 +128,13 @@ live under the config's `m1_rules` key (defaults in M1_RULES below; `--set m1_ru
     when the count restarts each gap; otherwise plays as its profile.
     chipguard (rule 9, the red team's bot): chips every gap and holds guard through every counter (a block: no read,
     no timing), paying Water's guard-cancel when its last swing's recovery runs into the tick before the impact.
+    beattapper (D-130, the red team's bot): taps guard on every beat and reads only the cue's colour, so it bites
+    every feint (it never watches for the break); otherwise plays as its profile (a tap on a beat with no strike
+    costs nothing, as in the engine).
+  Feint bites (D-130, opt-in under m1_rules): `feint_bite_beats` 1 makes a guard tap that bites a white feint lock
+    deflects out through the next strike's impact (that strike can only be blocked, at the locked-tap rule, or
+    Stepped; off on assist); `feint_break_ms` replaces each profile's fixed feint_tap with a stop-signal race against
+    the break (`stop_signal_ms` per profile, calibrated to reproduce feint_tap at a 250 ms break).
 
 Run:  python tools/sims/duel_sim.py                    # the Round 6 profiles, 2000 fights each
       python tools/sims/duel_sim.py --set m1_demon.hp=90 --set pulse.perfect_ms=50
@@ -172,7 +179,8 @@ class Skill:
                            # dealt x0.75; "B" = A, and every deflect counts as a Perfect Deflect;
                            # "C" = A with the -25% on HP damage only (Posture damage unchanged)
     feint_tap: float = 0.3 # taps (or dodges) anyway after a demon feint's cue visibly breaks
-    bot: str = ""          # exploit bot: "masher", "doubletap", "turtle", "chipsafe" or "chipguard" (module docstring)
+    bot: str = ""          # exploit bot: "masher", "doubletap", "turtle", "chipsafe", "chipguard" or "beattapper"
+                           # (module docstring)
 
 
 PROFILES = {
@@ -210,7 +218,8 @@ BOT_PROFILES = {s.name: s for s in (
     _bot("casual+assist", "doubletap"), _bot("casual+assist3C", "doubletap"), _bot("average", "doubletap"),
     _bot("average", "chipsafe"), _bot("casual", "chipsafe"), _bot("casual+assist", "chipsafe"),
     _bot("average", "chipguard"), _bot("casual", "chipguard"), _bot("casual+assist", "chipguard"),
-    _bot("struggling", "chipguard"))}
+    _bot("struggling", "chipguard"),
+    _bot("expert", "beattapper"), _bot("average", "beattapper"), _bot("casual", "beattapper"))}
 ALL_PROFILES = {**PROFILES, **BOT_PROFILES}
 
 # Parameters of the revised rules (PROPOSED; every one an assumption to measure in the grey box).
@@ -262,16 +271,22 @@ M1_RULES = {
     "counter_commit_delay_ticks": 0,     # rule 9: ticks from the blocked hit's contact to the server's commit (input
                                          # that arrives after the Kata's active tick: one-way latency past 150 ms)
     "kata_total_ticks": 11,              # Kata frames 3 / 2 / 6
+    "feint_break_ms": None,              # None: a profile bites a feint at its fixed feint_tap; a number: the glint
+                                         # breaks this long before the impact and a stop-signal race decides (D-130)
+    "feint_bite_beats": 0,               # D-130: a guard tap that bites a white feint locks deflects out through the
+                                         # next strike's impact (1); 0 = the plain 5-tick whiff lockout; off on assist
     "profiles": {                        # rule 3's gap behaviour, rule 2's aims and rule 9's reads, by skill
         "expert":     {"chip": 0.80, "flank": 0.15, "gap_form": 0.25, "inhale": 0.90,
-                       "step_aim_ms": -200, "jump_aim_ms": -87.5, "counter_read": 0.95},
+                       "step_aim_ms": -200, "jump_aim_ms": -87.5, "counter_read": 0.95, "stop_signal_ms": [163, 40]},
         "average":    {"chip": 0.50, "flank": 0.10, "gap_form": 0.15, "inhale": 0.60,
-                       "step_aim_ms": -200, "jump_aim_ms": -87.5, "counter_read": 0.85},
+                       "step_aim_ms": -200, "jump_aim_ms": -87.5, "counter_read": 0.85, "stop_signal_ms": [173, 50]},
         "casual":     {"chip": 0.25, "flank": 0.05, "gap_form": 0.05, "inhale": 0.30,
-                       "step_aim_ms": -180, "jump_aim_ms": -67.5, "counter_read": 0.70},
+                       "step_aim_ms": -180, "jump_aim_ms": -67.5, "counter_read": 0.70, "stop_signal_ms": [183, 60]},
         "struggling": {"chip": 0.15, "flank": 0.05, "gap_form": 0.00, "inhale": 0.20,
-                       "step_aim_ms": -170, "jump_aim_ms": -57.5, "counter_read": 0.50},
-    },                                   # optional per profile: "dodge_sd_ms" replaces sigma * dodge_mult in rule 2
+                       "step_aim_ms": -170, "jump_aim_ms": -57.5, "counter_read": 0.50, "stop_signal_ms": [200, 70]},
+    },                                   # optional per profile: "dodge_sd_ms" replaces sigma * dodge_mult in rule 2;
+                                         # stop_signal_ms [mean, sd]: the time to cancel a planned press after a cue
+                                         # changes, calibrated so a 250 ms break reproduces each feint_tap (10/30/50%)
 }
 
 
@@ -830,7 +845,7 @@ class Fight:
                 names = [n for n in names if n in ok]
         return names
 
-    def demon_strike(self) -> tuple[str, dict]:
+    def demon_strike(self, deflect_locked: bool = False) -> tuple[str, dict]:
         d, rng, sk = self.c["m1_demon"], self.rng, self.sk
         names = self.allowed()
         name = rng.choices(names, weights=[d["attacks"][n]["weight"] for n in names])[0]
@@ -840,6 +855,9 @@ class Fight:
             self.staggered = False
             return "hit", a
         if a["cue"] == "white":
+            if deflect_locked:                     # the press raises guard but can't deflect: the locked-tap rule
+                self.stats["bite_blocked"] += 1
+                return ("block" if rng.random() < sk.block_fallback else "hit"), a
             if sk.bot == "turtle":
                 return "block", a
             if sk.bot == "masher":                 # every press whiffs into the lockout; guard is up part-time
@@ -1075,15 +1093,28 @@ class Fight:
         if sk.bot == "masher":                  # always bites, but it never deflects anyway
             self.stats["feint_bites"] += 1
             return None
-        if rng.random() >= sk.feint_tap:
+        if sk.bot != "beattapper" and rng.random() >= self.bite_chance():   # the beat-tapper never watches the break
             return None
         self.stats["feint_bites"] += 1
-        if a["cue"] == "white":                 # a wasted guard tap: 5-tick lockout, no credit
-            x = -sk.aim * self.w_def + rng.gauss(0, sk.sigma)
+        if a["cue"] == "white":
+            if self.M.get("feint_bite_beats", 0) and not sk.assist:   # D-130: no deflect through the next impact
+                return math.inf
+            x = -sk.aim * self.w_def + rng.gauss(0, sk.sigma)    # a wasted guard tap: 5-tick lockout, no credit
             return x + self.c["pulse"]["whiff_rearm_ms"]
         if a.get("answer", "step") == "step" or a["cue"] == "purple":
             self.breath = max(0.0, self.breath - self.c["breath"].get("water_step", self.c["breath"]["step"]))
         return None                             # a wasted Step costs Breath; a wasted Jump costs nothing
+
+    def bite_chance(self) -> float:
+        """The share of feints this player answers anyway: the profile's fixed feint_tap, or with
+        m1_rules.feint_break_ms set, a stop-signal race (Logan and Cowan 1984): the press planned for
+        I - aim x window escapes when it comes before the break plus the player's time to cancel it."""
+        b = self.M.get("feint_break_ms")
+        if b is None:
+            return self.sk.feint_tap
+        mu, sd = self.rp["stop_signal_ms"]
+        z = (self.sk.aim * self.w_def - b + mu) / math.hypot(self.sk.sigma, sd)
+        return 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
 
     def locked_out(self, until_rel: float) -> bool:
         """Is the next strike's guard tap (impact one beat after the feint's) still inside the lockout?"""
@@ -1134,7 +1165,9 @@ class Fight:
             for k in range(n):                      # a string: strikes one beat apart, all beat-locked
                 if k:
                     self.advance(self.P)
-                if k == 0 and lockout_until is not None and self.locked_out(lockout_until):
+                if k == 0 and lockout_until == math.inf:   # a bitten feint (D-130): a white strike can't be
+                    outcome, a = self.demon_strike(deflect_locked=True)   # deflected; red and purple as usual
+                elif k == 0 and lockout_until is not None and self.locked_out(lockout_until):
                     outcome, a = self.locked_strike()
                 else:
                     outcome, a = self.demon_strike()
@@ -1210,6 +1243,7 @@ def summarize(fights: list[Fight]) -> dict:
         "feints_per_fight": round(agg["feints"] / n, 2),
         "feint_bite_pct": round(100 * agg["feint_bites"] / max(1, agg["feints"]), 1),
         "lockout_blocked": agg["lockout_blocked"],
+        "bite_blocked": agg["bite_blocked"],
         "fight_s_median": round(statistics.median(f.t / 1000 for f in fights), 1),
         "thread_attempts_per_fight": round(agg["thread_attempts"] / n, 2),
         "thread_no_breath_pct": round(100 * agg["thread_no_breath"] / max(1, agg["thread_attempts"]), 1),
@@ -1356,6 +1390,8 @@ def main(argv=None) -> int:
             ("breaks", "posture_breaks_per_fight"), ("flow", "flow_finishers_per_fight")]
     if feint_rate > 0:
         cols += [("feints", "feints_per_fight"), ("bite%", "feint_bite_pct"), ("lockout", "lockout_blocked")]
+        if cfg["m1_rules"].get("feint_bite_beats"):
+            cols += [("bitten", "bite_blocked")]
     if any(v.get("max_hold_s") or v.get("max_hold_beats") for v in cfg["m1_demon"]["attacks"].values()):
         cols += [("grabs", "grabs_per_fight"), ("throw%", "throw_pct_of_grabs"), ("pin s", "pin_s_per_grab")]
     if rules.active():
