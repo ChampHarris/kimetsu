@@ -2,6 +2,7 @@ package dev.champ.kimetsu.client.render;
 
 import dev.champ.kimetsu.client.ClientCombat;
 import dev.champ.kimetsu.client.CueMark;
+import dev.champ.kimetsu.client.present.HudLayout;
 import dev.champ.kimetsu.client.present.HudScale;
 import dev.champ.kimetsu.config.KimetsuClientConfig;
 import net.minecraft.client.DeltaTracker;
@@ -13,9 +14,10 @@ import org.joml.Matrix3x2fStack;
 /**
  * The cue of a strike on you, by the crosshair, from its cue to its impact (slice 5b's stand-in for the world-space
  * glint, which 5d's cue pipeline draws): a diamond in the reserved cue colour with the reserved dark outline (art
- * bible section 6), closing in on the crosshair as the impact nears, outside the Pulse ring's pips (D-141: 40 to 30 px
- * up at HUD scale 1; its place follows the ring at any {@code hud_scale}, its size never shrinks below 1). Above the radial, the top of the combat HUD;
- * F1 hides it.
+ * bible section 6), closing in on the crosshair as the impact nears, outside the Pulse ring's pips (D-143: 43 to 33 px
+ * up at HUD scale 1, 1 px clear of the top pip at the impact; its place follows the ring at any {@code hud_scale}, its
+ * size never shrinks below 1, and it stays on the crosshair's axis: {@link HudLayout}). Above the radial, the top of the
+ * combat HUD; F1 hides it.
  */
 public final class CueMarker implements GuiLayer {
     // art/palettes/cue-reserved.gpl
@@ -23,8 +25,6 @@ public final class CueMarker implements GuiLayer {
     private static final int RED = 0xFFFF2B2B;
     private static final int PURPLE = 0xFFB04CFF;
     private static final int OUTLINE = 0xFF0A0A0C;
-    private static final int FAR = 40; // px above the crosshair at the cue, at HUD scale 1 (PROPOSED)
-    private static final int NEAR = 30; // and at the impact: clear of the top pip (22 ± 2.5)
 
     private final CueMark mark = new CueMark();
 
@@ -43,19 +43,18 @@ public final class CueMarker implements GuiLayer {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
-        float s = HudScale.snap(
-                KimetsuClientConfig.client().hudScale(), mc.getWindow().getGuiScale());
-        float k = Math.max(1, s); // a cue never shrinks: hud_scale is cosmetic (art-director, D-142)
-        // its place follows the ring's top pip at s; its size and its gap above the pip never go under scale 1
-        float top = CombatHudLayer.PIP_TOP;
-        int up = Math.round(top * s + (FAR + (NEAR - FAR) * mark.progress - top) * k);
+        int gui = mc.getWindow().getGuiScale();
+        float s = HudScale.snap(KimetsuClientConfig.client().hudScale(), gui);
+        float k = HudLayout.cueScale(s);
+        float in = HudLayout.cueInset(k, gui); // the pixel at 0 sits on the crosshair's centre pixel
+        float up = HudLayout.cueUp(s, gui, mark.progress);
         Matrix3x2fStack pose = g.pose();
         pose.pushMatrix();
-        // the pixel at 0 is centred on vanilla's crosshair, 7.5 px into its 15
-        pose.translate((g.guiWidth() - 15) / 2 + 7, (g.guiHeight() - 15) / 2 + 7 - up)
-                .scale(k);
-        diamond(g, 0, 0, 4, OUTLINE);
-        diamond(g, 0, 0, 3, colour);
+        int crossX = (g.guiWidth() - HudLayout.CROSSHAIR) / 2; // vanilla's crosshair sprite's corner
+        int crossY = (g.guiHeight() - HudLayout.CROSSHAIR) / 2;
+        pose.translate(crossX + in, crossY + in - up).scale(k);
+        diamond(g, 0, 0, HudLayout.CUE_OUTLINE, OUTLINE);
+        diamond(g, 0, 0, HudLayout.CUE_OUTLINE - 1, colour);
         pose.popMatrix();
     }
 

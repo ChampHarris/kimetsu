@@ -3,6 +3,7 @@ package dev.champ.kimetsu.client.render;
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import dev.champ.kimetsu.client.ClientCombat;
 import dev.champ.kimetsu.client.HudMark;
+import dev.champ.kimetsu.client.present.HudLayout;
 import dev.champ.kimetsu.client.present.HudPalette;
 import dev.champ.kimetsu.client.present.HudScale;
 import dev.champ.kimetsu.client.present.Meters;
@@ -30,24 +31,19 @@ import org.jspecify.annotations.Nullable;
  * reused elements ({@link HudQuads}), the rest vanilla's sprites and text. Above vanilla's crosshair, under the radial
  * and the cue marker. F1, spectator and no player hide it; a screen doesn't, as vanilla's hotbar shows behind one.
  * {@code hud_scale} scales the ring, your Posture and the preview about the crosshair, the panel about the top centre and
- * the Breath arc about its right end. Layout in GUI px at HUD scale 1, PROPOSED.
+ * the Breath arc about its right end. Layout in GUI px at HUD scale 1, PROPOSED; the places a test walks every scale for
+ * (the pips, the cue's floor, the arc's anchor) are {@link HudLayout}'s.
  */
 public final class CombatHudLayer implements GuiLayer {
     private static final int RING_SEGMENTS = 48;
     private static final float NOTCH_DEG = 30; // the gap at the top of the closing ring
     private static final float LINE = 0.5f; // half a ring's width: 1 px
-    private static final float EDGE = 1.5f; // half its width with the outline: 1 px each side
-    private static final int PIPS = 5;
-    private static final float PIP_RADIUS = 22;
-    private static final float PIP = 1.5f; // a 3 px square: the diamond is the cue's shape (art bible section 6)
-    private static final float PIP_EDGE = 2.5f;
-    /** The top pip's top edge above the crosshair at HUD scale 1, which the cue marker stays clear of. */
-    static final float PIP_TOP = PIP_RADIUS + PIP_EDGE;
-
-    private static final float ARC_LEFT = 140; // the Breath arc's centre, left of the screen's centre
-    private static final float ARC_UP = 20; // and above its bottom
-    private static final float ARC_IN = 14;
-    private static final float ARC_OUT = 18;
+    private static final float EDGE = HudLayout.RING_EDGE;
+    private static final int PIPS = HudLayout.PIPS;
+    private static final float PIP = HudLayout.PIP;
+    private static final float PIP_EDGE = HudLayout.PIP_EDGE;
+    private static final float ARC_IN = HudLayout.ARC_IN;
+    private static final float ARC_OUT = HudLayout.ARC_OUT;
     private static final int ARC_SEGMENTS = 24;
     private static final float ARC_CAP_DEG = 3.6f; // the outline past each end: 1 px at the arc's middle
     private static final int ICON = 16;
@@ -62,17 +58,6 @@ public final class CombatHudLayer implements GuiLayer {
     private static final float HP_H = 4;
     private static final float POSTURE_Y = 23;
     private static final float PANEL_POSTURE_H = 3;
-    private static final float[] PIP_X = new float[PIPS];
-    private static final float[] PIP_Y = new float[PIPS];
-
-    static {
-        for (int i = 0; i < PIPS; i++) {
-            double a = Math.toRadians(i * 360.0 / PIPS); // clockwise from the top
-            PIP_X[i] = Math.round(Math.sin(a) * PIP_RADIUS); // whole px from the crosshair's centre: crisp squares
-            PIP_Y[i] = Math.round(-Math.cos(a) * PIP_RADIUS);
-        }
-    }
-
     private final HudMark mark;
     private final HudQuads ring = new HudQuads(CombatHudLayer::gui);
     private final HudQuads arc = new HudQuads(CombatHudLayer::gui);
@@ -159,8 +144,8 @@ public final class CombatHudLayer implements GuiLayer {
         int lit = argb(mark.tier >= PIPS ? HudPalette.WATER_6 : HudPalette.WASHI_3, a);
         int unlit = argb(HudPalette.SUMI_3, a);
         for (int i = 0; i < PIPS; i++) {
-            float x = PIP_X[i];
-            float y = PIP_Y[i];
+            float x = HudLayout.pipX(i);
+            float y = HudLayout.pipY(i);
             RingGeometry.rect(ring, x - PIP_EDGE, y - PIP_EDGE, x + PIP_EDGE, y + PIP_EDGE, outline);
             RingGeometry.rect(ring, x - PIP, y - PIP, x + PIP, y + PIP, i < mark.tier ? lit : unlit);
         }
@@ -171,14 +156,13 @@ public final class CombatHudLayer implements GuiLayer {
 
     /**
      * Breath over the top of the crest, filling from its left end, with its grey segment after the fill. It scales about
-     * its right end, so {@code hud_scale} grows it left and up and never onto the off-hand slot (96–120 px left of the
-     * centre) at its side.
+     * its right end, so {@code hud_scale} grows it left and up and never onto the off-hand slot (91–120 px left of the
+     * centre) at its side ({@link HudLayout#arcX}).
      */
     private void arc(GuiGraphicsExtractor g, float s, float a, @Nullable ScreenRectangle scissor) {
-        float right = ARC_OUT + 1; // its outline's right end, from its centre
-        float ax = g.guiWidth() / 2f - ARC_LEFT;
-        float ay = g.guiHeight() - ARC_UP;
-        pose.set(g.pose()).translate(ax + right, ay).scale(s).translate(-right, 0);
+        float ax = HudLayout.arcX(g.guiWidth(), s);
+        float ay = g.guiHeight() - HudLayout.ARC_UP;
+        pose.set(g.pose()).translate(ax, ay).scale(s);
         arc.begin(pose, scissor);
         RingGeometry.arc(
                 arc,
@@ -210,7 +194,7 @@ public final class CombatHudLayer implements GuiLayer {
         if (crest != null) {
             Matrix3x2fStack stack = g.pose();
             stack.pushMatrix();
-            stack.translate(ax + right, ay).scale(s).translate(-right, 0);
+            stack.translate(ax, ay).scale(s);
             g.blitSprite(RenderPipelines.GUI_TEXTURED, crest, -ICON / 2, -ICON / 2, ICON, ICON, a);
             stack.popMatrix();
         }
