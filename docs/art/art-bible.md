@@ -69,8 +69,11 @@ Change a palette or a ramp only with Champ's OK; it changes the whole world.
 | Dodge (or Pommel a charged windup) | jagged burst | cue red | low drum |
 | Grab | expanding ring | cue purple | hiss |
 | Thread | thin line along the neck | cue gold | rising chime |
+| Micro-clash flash | large eight-point burst midway between the two fighters | cue white | none yet (5d-5) |
 
 - Cues draw on top of everything with a dark outline. Effects outside the real hitbox render faded.
+- The deflect glint has two more frames, both of the same star: the **flare** (fuller, with diagonal sparkle) for one 12 fps step from half a beat before impact (D-134 (4)), and the **shatter** (crack, split, chips, specks; 4 steps) when a feint breaks. The clash flash is the fifth white symbol and the only one with eight rays, so it never reads as a glint.
+- **Cues are an exception to section 2** (D-145's A12): they're screen-sized billboards, not world materials, so the 16 px rule and the blend check don't apply. They live on one sheet, `textures/cue/cues.png` (`tools/cue_sheet.py` draws it): a 16-texel cell is `cue_size` across (0.5 blocks, so 32 texels a block; the clash's 32-texel cell is twice that), never drawn under `cue_min_px` of a 1080-line screen's height. Only `cue-reserved.gpl` colours, each cell outlined and kept a texel clear of its edge (a band, the ring's and the Thread's, only above and below), checked by `CueSheetTest`. A band's quad is `cue_size` thick, so its painted rows set how thick it reads.
 - The four cue colours are reserved: no emissive texture, particle or kfx effect outside `textures/cue/` may come within ΔE 12 of them (lint-enforced). Demon blood is dark crimson, Thunder is pale yellow-white not cue gold, and so on.
 - Each shape stays readable without colour, for colour-blind players.
 

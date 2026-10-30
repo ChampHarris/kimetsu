@@ -46,8 +46,11 @@ public final class Outbox {
      */
     public record Involved(long strike, int fighter, long tick) implements Event {}
 
-    /** A strike won't land: {@code tick} is the tick its cancel takes effect in. */
-    public record AttackCancelled(long strike, long tick, String why) implements Event {}
+    /** A strike won't land: {@code tick} is the tick its cancel takes effect in, {@code why} its reason. */
+    public record AttackCancelled(long strike, long tick, String why) implements Event {
+        /** A feint's break (Rule 11.5): the one cancel whose glint splinters on the client (5d-4a, D-145's A12). */
+        public static final String FEINT = "feint";
+    }
 
     /**
      * A strike's verdict on one player, and the damage the mod applies for a hit (Rule 12). It names both sides, since

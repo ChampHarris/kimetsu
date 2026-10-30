@@ -28,6 +28,25 @@ public final class FeelLoader extends SimpleJsonResourceReloadListener<Feel> {
                     Codec.intRange(0, Feel.Hud.MAX_MS).fieldOf("fade_out_ms").forGetter(Feel.Hud::fadeOutMs),
                     Codec.intRange(0, Feel.Hud.MAX_MS).fieldOf("tint_fade_ms").forGetter(Feel.Hud::tintFadeMs))
             .apply(i, Feel.Hud::new));
+    static final Codec<Feel.Kfx> KFX = RecordCodecBuilder.create(i -> i.group(
+                    Codec.floatRange(Feel.Kfx.MIN_CUE_SIZE, Feel.Kfx.MAX_CUE_SIZE)
+                            .fieldOf("cue_size")
+                            .forGetter(Feel.Kfx::cueSize),
+                    Codec.intRange(0, Feel.Kfx.MAX_CUE_MIN_PX)
+                            .fieldOf("cue_min_px")
+                            .forGetter(Feel.Kfx::cueMinPx),
+                    Codec.floatRange(0, 1).fieldOf("ring_faded_alpha").forGetter(Feel.Kfx::ringFadedAlpha),
+                    Codec.intRange(0, Feel.Kfx.MAX_FLASH_MS).fieldOf("flash_ms").forGetter(Feel.Kfx::flashMs),
+                    Codec.intRange(1, Feel.Kfx.MAX_CUE_STEP_FPS)
+                            .fieldOf("cue_step_fps")
+                            .forGetter(Feel.Kfx::cueStepFps),
+                    Codec.floatRange(0, 1).fieldOf("arc_base").forGetter(Feel.Kfx::arcBase),
+                    Codec.floatRange(0, 1).fieldOf("bystander_alpha").forGetter(Feel.Kfx::bystanderAlpha),
+                    Codec.floatRange(Feel.Kfx.MIN_BYSTANDER_SCALE, 1)
+                            .fieldOf("bystander_scale")
+                            .forGetter(Feel.Kfx::bystanderScale),
+                    Codec.BOOL.fieldOf("crosshair_cue").forGetter(Feel.Kfx::crosshairCue))
+            .apply(i, Feel.Kfx::new));
     static final Codec<Feel> CODEC = RecordCodecBuilder.create(i -> i.group(
                     Codec.intRange(0, Feel.MAX_BLEND_TICKS)
                             .fieldOf("blend_back_ticks")
@@ -38,7 +57,8 @@ public final class FeelLoader extends SimpleJsonResourceReloadListener<Feel> {
                     Codec.intRange(0, Feel.MAX_BLEND_TICKS)
                             .fieldOf("pose_blend_ticks")
                             .forGetter(Feel::poseBlendTicks),
-                    HUD.fieldOf("hud").forGetter(Feel::hud))
+                    HUD.fieldOf("hud").forGetter(Feel::hud),
+                    KFX.fieldOf("kfx").forGetter(Feel::kfx))
             .apply(i, Feel::new));
 
     private static volatile Feel feel = Feel.DEFAULT;

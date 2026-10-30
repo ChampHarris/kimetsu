@@ -3,10 +3,15 @@ package dev.champ.kimetsu.client;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
 import com.mojang.brigadier.arguments.BoolArgumentType;
+import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.logging.LogUtils;
+import dev.champ.kimetsu.client.kfx.KfxEvents;
+import dev.champ.kimetsu.client.kfx.KfxSubmit;
 import dev.champ.kimetsu.client.present.ContextualPreview;
+import dev.champ.kimetsu.client.present.DrawnFrame;
 import dev.champ.kimetsu.client.present.Feel;
 import dev.champ.kimetsu.client.present.FrameProbe;
 import dev.champ.kimetsu.client.present.HudFade;
@@ -52,11 +57,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
+import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.util.Mth;
 import net.minecraft.util.StrictJsonParser;
 import net.minecraft.util.Util;
 import net.minecraft.world.entity.Entity;
@@ -129,6 +137,11 @@ public final class ClientCombat {
     private @Nullable Identifier crest; // the style's crest, and its falling form's icon, per data generation
     private @Nullable Identifier fallingIcon;
     private final SpanProbe hudProbe = new SpanProbe(); // /kimetsu_dev hudtime
+    // the world cues (5d-4a): the fill, the bodies it stands them on, its cost probe, the dev cues' last id
+    private final KfxFill kfxFill = new KfxFill();
+    private final DrawnBodies bodies = new DrawnBodies();
+    private final SpanProbe cueProbe = new SpanProbe(); // /kimetsu_dev cuetime
+    private long staged; // /kimetsu_dev cue's strikes count down from -1: never a real strike's id
 
     private ClientCombat() {}
 
@@ -382,6 +395,35 @@ public final class ClientCombat {
     public static boolean hudTiming() {
         ClientCombat c = current;
         return c != null && c.hudProbe.armed();
+    }
+
+    /**
+     * Fills {@code out} with this frame's world cues (5d-4a), on the frame's scheduled time; false when none show,
+     * before the clock is set or before the data has come. {@code delta} interpolates the bodies as the level's
+     * extraction does.
+     */
+    public static boolean kfx(KfxMark out, DeltaTracker delta) {
+        out.clear();
+        ClientCombat c = current;
+        Minecraft mc = Minecraft.getInstance();
+        Player self = mc.player;
+        ClientLevel level = mc.level;
+        if (c == null || c.data == null || self == null || level == null) {
+            return false;
+        }
+        long t = c.present.scheduled();
+        if (t == PresentClock.NOT_READY) {
+            return false;
+        }
+        boolean timed = c.cueProbe.armed();
+        long start = timed ? System.nanoTime() : 0;
+        c.bodies.frame(level, delta);
+        boolean any = c.kfxFill.fill(
+                c.view, c.bodies, self.getId(), t, FeelLoader.feel().kfx(), out);
+        if (timed) {
+            c.cueProbe.add(System.nanoTime() - start);
+        }
+        return any;
     }
 
     /** The debug overlay's lines, as the last client tick built them (empty out of a world). */
@@ -709,7 +751,15 @@ public final class ClientCombat {
             SpanProbe.Summary h = c.hudProbe.frameEnd();
             if (h != null) {
                 HudQuads.timing(false);
-                hudTimes(h);
+                spanTimes("HUD", h);
+            }
+            if (c.cueProbe.armed()) {
+                c.cueProbe.add(KfxSubmit.takeBuilt());
+            }
+            SpanProbe.Summary k = c.cueProbe.frameEnd();
+            if (k != null) {
+                KfxSubmit.timing(false);
+                spanTimes("cues", k);
             }
             c.present.endFrame();
         }
@@ -747,17 +797,18 @@ public final class ClientCombat {
         say("Kimetsu dev: " + line);
     }
 
-    /** {@code /kimetsu_dev hudtime}'s result, in ms, to the log and the chat. */
-    private static void hudTimes(SpanProbe.Summary s) {
+    /** {@code /kimetsu_dev hudtime}'s or {@code cuetime}'s result for {@code what}, in ms, to the log and the chat. */
+    private static void spanTimes(String what, SpanProbe.Summary s) {
         String line = String.format(
                 Locale.ROOT,
-                "%d frames; HUD p50 %.4f p95 %.4f p99 %.4f max %.4f ms",
+                "%d frames; %s p50 %.4f p95 %.4f p99 %.4f max %.4f ms",
                 s.frames(),
+                what,
                 s.p50() / 1e6,
                 s.p95() / 1e6,
                 s.p99() / 1e6,
                 s.max() / 1e6);
-        LOGGER.info("Kimetsu HUD probe: {}", line);
+        LOGGER.info("Kimetsu {} probe: {}", what, line);
         say("Kimetsu dev: " + line);
     }
 
@@ -886,7 +937,10 @@ public final class ClientCombat {
      * <stance>}, the nearest combatant's stand-in shown in a stance from now (5d-3a Step 3's sheets); {@code
      * /kimetsu_dev trace <ticks>}, where each stand-in is drawn, per frame, to the log (5d-3a's blend-back check);
      * {@code /kimetsu_dev hudtime <frames>}, the next frames' HUD costs to the log (5d-3b, spec:597's 0.1 ms); {@code
-     * /kimetsu_dev tap <attack|inhale> <offsetMs>}, a tap of that key at an exact offset from the next beat (5d-3b's sheets).
+     * /kimetsu_dev tap <attack|inhale> <offsetMs>}, a tap of that key at an exact offset from the next beat (5d-3b's sheets);
+     * {@code /kimetsu_dev cue <white|red|purple|feint|thread|flash>} and {@code cue attack <id>}, one world cue on you
+     * from the nearest combatant, and {@code /kimetsu_dev cuetime <frames>}, the next frames' world-cue costs to the
+     * log (5d-4a's sheets and D-145's A10).
      */
     static void onClientCommands(RegisterClientCommandsEvent event) {
         if (FMLEnvironment.isProduction()) {
@@ -968,7 +1022,119 @@ public final class ClientCombat {
                                             c.probe.arm(IntegerArgumentType.getInteger(ctx, "frames"));
                                             return 1;
                                         })))
+                        .then(Commands.literal("cuetime")
+                                .then(Commands.argument("frames", IntegerArgumentType.integer(10, 100_000))
+                                        .executes(ctx -> {
+                                            ClientCombat c = current;
+                                            if (c == null) {
+                                                return 0;
+                                            }
+                                            c.cueProbe.arm(IntegerArgumentType.getInteger(ctx, "frames"));
+                                            KfxSubmit.timing(true);
+                                            return 1;
+                                        })))
+                        .then(Commands.literal("kfx").then(smoking()))
+                        .then(cueing())
                         .then(posing()));
+    }
+
+    /** {@code /kimetsu_dev kfx smoke <x> <y> <z>} and {@code kfx smoke off}: 5d-4a's build step 1, one world glint. */
+    private static LiteralArgumentBuilder<CommandSourceStack> smoking() {
+        return Commands.literal("smoke")
+                .then(Commands.literal("off").executes(ctx -> {
+                    KfxEvents.smokeOff();
+                    return 1;
+                }))
+                .then(Commands.argument("x", DoubleArgumentType.doubleArg())
+                        .then(Commands.argument("y", DoubleArgumentType.doubleArg())
+                                .then(Commands.argument("z", DoubleArgumentType.doubleArg())
+                                        .executes(ctx -> {
+                                            double x = DoubleArgumentType.getDouble(ctx, "x");
+                                            double y = DoubleArgumentType.getDouble(ctx, "y");
+                                            double z = DoubleArgumentType.getDouble(ctx, "z");
+                                            KfxEvents.smoke(x, y, z);
+                                            say("Kimetsu dev: kfx smoke at " + x + " " + y + " " + z
+                                                    + (KfxEvents.cueReady()
+                                                            ? ""
+                                                            : " (the cue pipeline didn't compile)"));
+                                            return 1;
+                                        }))));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> cueing() {
+        LiteralArgumentBuilder<CommandSourceStack> cue = Commands.literal("cue");
+        for (DevCue.Kind k : DevCue.Kind.values()) {
+            cue.then(Commands.literal(k.name().toLowerCase(Locale.ROOT)).executes(ctx -> stageCue(k, null)));
+        }
+        return cue.then(Commands.literal("attack")
+                .then(Commands.argument("id", StringArgumentType.greedyString())
+                        .executes(ctx -> stageCue(DevCue.Kind.WHITE, StringArgumentType.getString(ctx, "id")))));
+    }
+
+    /**
+     * {@code /kimetsu_dev cue <white|red|purple|feint|thread|flash>} and {@code cue attack <id>} (5d-4a's sheets,
+     * D-145's A12): one cue on you from the nearest combatant where it stands, staged as the server would route it
+     * from the frame's scheduled tick (the clock read as {@link #showPose} reads it), its strike id negative; it's drawn
+     * by the very path a real one takes. A strike's kind is the demon's most frequent attack with that cue
+     * ({@link DevCue#attack}); {@code attack} stages any by its id.
+     */
+    private static int stageCue(DevCue.Kind kind, @Nullable String attack) {
+        ClientCombat c = current;
+        CombatData d = c != null ? c.data : null;
+        Player p = Minecraft.getInstance().player;
+        long now = c != null ? c.presentMicros(Util.getNanos()) : PresentClock.NOT_READY;
+        DemonProfile profile = d != null ? d.demons().get(CombatDataBuilder.M1_DEMON) : null;
+        if (c == null || d == null || p == null || profile == null || now == PresentClock.NOT_READY) {
+            return 0;
+        }
+        long tick =
+                Micros.tickOf(now + Micros.ofMillis(KimetsuClientConfig.client().visualOffsetMs()));
+        Entity nearest = null;
+        for (int i = 0; i < c.combatants.size(); i++) {
+            Entity e = c.combatants.get(i);
+            if (e.isAlive() && (nearest == null || e.distanceToSqr(p) < nearest.distanceToSqr(p))) {
+                nearest = e;
+            }
+        }
+        if (nearest == null) {
+            say("Kimetsu dev: no combatant to cue");
+            return 0;
+        }
+        float yaw = nearest instanceof LivingEntity l ? l.yBodyRot : nearest.getYRot();
+        long id = --c.staged;
+        List<Outbox.Event> events;
+        if (attack != null) {
+            FrameData f = d.frames().get(attack);
+            if (f == null) {
+                say("Kimetsu dev: no attack " + attack);
+                return 0;
+            }
+            events = DevCue.strike(
+                    f, id, nearest.getId(), p.getId(), tick, nearest.getX(), nearest.getY(), nearest.getZ(), yaw);
+        } else {
+            events = DevCue.events(
+                    kind,
+                    id,
+                    nearest.getId(),
+                    p.getId(),
+                    tick,
+                    nearest.getX(),
+                    nearest.getY(),
+                    nearest.getZ(),
+                    yaw,
+                    profile,
+                    d.frames(),
+                    c.view.mob(nearest.getId()));
+        }
+        String what = attack != null ? attack : kind.name().toLowerCase(Locale.ROOT);
+        if (events.isEmpty()) {
+            say("Kimetsu dev: the demon has no " + what + " attack");
+            return 0;
+        }
+        c.view.accept(new NetMessage.Tick(tick, events, null), p.getId(), ClientCombat::known);
+        say("Kimetsu dev: #" + nearest.getId() + " cues " + what + " on you from tick " + tick + " (strike " + id
+                + ")");
+        return 1;
     }
 
     private static final List<String> POSES =
@@ -1183,6 +1349,7 @@ public final class ClientCombat {
         data = fresh;
         generation = d.generation();
         hudData(fresh);
+        kfxData(fresh);
         ClockRules rules = fresh.rules().clock();
         ClientClock old = clock;
         if (old == null || !old.rules().equals(rules)) {
@@ -1210,6 +1377,23 @@ public final class ClientCombat {
         crest = hudSprite("hud/crest/", m.style().id());
         FrameData f = m.falling();
         fallingIcon = f != null ? hudSprite("hud/form/", f.id()) : null;
+    }
+
+    /**
+     * The world cues' per-generation reads: the attacks' frame data, the M1 demon's profile, a Slayer's height, the
+     * engage range and the style's beat (M1: one style for every Slayer, so every target's beat).
+     */
+    private void kfxData(CombatData d) {
+        DemonProfile demon = d.demons().get(CombatDataBuilder.M1_DEMON);
+        SlayerProfile slayer = d.slayers().get(CombatDataBuilder.SLAYER);
+        if (demon != null && slayer != null) {
+            kfxFill.data(
+                    d.frames(),
+                    demon,
+                    slayer.body().height(),
+                    d.rules().fights().engageBlocks(),
+                    Micros.ofTicks(d.moveset(slayer).style().beatTicks()));
+        }
     }
 
     private static Identifier hudSprite(String folder, String id) {
@@ -1261,5 +1445,74 @@ public final class ClientCombat {
                     generation,
                     c.errorMicros(nanos));
         }
+    }
+
+    /**
+     * The bodies the world cues stand on (D-145's A5): an entity's pose interpolated as the level's extraction does
+     * ({@code EntityRenderer}, {@code LivingEntityRenderer.solveBodyRot}, on the entity's own partial tick), and a
+     * stand-in's moved onto its strike path and turned to its guard as {@code StandInRenderer} draws it, from the same
+     * frame's reads; a player's is its own.
+     */
+    private final class DrawnBodies implements KfxFill.Bodies {
+        private final StrikeAnim anim = new StrikeAnim();
+        private final StandInPose pose = new StandInPose();
+        private @Nullable ClientLevel level;
+        private @Nullable DeltaTracker delta;
+
+        void frame(ClientLevel level, DeltaTracker delta) {
+            this.level = level;
+            this.delta = delta;
+        }
+
+        @Override
+        public int combatants() {
+            return combatants.size();
+        }
+
+        @Override
+        public int combatant(int i) {
+            return combatants.get(i).getId();
+        }
+
+        @Override
+        public boolean drawn(int id, DrawnFrame out) {
+            ClientLevel l = level;
+            DeltaTracker d = delta;
+            Entity e = l != null ? l.getEntity(id) : null;
+            if (l == null || d == null || e == null) {
+                return false;
+            }
+            float pt = d.getGameTimeDeltaPartialTick(!l.tickRateManager().isEntityFrozen(e));
+            double x = Mth.lerp(pt, e.xOld, e.getX());
+            double y = Mth.lerp(pt, e.yOld, e.getY());
+            double z = Mth.lerp(pt, e.zOld, e.getZ());
+            if (e instanceof LivingEntity living) {
+                float head = Mth.rotLerp(pt, living.yHeadRotO, living.yHeadRot);
+                float body = bodyRot(living, head, pt);
+                out.entity(x, y, z, body, Mth.wrapDegrees(head - body));
+            } else {
+                out.entity(x, y, z, Mth.rotLerp(pt, e.yRotO, e.getYRot()), 0);
+            }
+            if (!(e instanceof Player)) { // a stand-in
+                strikeAnim(id, anim);
+                standInPose(id, pose);
+                out.place(anim.place, anim.x, anim.y, anim.z, anim.yaw).guard(pose.guardWeight, pose.guardYaw);
+            }
+            return true;
+        }
+    }
+
+    /** Vanilla's body yaw for a render ({@code LivingEntityRenderer.solveBodyRot}). */
+    private static float bodyRot(LivingEntity e, float head, float pt) {
+        if (e.getVehicle() instanceof LivingEntity riding) {
+            float body = Mth.rotLerp(pt, riding.yBodyRotO, riding.yBodyRot);
+            float diff = Mth.clamp(Mth.wrapDegrees(head - body), -85.0F, 85.0F);
+            body = head - diff;
+            if (Math.abs(diff) > 50.0F) {
+                body += diff * 0.2F;
+            }
+            return body;
+        }
+        return Mth.rotLerp(pt, e.yBodyRotO, e.yBodyRot);
     }
 }

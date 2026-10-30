@@ -1,6 +1,7 @@
 package dev.champ.kimetsu.client;
 
 import dev.champ.kimetsu.Kimetsu;
+import dev.champ.kimetsu.client.kfx.KfxEvents;
 import dev.champ.kimetsu.client.render.CombatHudLayer;
 import dev.champ.kimetsu.client.render.CueMarker;
 import dev.champ.kimetsu.client.render.DebugOverlay;
@@ -42,8 +43,13 @@ public final class KimetsuClient {
         modBus.addListener(KimetsuKeys::register);
         modBus.addListener(KimetsuClient::onRegisterLayers);
         modBus.addListener(KimetsuClient::onReloadListeners);
+        modBus.addListener(KfxEvents::onRegisterPipelines);
 
         IEventBus game = NeoForge.EVENT_BUS;
+        game.addListener(KfxEvents::onRegisterFeatureRenderers);
+        game.addListener(KfxEvents::onResourcesLoaded);
+        game.addListener(KfxEvents::onExtract);
+        game.addListener(KfxEvents::onSubmit);
         game.addListener(ClientCombat::onLoggingIn);
         game.addListener(ClientCombat::onLoggingOut);
         game.addListener(ClientCombat::onTickStart);

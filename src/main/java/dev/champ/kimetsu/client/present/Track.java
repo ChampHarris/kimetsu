@@ -9,7 +9,8 @@ import org.jspecify.annotations.Nullable;
  * One combatant's presentation (5d-3a Step 3, D-138): what the routed events said its body does, for its stand-in's
  * poses ({@link Poser}) and for later slices. Its state's stance and the one before it, its hold and clash windows (the
  * clash's flash for 5d-4 and 5d-5), its guard's yaw, its head's target, its clang's recoil, its last landed hit and the
- * last strike result on it (5d-5's flinch and hit reactions), and its own model time. Its strikes stay in
+ * last strike result on it (5d-5's flinch and hit reactions), its Thread and the tick it opened (5d-4a's gold line),
+ * and its own model time. Its strikes stay in
  * {@code ClientView}, which the cue and the HUD read too. Times in µs of the server's ticks. Main thread only; it
  * allocates nothing.
  */
@@ -37,6 +38,8 @@ public final class Track {
     private Outbox.@Nullable SwingLanded landed;
     private Outbox.@Nullable StrikeResult result;
     private long resultTick = NONE;
+    private long threadOpened = NONE;
+    private long threadUntil = Long.MIN_VALUE;
 
     /** Its own time under holds (spec:569). */
     public ModelTime model() {
@@ -56,6 +59,32 @@ public final class Track {
         beforeFrom = stanceFrom;
         stance = n;
         stanceFrom = Micros.ofTicks(tick);
+    }
+
+    /**
+     * Its Thread as a {@code MobState} at engine tick {@code tick} gives it: closing at tick {@code until}
+     * ({@code Long.MAX_VALUE}: open for good; {@code Long.MIN_VALUE}: closed). A message that finds it open (a resend, or
+     * its close moved) keeps the tick it opened; one that finds it closed, or run out at its old close unsent, opens a
+     * new one from {@code tick} (D-145's A8: the gold line shows from its opening tick).
+     */
+    public void thread(long until, long tick) {
+        boolean open = threadUntil == Long.MAX_VALUE || (threadUntil != Long.MIN_VALUE && tick < threadUntil);
+        if (until == Long.MIN_VALUE) {
+            threadOpened = NONE;
+        } else if (!open) {
+            threadOpened = Micros.ofTicks(tick);
+        }
+        threadUntil = until;
+    }
+
+    /** When its Thread opened, in µs, or {@code Long.MIN_VALUE} while it's closed. */
+    public long threadOpened() {
+        return threadOpened;
+    }
+
+    /** The tick its Thread closes ({@code MobState.threadUntil}). */
+    public long threadUntil() {
+        return threadUntil;
     }
 
     /** A hold from {@code tick}, until its end comes ({@code HoldStarted}). */

@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
  * yaw. Every change blends, so no angle jumps. Times in µs of model time.
  */
 class TrackTest {
-    private static final Feel FEEL = new Feel(3, 3, 3, Feel.Hud.DEFAULT);
+    private static final Feel FEEL = new Feel(3, 3, 3, Feel.Hud.DEFAULT, Feel.Kfx.DEFAULT);
     private static final long RECOIL = Micros.ofTicks(6); // the M1 demon's clang.recoil_ticks
     private static final float EPS = 1e-4f;
 

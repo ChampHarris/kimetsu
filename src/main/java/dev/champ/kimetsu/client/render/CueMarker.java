@@ -2,6 +2,8 @@ package dev.champ.kimetsu.client.render;
 
 import dev.champ.kimetsu.client.ClientCombat;
 import dev.champ.kimetsu.client.CueMark;
+import dev.champ.kimetsu.client.FeelLoader;
+import dev.champ.kimetsu.client.kfx.KfxEvents;
 import dev.champ.kimetsu.client.present.HudLayout;
 import dev.champ.kimetsu.client.present.HudScale;
 import dev.champ.kimetsu.config.KimetsuClientConfig;
@@ -17,7 +19,8 @@ import org.joml.Matrix3x2fStack;
  * bible section 6), closing in on the crosshair as the impact nears, outside the Pulse ring's pips (D-143: 43 to 33 px
  * up at HUD scale 1, 1 px clear of the top pip at the impact; its place follows the ring at any {@code hud_scale}, its
  * size never shrinks below 1, and it stays on the crosshair's axis: {@link HudLayout}). Above the radial, the top of the
- * combat HUD; F1 hides it.
+ * combat HUD; F1 hides it. Since 5d-4a's world cues it shows only behind {@code kfx.crosshair_cue}, or as their fallback
+ * when the cue pipeline didn't compile ({@link #shows}).
  */
 public final class CueMarker implements GuiLayer {
     // art/palettes/cue-reserved.gpl
@@ -28,9 +31,19 @@ public final class CueMarker implements GuiLayer {
 
     private final CueMark mark = new CueMark();
 
+    /**
+     * Whether the diamond shows (D-144's craft call 5, D-146's call (a)): when {@code kfx.crosshair_cue} asks for it, or
+     * when the world cues can't draw (the cue pipeline didn't compile), so a strike never goes without a telegraph.
+     */
+    static boolean shows(boolean crosshairCue, boolean worldCues) {
+        return crosshairCue || !worldCues;
+    }
+
     @Override
     public void render(GuiGraphicsExtractor g, DeltaTracker delta) {
-        if (Minecraft.getInstance().gui.hud.isHidden() || !ClientCombat.cue(mark)) {
+        if (Minecraft.getInstance().gui.hud.isHidden()
+                || !shows(FeelLoader.feel().kfx().crosshairCue(), KfxEvents.cueReady())
+                || !ClientCombat.cue(mark)) {
             return;
         }
         int colour = switch (mark.type) {

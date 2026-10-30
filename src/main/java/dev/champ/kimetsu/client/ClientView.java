@@ -15,6 +15,7 @@ import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.function.IntPredicate;
 import org.jspecify.annotations.Nullable;
@@ -48,6 +49,12 @@ final class ClientView {
     private final LongOpenHashSet involved = new LongOpenHashSet(); // strikes this player is involved in (Rule 2.9)
     private final Long2ObjectOpenHashMap<Outbox.StrikeLocked> locks = new Long2ObjectOpenHashMap<>();
     private final Long2ObjectOpenHashMap<StrikeView> paths = new Long2ObjectOpenHashMap<>();
+    private final LongOpenHashSet feints = new LongOpenHashSet(); // cancelled strikes whose glint shatters (5d-4a)
+    private final Long2LongOpenHashMap cancelKnown = new Long2LongOpenHashMap(); // the first frame that knew (A6)
+    private Outbox.AttackStarted[] listed = new Outbox.AttackStarted[16]; // the strikes a frame reads (A10)
+    private int listedCount;
+    private final Clash[] clashes = {new Clash(), new Clash(), new Clash(), new Clash()};
+    private int clashCount;
     private final Int2ObjectOpenHashMap<Track> tracks = new Int2ObjectOpenHashMap<>(); // by entity id
     private final ArrayDeque<Verdict> verdicts = new ArrayDeque<>();
     private final Strikes source = new Strikes();
@@ -77,7 +84,7 @@ final class ClientView {
                         involved.add(v.strike()); // it reaches every viewer of the strike: only this player's counts
                     }
                 }
-                case Outbox.AttackCancelled c -> cancel(c.strike(), c.tick());
+                case Outbox.AttackCancelled c -> cancel(c.strike(), c.tick(), c.why());
                 case Outbox.StrikeResult r
                 when r.fighter() == self -> {
                     Outbox.AttackStarted s = strikes.get(r.strike());
@@ -120,6 +127,7 @@ final class ClientView {
                 case Outbox.ClashStarted c -> {
                     clashStarted(c.mob(), c, known);
                     clashStarted(c.fighter(), c, known);
+                    listClash(c);
                 }
                 case Outbox.ClashEnded c -> {
                     clashEnded(c.mob(), c.tick());
@@ -132,6 +140,7 @@ final class ClientView {
                     if (k != null) {
                         mobs.put(m.mob(), m);
                         k.state(m.state(), m.tick());
+                        k.thread(m.threadUntil(), m.tick()); // the gold line, from its opening tick (5d-4a)
                     }
                 }
                 case Outbox.GuardYaw g -> {
@@ -205,8 +214,12 @@ final class ClientView {
         involved.clear();
         locks.clear();
         paths.clear();
+        feints.clear();
+        cancelKnown.clear();
         mobs.clear();
         tracks.clear();
+        clashCount = 0;
+        relist();
         combatUntil = Long.MIN_VALUE; // the server's new fighter there starts out of combat (code review)
     }
 
@@ -243,22 +256,34 @@ final class ClientView {
         }
     }
 
-    /** It leaves the flight (its cue goes; the dev hook arms the next, D-091), kept to end its pose at {@code at}. */
-    private void cancel(long strike, long at) {
+    /**
+     * It leaves the flight (its cue goes; the dev hook arms the next, D-091), kept to end its pose at {@code at}; a
+     * feint's ({@code why}) is kept as one, for its glint's shatter (5d-4a).
+     */
+    private void cancel(long strike, long at, String why) {
         Outbox.AttackStarted s = strikes.remove(strike);
         if (s != null) {
             cancelled.put(strike, s);
             cancelTicks.put(strike, at);
+            if (Outbox.AttackCancelled.FEINT.equals(why)) {
+                feints.add(strike);
+            }
         }
         involved.remove(strike);
     }
 
-    /** Combatant {@code id} and everything of its: its state, track and strikes. */
+    /** Combatant {@code id} and everything of its: its state, track, strikes and clashes. */
     private void drop(int id) {
         mobs.remove(id);
         tracks.remove(id);
         dropStrikesBy(id, strikes);
         dropStrikesBy(id, cancelled);
+        for (int i = clashCount - 1; i >= 0; i--) {
+            if (clashes[i].mob == id || clashes[i].fighter == id) {
+                removeClash(i);
+            }
+        }
+        relist();
     }
 
     private void dropStrikesBy(int attacker, Long2ObjectOpenHashMap<Outbox.AttackStarted> from) {
@@ -277,11 +302,68 @@ final class ClientView {
         paths.remove(strike);
         cancelTicks.remove(strike);
         involved.remove(strike);
+        feints.remove(strike);
+        cancelKnown.remove(strike);
     }
 
     private void prune() {
         prune(strikes);
         prune(cancelled);
+        for (int i = clashCount - 1; i >= 0; i--) {
+            if (Micros.tickOf(clashes[i].flash) + KEEP_TICKS < tick) {
+                removeClash(i);
+            }
+        }
+        relist();
+    }
+
+    /** The strikes a frame reads (in flight and cancelled) into the kept array, which grows only past its size. */
+    private void relist() {
+        int n = strikes.size() + cancelled.size();
+        if (n > listed.length) {
+            listed = new Outbox.AttackStarted[Math.max(n, listed.length * 2)];
+        }
+        listedCount = 0;
+        for (Outbox.AttackStarted s : strikes.values()) {
+            listed[listedCount++] = s;
+        }
+        for (Outbox.AttackStarted s : cancelled.values()) {
+            listed[listedCount++] = s;
+        }
+        Arrays.fill(listed, listedCount, listed.length, null); // nothing pruned stays reachable
+    }
+
+    /** A clash's flash, listed once for its two fighters (A11): a replay of the same strike's updates it. */
+    private void listClash(Outbox.ClashStarted c) {
+        int at = -1;
+        for (int i = 0; i < clashCount; i++) {
+            if (clashes[i].strike == c.strike()) {
+                at = i;
+            }
+        }
+        if (at < 0 && clashCount < clashes.length) {
+            at = clashCount++;
+            clashes[at].shown = Long.MIN_VALUE;
+        } else if (at < 0) { // full (at most one every 15 s, Rule 10.3): the oldest flash goes
+            at = 0;
+            for (int i = 1; i < clashCount; i++) {
+                if (clashes[i].flash < clashes[at].flash) {
+                    at = i;
+                }
+            }
+            clashes[at].shown = Long.MIN_VALUE;
+        }
+        Clash k = clashes[at];
+        k.strike = c.strike();
+        k.mob = c.mob();
+        k.fighter = c.fighter();
+        k.flash = c.flashMicros();
+    }
+
+    private void removeClash(int i) {
+        Clash gone = clashes[i];
+        clashes[i] = clashes[--clashCount];
+        clashes[clashCount] = gone; // kept for reuse
     }
 
     private void prune(Long2ObjectOpenHashMap<Outbox.AttackStarted> from) {
@@ -323,6 +405,90 @@ final class ClientView {
 
     Outbox.@Nullable StrikeLocked lock(long strike) {
         return locks.get(strike);
+    }
+
+    /** Whether strike {@code strike} was cancelled as a feint (its glint shatters, 5d-4a), until it's pruned. */
+    boolean feint(long strike) {
+        return feints.contains(strike);
+    }
+
+    /** The tick strike {@code strike}'s cancel took effect in, or {@code Long.MIN_VALUE} if it has none. */
+    long cancelTick(long strike) {
+        return cancelTicks.containsKey(strike) ? cancelTicks.get(strike) : Long.MIN_VALUE;
+    }
+
+    /**
+     * The scheduled time of the first frame that knew of strike {@code strike}'s cancel (D-145's A6), stamping
+     * {@code frame} if none has; {@code Long.MIN_VALUE} for a strike with no cancel, for which nothing is kept.
+     */
+    long cancelKnown(long strike, long frame) {
+        if (!cancelTicks.containsKey(strike)) {
+            return Long.MIN_VALUE;
+        }
+        if (!cancelKnown.containsKey(strike)) {
+            cancelKnown.put(strike, frame);
+        }
+        return cancelKnown.get(strike);
+    }
+
+    /** How many strikes a frame reads: in flight and cancelled, until pruned (D-145's A10: no map walked per frame). */
+    int listedCount() {
+        return listedCount;
+    }
+
+    /** The {@code i}th of them, in no order. */
+    Outbox.AttackStarted listed(int i) {
+        return listed[i];
+    }
+
+    int clashCount() {
+        return clashCount;
+    }
+
+    /** The {@code i}th micro-clash listed, in no order (good until the next message). */
+    Clash clash(int i) {
+        return clashes[i];
+    }
+
+    /**
+     * A micro-clash's white flash (Rule 10.3), listed once for its two fighters (D-145's A11) and drawn midway between
+     * them, with the scheduled time of the first frame that showed it (sending it is the cleanup sub-slice's).
+     */
+    static final class Clash {
+        private long strike;
+        private int mob;
+        private int fighter;
+        private long flash;
+        private long shown = Long.MIN_VALUE;
+
+        long strike() {
+            return strike;
+        }
+
+        int mob() {
+            return mob;
+        }
+
+        int fighter() {
+            return fighter;
+        }
+
+        /** When its flash comes, in µs. */
+        long flash() {
+            return flash;
+        }
+
+        /** The first frame that showed it, or {@code Long.MIN_VALUE}. */
+        long shown() {
+            return shown;
+        }
+
+        /** A frame at scheduled time {@code frame} showed it: kept if it's the first. */
+        void stamp(long frame) {
+            if (shown == Long.MIN_VALUE) {
+                shown = frame;
+            }
+        }
     }
 
     /** Whether strike {@code s} is on player {@code self}: aimed at it, or it was involved (Rule 2.9). */
@@ -377,8 +543,17 @@ final class ClientView {
 
         @Override
         public boolean newest(long micros, StrikeSpan out) {
-            Outbox.AttackStarted best = newest(strikes, micros, null);
-            best = newest(cancelled, micros, best);
+            Outbox.AttackStarted best = null;
+            for (int i = 0; i < listedCount; i++) { // in flight and cancelled; no map walked per frame (A10)
+                Outbox.AttackStarted s = listed[i];
+                if (s.attacker() == attacker
+                        && Micros.ofTicks(s.windupStartTick()) <= micros
+                        && (best == null
+                                || s.windupStartTick() > best.windupStartTick()
+                                || (s.windupStartTick() == best.windupStartTick() && s.strike() > best.strike()))) {
+                    best = s;
+                }
+            }
             if (best == null) {
                 return false;
             }
@@ -393,20 +568,6 @@ final class ClientView {
             long lock = Math.max(start, Micros.ofTicks(best.cueTick())); // the cue locks its path (D-042)
             out.set(best.strike(), start, lock, impact, end, follow, path(best, f, eye));
             return true;
-        }
-
-        private Outbox.@Nullable AttackStarted newest(
-                Long2ObjectOpenHashMap<Outbox.AttackStarted> from, long micros, Outbox.@Nullable AttackStarted best) {
-            for (Outbox.AttackStarted s : from.values()) {
-                if (s.attacker() == attacker
-                        && Micros.ofTicks(s.windupStartTick()) <= micros
-                        && (best == null
-                                || s.windupStartTick() > best.windupStartTick()
-                                || (s.windupStartTick() == best.windupStartTick() && s.strike() > best.strike()))) {
-                    best = s;
-                }
-            }
-            return best;
         }
     }
 

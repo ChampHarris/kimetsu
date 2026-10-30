@@ -783,7 +783,7 @@ public final class CombatWorld {
         for (int i = 0; i < book.size(); i++) {
             PendingStrike s = book.get(i);
             if (s.status() == PendingStrike.Status.PENDING && s.isFeint() && s.feintBreakTick() <= n) {
-                drop(s, "feint", n); // its glint breaks; the rest of its string stands (Rule 11.5)
+                drop(s, Outbox.AttackCancelled.FEINT, n); // its glint breaks; the rest of its string stands (Rule 11.5)
                 continue;
             }
             if (s.status() != PendingStrike.Status.PENDING || n < s.cueTick() || n > s.impactTick()) {

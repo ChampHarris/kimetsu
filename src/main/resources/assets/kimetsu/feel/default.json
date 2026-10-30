@@ -8,8 +8,19 @@
     "fade_out_ms": 500,
     "tint_fade_ms": 200
   },
+  "kfx": {
+    "cue_size": 0.5,
+    "cue_min_px": 24,
+    "ring_faded_alpha": 0.35,
+    "flash_ms": 100,
+    "cue_step_fps": 12,
+    "arc_base": 0.45,
+    "bystander_alpha": 0.6,
+    "bystander_scale": 0.75,
+    "crosshair_cue": false
+  },
   "meta": {
     "status": "PROPOSED",
-    "source": "docs/design/specs/m1-combat-core.md#feel--presentation (spec:534's 3-tick blend back); D-138; blend_in_ticks D-139; hud: Champ's fade (D-123), D-141"
+    "source": "docs/design/specs/m1-combat-core.md#feel--presentation (spec:534's 3-tick blend back); D-138; blend_in_ticks D-139; hud: Champ's fade (D-123), D-141; kfx: D-144's craft call 12, D-145's A7 and A12, D-146"
   }
 }

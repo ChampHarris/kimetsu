@@ -35,7 +35,7 @@
       "glob": "*/textures/cue/*",
       "palette": "art/palettes/cue-reserved.gpl",
       "tolerance": 4.0,
-      "max_off_palette_percent": 20.0
+      "max_off_palette_percent": 0.0
     },
     {
       "glob": "*/textures/kfx/water/*",

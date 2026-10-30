@@ -1,6 +1,7 @@
 package dev.champ.kimetsu.client;
 
 import static java.util.Map.entry;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -27,6 +28,7 @@ import dev.champ.kimetsu.net.NetMessage;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.RecordComponent;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -57,18 +59,18 @@ class ClientViewTest {
             entry(Outbox.Involved.class, "this player's: the strike is incoming (the cue marker, 5d-3b's notch)"),
             entry(
                     Outbox.AttackCancelled.class,
-                    "the strike leaves the flight and ends at its tick; its pose blends out"),
+                    "the strike leaves the flight and ends at its tick; its pose blends out; a feint's shatters (5d-4a)"),
             entry(Outbox.StrikeResult.class, "this player's: a verdict; others': kept on the fighter's track for 5d-5"),
             entry(Outbox.PlayerEffect.class, "this player's Push and AssistChanged; the rest: the snapshot's"),
             entry(Outbox.SwingLanded.class, "kept on the mob's track for 5d-5's flinch and spark"),
             entry(Outbox.SwingDealt.class, "ignored: the snapshot carries the meters; no damage numbers"),
             entry(Outbox.HoldStarted.class, "the hold pose on the mob's track"),
             entry(Outbox.HoldEnded.class, "ends the hold pose"),
-            entry(Outbox.ClashStarted.class, "the clash pose on both tracks, the flash kept for 5d-4/5d-5"),
+            entry(Outbox.ClashStarted.class, "the clash pose on both tracks; its flash listed once (5d-4a)"),
             entry(Outbox.ClashEnded.class, "ends the clash pose"),
             entry(Outbox.MobDied.class, "the track ends and its strikes are forgotten"),
             entry(Outbox.MobLeft.class, "the track and its strikes are dropped"),
-            entry(Outbox.MobState.class, "the state pose, Posture, stake and Thread; ignored with no such entity"),
+            entry(Outbox.MobState.class, "the state pose, Posture, stake and Thread (from its opening tick); or none"),
             entry(Outbox.GuardYaw.class, "turns the guard pose (Rule 11.4)"),
             entry(Outbox.Targeting.class, "the head's target, kept on the track (Rule 11.2)"),
             entry(Outbox.Clang.class, "a head recoil for the data's recoil length; the sound is 5d-5's"),
@@ -588,5 +590,145 @@ class ClientViewTest {
         v.accept(new NetMessage.Tick(120, List.of(), inCombatUntil(118, 420)), SELF, ClientViewTest::known);
         v.leftLevel();
         assertFalse(v.inCombat(121));
+    }
+
+    // ------------------------------------------------------------------------------- 5d-4a's world cues (D-144, D-145)
+
+    /** A feint's cancel is kept as one, for its shatter (flaw 8); a Pommel's, a break's or a clash's is a plain cancel. */
+    @Test
+    void aFeintsCancelIsKeptAsAFeint_anyOtherIsnt() {
+        ClientView v = seeing();
+        feed(
+                v,
+                103,
+                swipe(7, SELF),
+                swipe(8, SELF),
+                new Outbox.AttackCancelled(7, 105, Outbox.AttackCancelled.FEINT),
+                new Outbox.AttackCancelled(8, 106, "interrupted"));
+        assertTrue(v.feint(7));
+        assertFalse(v.feint(8), "a posture break's cancel shows no shards");
+        assertEquals(105, v.cancelTick(7));
+        assertEquals(106, v.cancelTick(8));
+        assertEquals(Long.MIN_VALUE, v.cancelTick(9), "no cancel");
+        assertFalse(v.feint(9));
+    }
+
+    /** It goes with its strike, a while after the impact, as the strike's lock and cancel do. */
+    @Test
+    void aFeintIsForgottenWithItsStrike() {
+        ClientView v = seeing();
+        feed(v, 103, swipe(7, SELF), new Outbox.AttackCancelled(7, 105, Outbox.AttackCancelled.FEINT));
+        assertEquals(5_210_000, v.cancelKnown(7, 5_210_000), "the first frame to know of it stamps it");
+        feed(v, 111 + ClientView.KEEP_TICKS, new Outbox.Targeting(DEMON, 171, SELF));
+        assertFalse(v.feint(7));
+        assertEquals(Long.MIN_VALUE, v.cancelTick(7));
+        assertEquals(Long.MIN_VALUE, v.cancelKnown(7, 6_000_000), "its stamp went with it; nothing is kept for it");
+    }
+
+    /** A6: the first frame that knew of a cancel keeps its scheduled time; a later frame doesn't move it. */
+    @Test
+    void theFirstFrameThatKnewOfACancelKeepsItsStamp() {
+        ClientView v = seeing();
+        feed(v, 103, swipe(7, SELF), new Outbox.AttackCancelled(7, 105, Outbox.AttackCancelled.FEINT));
+        assertEquals(5_210_000, v.cancelKnown(7, 5_210_000));
+        assertEquals(5_210_000, v.cancelKnown(7, 5_226_000));
+    }
+
+    /**
+     * A10: the strikes a frame reads (in flight and cancelled, until pruned) are listed in an array the view keeps, so
+     * the frame's fill walks no map (an iterator a call); the list follows every change.
+     */
+    @Test
+    void theListedStrikesAreTheFlightAndTheCancelledOnes() {
+        ClientView v = seeing();
+        feed(v, 100, swipe(7, SELF), swipe(8, ALLY), new Outbox.AttackCancelled(8, 101, Outbox.AttackCancelled.FEINT));
+        Set<Long> listed = new HashSet<>();
+        for (int i = 0; i < v.listedCount(); i++) {
+            listed.add(v.listed(i).strike());
+        }
+        assertEquals(Set.of(7L, 8L), listed);
+        feed(v, 111 + ClientView.KEEP_TICKS, new Outbox.Targeting(DEMON, 171, SELF));
+        assertEquals(0, v.listedCount(), "pruned with the maps");
+        feed(v, 200, new Outbox.AttackStarted(9, DEMON, SELF, SWIPE.id(), 199, 200, 200, 210, 9, true));
+        assertEquals(1, v.listedCount());
+        v.mobGone(DEMON);
+        assertEquals(0, v.listedCount(), "dropped with its attacker");
+        feed(v, 300, new Outbox.AttackStarted(10, DEMON, SELF, SWIPE.id(), 299, 300, 300, 310, 10, true));
+        v.leftLevel();
+        assertEquals(0, v.listedCount(), "dropped with the level");
+    }
+
+    /** A8: the Thread shows from the tick its MobState first held it open; a resend while open keeps that tick. */
+    @Test
+    void theThreadKeepsTheTickItOpened() {
+        ClientView v = seeing();
+        feed(v, 130, new Outbox.MobState(DEMON, 130, State.STAGGER, 170, 0, 0, 130, 0));
+        Track k = v.track(DEMON);
+        assertNotNull(k);
+        assertEquals(Micros.ofTicks(130), k.threadOpened());
+        assertEquals(170, k.threadUntil());
+        feed(v, 135, new Outbox.MobState(DEMON, 135, State.STAGGER, 170, 50, 0, 135, 0)); // its Posture moved
+        assertEquals(Micros.ofTicks(130), k.threadOpened(), "a resend while open keeps the opening tick");
+        feed(v, 140, state(State.NEUTRAL, 140));
+        assertEquals(Long.MIN_VALUE, k.threadOpened(), "closed");
+        assertEquals(Long.MIN_VALUE, k.threadUntil());
+        feed(v, 150, new Outbox.MobState(DEMON, 150, State.COLLAPSED, Long.MAX_VALUE, 0, 0, 150, 0));
+        assertEquals(Micros.ofTicks(150), k.threadOpened(), "opened again");
+        assertEquals(Long.MAX_VALUE, k.threadUntil());
+        feed(v, 160, new Outbox.MobState(DEMON, 160, State.STAGGER, 170, 0, 0, 160, 0));
+        assertEquals(Micros.ofTicks(150), k.threadOpened(), "still open: its close moved");
+        feed(v, 200, new Outbox.MobState(DEMON, 200, State.STAGGER, 240, 0, 0, 200, 0));
+        assertEquals(Micros.ofTicks(200), k.threadOpened(), "it ran out at 170 unsent: this opens a new one");
+    }
+
+    /** A11: a clash's flash is listed once, though both fighters' tracks hold it, and goes with either fighter. */
+    @Test
+    void aClashsFlashIsListedOnce() {
+        ClientView v = seeing();
+        feed(v, 140, new Outbox.ClashStarted(7, DEMON, SELF, 140, 7_000_000));
+        assertEquals(1, v.clashCount());
+        ClientView.Clash c = v.clash(0);
+        assertEquals(DEMON, c.mob());
+        assertEquals(SELF, c.fighter());
+        assertEquals(7_000_000, c.flash());
+        assertEquals(Long.MIN_VALUE, c.shown());
+        c.stamp(7_010_000);
+        c.stamp(7_026_000);
+        assertEquals(7_010_000, c.shown(), "the first frame that showed it keeps its stamp (Rule 10.3)");
+        feed(v, 141, new Outbox.ClashStarted(7, DEMON, SELF, 140, 7_000_000)); // a replay of the same clash
+        assertEquals(1, v.clashCount(), "once per clash");
+        v.mobGone(DEMON);
+        assertEquals(0, v.clashCount(), "it goes with its demon");
+    }
+
+    /** A clash goes with its player as with its demon; with its 4 slots full, the oldest flash makes room. */
+    @Test
+    void aClashGoesWithItsPlayer_andTheOldestFlashMakesRoom() {
+        ClientView v = seeing();
+        feed(v, 140, new Outbox.ClashStarted(7, DEMON, SELF, 140, 7_000_000));
+        v.mobGone(SELF);
+        assertEquals(0, v.clashCount(), "it goes with its player");
+        long[] flashes = {7_300_000, 7_100_000, 7_400_000, 7_200_000, 7_500_000};
+        for (int i = 0; i < flashes.length; i++) {
+            feed(v, 141, new Outbox.ClashStarted(10 + i, DEMON, SELF, 141, flashes[i]));
+        }
+        assertEquals(4, v.clashCount());
+        long[] kept = new long[4];
+        for (int i = 0; i < 4; i++) {
+            kept[i] = v.clash(i).flash();
+        }
+        Arrays.sort(kept);
+        assertArrayEquals(new long[] {7_200_000, 7_300_000, 7_400_000, 7_500_000}, kept, "7,100,000 made room");
+    }
+
+    /** A clash is pruned a while after its flash, as a strike is after its impact. */
+    @Test
+    void aClashIsPrunedAfterItsFlash() {
+        ClientView v = seeing();
+        feed(v, 140, new Outbox.ClashStarted(7, DEMON, SELF, 140, Micros.ofTicks(140)));
+        feed(v, 140 + ClientView.KEEP_TICKS, new Outbox.Targeting(DEMON, 200, SELF));
+        assertEquals(1, v.clashCount());
+        feed(v, 141 + ClientView.KEEP_TICKS, new Outbox.Targeting(DEMON, 201, SELF));
+        assertEquals(0, v.clashCount());
     }
 }
