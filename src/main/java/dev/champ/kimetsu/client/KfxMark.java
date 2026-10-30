@@ -95,6 +95,16 @@ public final class KfxMark {
         /** Its sprite's size (1, or {@code bystander_scale}); never the reach or the neck it marks. */
         public float scale = 1;
 
+        /** A point cue of yours (D-147): drawn whole on screen, above the HUD's band. */
+        public boolean framed;
+
+        /** ... and a strike's: no farther on screen from its attacker's eyes, here, than {@code cue_tether_px}. */
+        public boolean tethered;
+
+        public double tetherX;
+        public double tetherY;
+        public double tetherZ;
+
         private void reset() {
             cell = CueSheet.GLINT;
             frame = 0;
@@ -110,6 +120,11 @@ public final class KfxMark {
             progress = 0;
             alpha = 1;
             scale = 1;
+            framed = false;
+            tethered = false;
+            tetherX = 0;
+            tetherY = 0;
+            tetherZ = 0;
         }
     }
 }

@@ -35,6 +35,9 @@ public final class FeelLoader extends SimpleJsonResourceReloadListener<Feel> {
                     Codec.intRange(0, Feel.Kfx.MAX_CUE_MIN_PX)
                             .fieldOf("cue_min_px")
                             .forGetter(Feel.Kfx::cueMinPx),
+                    Codec.intRange(0, Feel.Kfx.MAX_CUE_MAX_PX)
+                            .fieldOf("cue_max_px")
+                            .forGetter(Feel.Kfx::cueMaxPx),
                     Codec.floatRange(0, 1).fieldOf("ring_faded_alpha").forGetter(Feel.Kfx::ringFadedAlpha),
                     Codec.intRange(0, Feel.Kfx.MAX_FLASH_MS).fieldOf("flash_ms").forGetter(Feel.Kfx::flashMs),
                     Codec.intRange(1, Feel.Kfx.MAX_CUE_STEP_FPS)
@@ -45,6 +48,12 @@ public final class FeelLoader extends SimpleJsonResourceReloadListener<Feel> {
                     Codec.floatRange(Feel.Kfx.MIN_BYSTANDER_SCALE, 1)
                             .fieldOf("bystander_scale")
                             .forGetter(Feel.Kfx::bystanderScale),
+                    Codec.intRange(0, Feel.Kfx.MAX_CUE_TETHER_PX)
+                            .fieldOf("cue_tether_px")
+                            .forGetter(Feel.Kfx::cueTetherPx),
+                    Codec.intRange(0, Feel.Kfx.MAX_CUE_HUD_PX)
+                            .fieldOf("cue_hud_px")
+                            .forGetter(Feel.Kfx::cueHudPx),
                     Codec.BOOL.fieldOf("crosshair_cue").forGetter(Feel.Kfx::crosshairCue))
             .apply(i, Feel.Kfx::new));
     static final Codec<Feel> CODEC = RecordCodecBuilder.create(i -> i.group(

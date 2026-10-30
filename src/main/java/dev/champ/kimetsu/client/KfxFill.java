@@ -38,7 +38,10 @@ import org.jspecify.annotations.Nullable;
  *
  * A cue on its player, or one it's involved in (its clash), draws at full strength wherever it is; another only within
  * the engage range, at {@code bystander_alpha} and {@code bystander_scale} (A7). The 16 slots take the full-strength
- * ones first, then the nearest to the player. Main thread; mutable and reused; allocates nothing once warm (A10: the
+ * ones first, then the nearest to the player. A point cue of the player's own (a strike's sprite, its clash's flash) is
+ * kept whole on screen above the HUD's band, and a strike's within {@code cue_tether_px} of its attacker's eyes on
+ * screen (D-147, B3: at the fight's range the arc's start lies off the screen's side); a ring and the Thread mark reach
+ * and the neck, so they stay where they are. Main thread; mutable and reused; allocates nothing once warm (A10: the
  * view's strikes come from its kept array, never its maps).
  */
 final class KfxFill {
@@ -249,6 +252,13 @@ final class KfxFill {
             at(a, local.x(), local.y(), local.z(), c);
         }
         strength(view.incoming(s, self), c);
+        if (yours && cell != CueSheet.RING) { // a point cue on you stays on screen by its attacker (D-147)
+            c.framed = true;
+            c.tethered = true;
+            c.tetherX = a.x;
+            c.tetherY = a.y + d.body().eye();
+            c.tetherZ = a.z;
+        }
         return true;
     }
 
@@ -310,6 +320,7 @@ final class KfxFill {
         c.y = (a.y + b.y) / 2 + CHEST * (d.body().height() + fighterHeight) / 2;
         c.z = (a.z + b.z) / 2;
         strength(k.fighter() == self || k.mob() == self, c);
+        c.framed = yours; // your clash's flash stays on screen; midway between you, it needs no tether
         return true;
     }
 

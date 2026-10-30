@@ -27,11 +27,21 @@ public final class KfxSubmit implements SubmitNode {
         return KfxFeature.TYPE;
     }
 
-    /** The frame's cues, and the camera they face ({@code projectionMatrix.m11()}: its projection's vertical scale). */
+    /**
+     * The frame's cues, and the camera they face ({@code projectionMatrix.m00()} and {@code m11()}: its projection's
+     * horizontal and vertical scales).
+     */
     void set(KfxMark mark, CameraRenderState camera, Feel.Kfx k) {
         this.mark = mark;
-        quads.camera(camera.pos.x, camera.pos.y, camera.pos.z, camera.orientation, camera.projectionMatrix.m11());
-        quads.sizes(k.cueSize(), k.cueMinPx(), k.ringFadedAlpha());
+        quads.camera(
+                camera.pos.x,
+                camera.pos.y,
+                camera.pos.z,
+                camera.orientation,
+                camera.projectionMatrix.m00(),
+                camera.projectionMatrix.m11());
+        quads.sizes(k.cueSize(), k.cueMinPx(), k.cueMaxPx(), k.ringFadedAlpha());
+        quads.screen(k.cueTetherPx(), k.cueHudPx());
     }
 
     void write(VertexConsumer out) {

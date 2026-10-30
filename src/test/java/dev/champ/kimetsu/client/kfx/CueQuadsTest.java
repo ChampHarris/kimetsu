@@ -18,8 +18,13 @@ import org.junit.jupiter.api.Test;
  *
  * <ul>
  *   <li>a billboard (the glint, its flare and shatter, the burst, the clash flash) faces the camera with its cell's inset
- *       UVs at its corners, so the sprite's own outline is drawn whole; a 16-texel cell is {@code cue_size} across, and
- *       never less on screen than {@code cue_min_px} of a 1080-line screen's height;
+ *       UVs at its corners, so the sprite's own outline is drawn whole; a 16-texel cell is {@code cue_size} across, never
+ *       less on screen than {@code cue_min_px} of a 1080-line screen's height and never more than {@code cue_max_px}
+ *       (the floor wins where they cross);
+ *   <li>a billboard of yours (D-147, B3) is drawn whole on screen and above the HUD's band ({@code cue_hud_px}), moved
+ *       only as far as that takes, and a strike's no farther on screen from its attacker's eyes than
+ *       {@code cue_tether_px}, along its own line and at its own depth, so at the fight's range the swipe's glint reads
+ *       on its side of the demon, clear of the chat and the Breath crest;
  *   <li>the purple ring's outer edge is a circle round the attacker at its box's centre height, grown from its body to
  *       its box's forward reach, full strength only inside the box and {@code ring_faded_alpha} outside, split exactly at
  *       the box's edge (a quad's alpha would blend full strength past the reach); its band faces the camera and grows
@@ -35,9 +40,22 @@ import org.junit.jupiter.api.Test;
 class CueQuadsTest {
     private static final float CUE_SIZE = 0.5f; // feel: kfx.cue_size
     private static final float MIN_PX = 24f; // kfx.cue_min_px
+    private static final float MAX_PX = 96f; // kfx.cue_max_px
     private static final float FADED = 0.35f; // kfx.ring_faded_alpha
+    private static final float TETHER_PX = 360f; // kfx.cue_tether_px
+    private static final float HUD_PX = 270f; // kfx.cue_hud_px
     private static final float Y_SCALE = (float) (1 / Math.tan(Math.toRadians(35))); // a 70° vertical field of view
+    private static final float X_SCALE = Y_SCALE * 9 / 16; // on a 16:9 screen
     private static final double EPS = 1e-4;
+    // the fight's range (D-147, B3): your eyes; the M1 demon's eyes (m1_demon.json) and chest (0.75 of its 1.95)
+    private static final double PLAYER_EYE = 1.62;
+    private static final double DEMON_EYE = 1.74;
+    private static final double DEMON_CHEST = 1.4625;
+    // m1_demon/swipe.json's arc start (ArcInBox's default): its box's half-width out to the demon's right, at its box's
+    // centre height, on its near face
+    private static final double SWIPE_SIDE = 1.1;
+    private static final double SWIPE_CY = 1.1;
+    private static final double SWIPE_NEAR = 0.1;
     private static final double BODY = 0.3; // the stand-in's half-width
     // m1_demon/grab.json's box in the attacker's frame: its centre height, and its footprint across and forward
     private static final double GRAB_CY = 1.0;
@@ -59,7 +77,7 @@ class CueQuadsTest {
         KfxMark m = new KfxMark();
         KfxMark.Cue glint = m.add();
         glint.cell = CueSheet.GLINT;
-        cam.place(glint, 3, 0.4, -0.2);
+        cam.place(glint, 6, 0.4, -0.2); // past cue_max_px's reach (4.02 blocks): its own size
         Recorder r = new Recorder();
         q.write(m, r);
         assertEquals(4, r.n, "one quad");
@@ -69,20 +87,28 @@ class CueQuadsTest {
         KfxMark.Cue shard = m.add();
         shard.cell = CueSheet.SHATTER;
         shard.frame = 2;
-        cam.place(shard, 4, -0.5, 0.3);
+        cam.place(shard, 5, -0.5, 0.3);
         r.clear();
         q.write(m, r);
         assertBillboard(r, 0, cam, shard, CUE_SIZE / 2, CueSheet.SHATTER, 2);
     }
 
     @Test
-    void aCueKeepsItsOwnSizeUpClose_andIsNeverSmallerOnScreenThanCueMinPxOfA1080LineScreen() {
+    void aCueIsItsOwnSizeBetweenCueMaxPxUpCloseAndCueMinPxFarOff_ofA1080LineScreen() {
         CueQuads q = quads();
         Cam cam = new Cam(q, 0.5, 70.0, 0.5, 0, 0); // level, facing +z
+        double ceiling = CUE_SIZE * Y_SCALE * CueQuads.REFERENCE_LINES / (2 * MAX_PX);
+        assertEquals(
+                4.02, ceiling, 0.01, "cue_size 0.5 is 96 px of 1080 at 4 blocks: nearer, it grows no more (D-147)");
         double crossover = CUE_SIZE * Y_SCALE * CueQuads.REFERENCE_LINES / (2 * MIN_PX);
         assertEquals(
                 16.07, crossover, 0.01, "cue_size 0.5 is 24 px of 1080 at 16 blocks with a 70° view: it reads at 16");
-        for (double depth : new double[] {3, 8, 16}) {
+        for (double depth : new double[] {0.5, 1, 1.1, 2, 3}) { // the fight's range: the lunge stops at 1.1
+            Recorder r = one(q, cam, CueSheet.GLINT, depth, 1, 1);
+            assertEquals(MAX_PX, px(r, 0, cam), 1e-3, "at the ceiling at " + depth);
+            assertEquals(height(r, 0, cam), width(r, 0, cam), EPS, "square at " + depth);
+        }
+        for (double depth : new double[] {8, 16}) {
             Recorder r = one(q, cam, CueSheet.GLINT, depth, 1, 1);
             assertEquals(CUE_SIZE, height(r, 0, cam), EPS, "its own size at " + depth);
             assertEquals(CUE_SIZE, width(r, 0, cam), EPS, "square at " + depth);
@@ -93,6 +119,10 @@ class CueQuadsTest {
             assertEquals(MIN_PX, px(r, 0, cam), 1e-3, "floored at " + depth);
             assertEquals(height(r, 0, cam), width(r, 0, cam), EPS, "still square at " + depth);
         }
+        CueQuads low = new CueQuads(); // a ceiling under the floor: the floor wins
+        low.sizes(CUE_SIZE, MIN_PX, MIN_PX / 2, FADED);
+        Cam lowCam = new Cam(low, 0.5, 70.0, 0.5, 0, 0);
+        assertEquals(MIN_PX, px(one(low, lowCam, CueSheet.GLINT, 1, 1, 1), 0, lowCam), 1e-3, "never under cue_min_px");
     }
 
     @Test
@@ -101,6 +131,7 @@ class CueQuadsTest {
         Cam cam = new Cam(q, 0.5, 70.0, 0.5, 0, 0);
         assertEquals(2 * CUE_SIZE, height(one(q, cam, CueSheet.CLASH, 8, 1, 1), 0, cam), EPS, "32 texels: a block");
         assertEquals(2 * MIN_PX, px(one(q, cam, CueSheet.CLASH, 40, 1, 1), 0, cam), 1e-3, "its floor twice a glint's");
+        assertEquals(2 * MAX_PX, px(one(q, cam, CueSheet.CLASH, 1, 1, 1), 0, cam), 1e-3, "its ceiling twice a glint's");
     }
 
     @Test
@@ -113,10 +144,213 @@ class CueQuadsTest {
             assertEquals(0x99FFFFFF, near.colour[i], "white at 0.6 (bystander_alpha): the sheet keeps its colours");
         }
         assertEquals(0.75 * MIN_PX, px(one(q, cam, CueSheet.BURST, 40, 0.6f, 0.75f), 0, cam), 1e-3, "a smaller floor");
+        assertEquals(0.75 * MAX_PX, px(one(q, cam, CueSheet.BURST, 1, 0.6f, 0.75f), 0, cam), 1e-3, "a smaller ceiling");
         Recorder own = one(q, cam, CueSheet.BURST, 8, 1, 1);
         for (int i = 0; i < 4; i++) {
             assertEquals(FULL, own.colour[i], "yours: full strength");
         }
+    }
+
+    // ------------------------------------------------------------------------------------------------ on screen
+    // (D-147)
+
+    @Test
+    void b3_atTheFightsRangeTheSwipesGlintIsWholeOnScreen_aboveTheHudsBand_onItsSide_nearItsDemonsEyes() {
+        for (double origin : new double[] {0.5, 29_999_990.5}) {
+            for (double d : new double[] {1.0, 1.1, 1.5, 2.0}) { // the lunge stops 1.1 off (lunge_standoff)
+                for (double aim : new double[] {DEMON_EYE, DEMON_CHEST}) { // lock-on's aim, or a free one at its chest
+                    CueQuads q = quads();
+                    float pitch = (float) Math.toDegrees(Math.atan2(PLAYER_EYE - aim, d)); // vanilla's: down positive
+                    Cam cam = new Cam(q, origin, 64 + PLAYER_EYE, 0.5, 0, pitch); // facing +z
+                    KfxMark m = new KfxMark();
+                    KfxMark.Cue g = m.add(); // the demon d ahead, facing back: its right is your left (+x)
+                    g.cell = CueSheet.GLINT;
+                    g.x = origin + SWIPE_SIDE;
+                    g.y = 64 + SWIPE_CY;
+                    g.z = 0.5 + d - SWIPE_NEAR;
+                    g.framed = true;
+                    g.tethered = true;
+                    g.tetherX = origin;
+                    g.tetherY = 64 + DEMON_EYE;
+                    g.tetherZ = 0.5 + d;
+                    Recorder r = new Recorder();
+                    q.write(m, r);
+                    String at = d + " blocks, aimed at " + aim + ", " + origin + " out";
+                    assertEquals(4, r.n, at);
+                    assertWholeOnScreen(r, 0, cam, at);
+                    double[] drawn = cam.tan(centre(r, 0));
+                    double[] eyes = cam.tan(g.tetherX - cam.x, g.tetherY - cam.y, g.tetherZ - cam.z);
+                    assertTrue(pxBetween(drawn, eyes) <= TETHER_PX + 1e-3, at + ": within its tether of the eyes");
+                    assertTrue(drawn[0] < eyes[0], at + ": on its attacker's right, your left");
+                    assertEquals(MAX_PX, px(r, 0, cam), 1e-3, at + ": a glint's size at 4 blocks, no larger");
+                }
+            }
+        }
+    }
+
+    @Test
+    void aCueOfYoursSitsNoFartherFromItsAttackersEyesOnScreenThanCueTetherPx_alongItsOwnLine_atItsOwnDepth() {
+        CueQuads q = quads();
+        Cam cam = new Cam(q, 0.5, 70.0, 0.5, 30, 5);
+        double reach = TETHER_PX / unit(); // the tether on the tangent plane
+        KfxMark m = new KfxMark();
+        KfxMark.Cue far = yours(m, cam, 5, -0.5, -0.25); // 431 px from eyes straight ahead
+        eyes(far, cam, 6, 0, 0);
+        Recorder r = new Recorder();
+        q.write(m, r);
+        double k = reach / Math.hypot(0.5, 0.25);
+        assertAt(r, 0, cam, 5, -0.5 * k, -0.25 * k, "pulled in along its own line to the tether");
+        assertEquals(CUE_SIZE, height(r, 0, cam), EPS, "the size of its own depth");
+
+        m.clear();
+        KfxMark.Cue off = yours(m, cam, 4, -0.4, -0.3); // eyes off centre: the tether runs from them
+        eyes(off, cam, 7, 0.3, 0.2);
+        r.clear();
+        q.write(m, r);
+        double dx = -0.7;
+        double dy = -0.5;
+        double j = reach / Math.hypot(dx, dy);
+        assertAt(r, 0, cam, 4, 0.3 + dx * j, 0.2 + dy * j, "from where its eyes are");
+
+        m.clear();
+        KfxMark.Cue near = yours(m, cam, 5, -0.2, 0.1); // 172 px: within it
+        eyes(near, cam, 6, 0, 0);
+        r.clear();
+        q.write(m, r);
+        assertCentred(r, 0, cam, near);
+
+        m.clear();
+        KfxMark.Cue untethered = yours(m, cam, 5, -0.5, -0.25); // framed alone, whole on screen already
+        r.clear();
+        q.write(m, r);
+        assertCentred(r, 0, cam, untethered);
+    }
+
+    @Test
+    void aCueOfYoursIsDrawnWholeOnScreenAndAboveTheHudsBand_movedOnlyAsFarAsThatTakes() {
+        CueQuads q = quads();
+        Cam cam = new Cam(q, 0.5, 70.0, 0.5, 0, 0);
+        double sides = 1 / X_SCALE;
+        double top = 1 / Y_SCALE;
+        double band = (2 * HUD_PX / CueQuads.REFERENCE_LINES - 1) / Y_SCALE;
+        double half = CUE_SIZE / 2 / 6; // a glint 6 ahead is its own 0.5 blocks
+        double[][] cases = { // its place, then where it's drawn
+            {-2.0, 0.1, -sides + half, 0.1}, // past the left: in to the edge, its height kept
+            {1.6, 0.9, sides - half, top - half}, // past the right and the top: into the corner
+            {0.3, -0.6, 0.3, band + half}, // in the band: lifted out of it, its side kept
+            {-0.4, 0.2, -0.4, 0.2} // whole on screen already: unmoved
+        };
+        for (double[] c : cases) {
+            KfxMark m = new KfxMark();
+            yours(m, cam, 6, c[0], c[1]);
+            Recorder r = new Recorder();
+            q.write(m, r);
+            String what = "from (" + c[0] + ", " + c[1] + ")";
+            assertAt(r, 0, cam, 6, c[2], c[3], what);
+            assertWholeOnScreen(r, 0, cam, what);
+        }
+
+        CueQuads huge = new CueQuads(); // a cell taller than the frame is centred in it
+        huge.sizes(CUE_SIZE, MIN_PX, CueQuads.REFERENCE_LINES, FADED);
+        huge.screen(TETHER_PX, HUD_PX);
+        Cam hugeCam = new Cam(huge, 0.5, 70.0, 0.5, 0, 0);
+        KfxMark m = new KfxMark();
+        yours(m, hugeCam, 0.3, -0.2, -0.6);
+        Recorder r = new Recorder();
+        huge.write(m, r);
+        assertAt(r, 0, hugeCam, 0.3, -0.2, (band + top) / 2, "a whole screen tall: centred above the band");
+    }
+
+    @Test
+    void behindTheCamera_eyesBehindLeaveItWhereItStands_andACueBehindSitsAtItsTetherInItsOwnDirection() {
+        CueQuads q = quads();
+        Cam cam = new Cam(q, 0.5, 70.0, 0.5, 0, 0);
+        KfxMark m = new KfxMark();
+        KfxMark.Cue low = yours(m, cam, 4, 0.9, -0.6); // in the band, its attacker's eyes behind you
+        eyes(low, cam, -2, 0, 0);
+        Recorder r = new Recorder();
+        q.write(m, r);
+        assertCentred(r, 0, cam, low); // its demon behind you: drawn where it stands (an off-screen attacker, 5d-5)
+
+        m.clear();
+        KfxMark.Cue beside = m.add(); // its place behind the camera's plane, to your left; its eyes ahead
+        cam.place(beside, -0.5, -1.5, 0.2);
+        beside.framed = true;
+        eyes(beside, cam, 3, 0, 0);
+        r.clear();
+        q.write(m, r);
+        double reach = TETHER_PX / unit();
+        double n = Math.hypot(1.5, 0.2);
+        assertAt(
+                r,
+                0,
+                cam,
+                3,
+                -1.5 / n * reach,
+                0.2 / n * reach,
+                "at its tether, toward where it is, at its eyes' depth");
+    }
+
+    @Test
+    void turningAwayFromItsDemon_aTetheredCueGlidesToTheScreensEdgeOnItsSide_neverJumps_andGoesWhenTheEyesAreBehind() {
+        for (double d :
+                new double[] {1.1, 2.0}) { // the code review's case: the eyes' place blew up near the camera's plane
+            double lastX = Double.NaN;
+            double lastY = Double.NaN;
+            for (int turn = 0; turn <= 100; turn++) {
+                CueQuads q = quads();
+                Cam cam = new Cam(q, 0.5, 64 + PLAYER_EYE, 0.5, turn, 0); // turning left, away from it
+                KfxMark m = new KfxMark();
+                KfxMark.Cue g = m.add();
+                g.x = 0.5 + SWIPE_SIDE;
+                g.y = 64 + SWIPE_CY;
+                g.z = 0.5 + d - SWIPE_NEAR;
+                g.framed = true;
+                g.tethered = true;
+                g.tetherX = 0.5;
+                g.tetherY = 64 + DEMON_EYE;
+                g.tetherZ = 0.5 + d;
+                Recorder r = new Recorder();
+                q.write(m, r);
+                double[] c = centre(r, 0);
+                double eyes = cam.alongForward(g.tetherX - cam.x, g.tetherY - cam.y, g.tetherZ - cam.z);
+                String at = d + " blocks, turned " + turn;
+                if (eyes > 0.05) {
+                    assertWholeOnScreen(r, 0, cam, at);
+                    double[] t = cam.tan(c);
+                    double x = t[0] * unit();
+                    double y = t[1] * unit();
+                    if (!Double.isNaN(lastX)) {
+                        assertTrue(
+                                Math.hypot(x - lastX, y - lastY) <= 60,
+                                at + ": no jump, " + Math.hypot(x - lastX, y - lastY));
+                    }
+                    lastX = x;
+                    lastY = y;
+                } else { // its demon behind you: no pointer (5d-5's sounds)
+                    double[] t = cam.alongForward(c[0], c[1], c[2]) > 0 ? cam.tan(c) : new double[] {9, 9};
+                    assertTrue(
+                            Math.abs(t[0]) > 1 / X_SCALE
+                                    || Math.abs(t[1]) > 1 / Y_SCALE
+                                    || cam.alongForward(c[0], c[1], c[2]) <= 0,
+                            at + ": off screen");
+                }
+            }
+        }
+    }
+
+    @Test
+    void aCueNotYours_isDrawnWhereItStands_offScreenOrNot() {
+        CueQuads q = quads();
+        Cam cam = new Cam(q, 0.5, 70.0, 0.5, 0, 0);
+        KfxMark m = new KfxMark();
+        KfxMark.Cue c = m.add(); // a bystander's: neither framed nor tethered
+        cam.place(c, 2, -4, -2);
+        c.alpha = 0.6f;
+        c.scale = 0.75f;
+        Recorder r = new Recorder();
+        q.write(m, r);
+        assertCentred(r, 0, cam, c);
     }
 
     // ------------------------------------------------------------------------------------------------ the ring
@@ -508,6 +742,11 @@ class CueQuadsTest {
                 c.z = z;
                 c.alpha = i % 2 == 0 ? 1 : 0.6f;
                 c.scale = i % 2 == 0 ? 1 : 0.75f;
+                c.framed = i % 2 == 0; // yours: kept on screen, two of them tethered (D-147)
+                c.tethered = i % 4 == 0;
+                c.tetherX = x;
+                c.tetherY = 67.24;
+                c.tetherZ = z + 0.4;
             } else if (i < 11) {
                 ring(m, x, 64.0, z, i * 37f, i / 10f);
             } else {
@@ -534,8 +773,68 @@ class CueQuadsTest {
 
     private static CueQuads quads() {
         CueQuads q = new CueQuads();
-        q.sizes(CUE_SIZE, MIN_PX, FADED);
+        q.sizes(CUE_SIZE, MIN_PX, MAX_PX, FADED);
+        q.screen(TETHER_PX, HUD_PX);
         return q;
+    }
+
+    /** Quad {@code q}'s centre, camera-relative. */
+    private static double[] centre(Recorder r, int q) {
+        double[] c = new double[3];
+        for (int i = q * 4; i < q * 4 + 4; i++) {
+            c[0] += r.x[i] / 4.0;
+            c[1] += r.y[i] / 4.0;
+            c[2] += r.z[i] / 4.0;
+        }
+        return c;
+    }
+
+    /** Quad {@code q} lies whole on a 16:9 screen and above the HUD's band ({@code cue_hud_px}). */
+    private static void assertWholeOnScreen(Recorder r, int q, Cam cam, String what) {
+        double band = (2 * HUD_PX / CueQuads.REFERENCE_LINES - 1) / Y_SCALE;
+        for (int i = q * 4; i < q * 4 + 4; i++) {
+            double[] t = cam.tan(r.x[i], r.y[i], r.z[i]);
+            assertTrue(Math.abs(t[0]) <= 1 / X_SCALE + 1e-6, what + ": corner " + i + " inside the screen's sides");
+            assertTrue(t[1] <= 1 / Y_SCALE + 1e-6, what + ": corner " + i + " under the screen's top");
+            assertTrue(t[1] >= band - 1e-6, what + ": corner " + i + " above the HUD's band");
+        }
+    }
+
+    /** How far apart two places on the tangent plane are on a 1080-line screen, in px (square pixels). */
+    private static double pxBetween(double[] a, double[] b) {
+        return Math.hypot(a[0] - b[0], a[1] - b[1]) * Y_SCALE * CueQuads.REFERENCE_LINES / 2;
+    }
+
+    /** One tangent-plane unit in px of a 1080-line screen. */
+    private static double unit() {
+        return Y_SCALE * CueQuads.REFERENCE_LINES / 2.0;
+    }
+
+    /** A cue of yours on {@code m}, {@code depth} ahead at tangent place ({@code sx, sy}), framed. */
+    private static KfxMark.Cue yours(KfxMark m, Cam cam, double depth, double sx, double sy) {
+        KfxMark.Cue c = m.add();
+        cam.place(c, depth, sx * depth, sy * depth);
+        c.framed = true;
+        return c;
+    }
+
+    /** Tethers {@code c} to eyes {@code depth} ahead at tangent place ({@code sx, sy}). */
+    private static void eyes(KfxMark.Cue c, Cam cam, double depth, double sx, double sy) {
+        KfxMark.Cue at = new KfxMark().add();
+        cam.place(at, depth, sx * depth, sy * depth);
+        c.tethered = true;
+        c.tetherX = at.x;
+        c.tetherY = at.y;
+        c.tetherZ = at.z;
+    }
+
+    /** Asserts quad {@code q}'s centre lies at tangent place ({@code sx, sy}), {@code depth} ahead. */
+    private static void assertAt(Recorder r, int q, Cam cam, double depth, double sx, double sy, String what) {
+        double[] c = centre(r, q);
+        assertEquals(depth, cam.alongForward(c[0], c[1], c[2]), 1e-5, what + ": its depth");
+        double[] t = cam.tan(c[0], c[1], c[2]);
+        assertEquals(sx, t[0], 1e-6, what + ": across");
+        assertEquals(sy, t[1], 1e-6, what + ": up");
     }
 
     /** A mark of one cue {@code depth} blocks straight ahead, written. */
@@ -740,7 +1039,17 @@ class CueQuadsTest {
             o.transform(1, 0, 0, right);
             o.transform(0, 1, 0, up);
             o.transform(0, 0, -1, forward);
-            q.camera(x, y, z, o, Y_SCALE);
+            q.camera(x, y, z, o, X_SCALE, Y_SCALE);
+        }
+
+        /** A camera-relative point's place on the view's tangent plane: across and up over its depth. */
+        double[] tan(double dx, double dy, double dz) {
+            double d = alongForward(dx, dy, dz);
+            return new double[] {alongRight(dx, dy, dz) / d, alongUp(dx, dy, dz) / d};
+        }
+
+        double[] tan(double[] d) {
+            return tan(d[0], d[1], d[2]);
         }
 
         /** Puts the cue {@code depth} ahead, {@code across} to the right and {@code rise} up. */

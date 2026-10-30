@@ -42,7 +42,7 @@ class KfxFillTest {
     private static final int ALLY = 2;
     private static final int DEMON = 10;
     private static final int FAR_DEMON = 11;
-    private static final Feel.Kfx K = new Feel.Kfx(0.5f, 24, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, false);
+    private static final Feel.Kfx K = new Feel.Kfx(0.5f, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, 360, 270, false);
     private static final long PERIOD = Micros.ofTicks(13); // Water's beat, 650 ms
     private static final long STEP = 1_000_000 / 12; // a 12 fps cue step, in µs
     private static final double ENGAGE = 32; // combat_rules' engage_blocks
@@ -300,6 +300,60 @@ class KfxFillTest {
         f.fill(v, w, SELF, Micros.ofTicks(103), K, m);
         assertEquals(1f, m.cue(0).alpha, "involving you: full strength");
         assertEquals(1f, m.cue(0).scale);
+    }
+
+    @Test
+    void aPointCueOfYours_isKeptOnScreen_aStrikesTetheredToItsAttackersEyes_noOtherCueIs() {
+        ClientView v = new ClientView();
+        feed(
+                v,
+                100,
+                strike(1, DEMON, SELF, Fixtures.SWIPE_ID, 100, 110), // white, on you
+                strike(2, FAR_DEMON, ALLY, Fixtures.SWIPE_ID, 100, 110)); // white, on your ally
+        World w = world().at(FAR_DEMON, 15, 64, 4, 120).at(ALLY, 14, 64, 1, 0);
+        KfxMark m = new KfxMark();
+        KfxFill f = fill();
+        f.fill(v, w, SELF, Micros.ofTicks(103), K, m);
+        assertEquals(2, m.cueCount());
+        KfxMark.Cue mine = m.cue(0);
+        assertEquals(1f, mine.alpha, "yours first");
+        assertTrue(mine.framed, "yours: whole on screen, above the HUD's band (D-147)");
+        assertTrue(mine.tethered, "a strike's: near its attacker's eyes");
+        assertEquals(DX, mine.tetherX, EPS);
+        assertEquals(DY + Fixtures.DEMON_EYE, mine.tetherY, EPS, "m1_demon.json's eye height on its drawn body");
+        assertEquals(DZ, mine.tetherZ, EPS);
+        KfxMark.Cue theirs = m.cue(1);
+        assertFalse(theirs.framed || theirs.tethered, "a bystander's stands where it is");
+
+        ClientView red = new ClientView(); // the red burst too
+        feed(red, 100, strike(3, DEMON, SELF, Fixtures.LEAP_ID, 100, 112));
+        f.fill(red, world(), SELF, Micros.ofTicks(103), K, m);
+        assertEquals(CueSheet.BURST, m.cue(0).cell);
+        assertTrue(m.cue(0).framed && m.cue(0).tethered);
+
+        ClientView grab = new ClientView(); // a ring marks reach: never moved
+        feed(grab, 100, strike(4, DEMON, SELF, Fixtures.GRAB_ID, 100, 112));
+        f.fill(grab, world(), SELF, Micros.ofTicks(106), K, m);
+        assertEquals(CueSheet.RING, m.cue(0).cell);
+        assertFalse(m.cue(0).framed || m.cue(0).tethered);
+
+        ClientView thread = new ClientView(); // nor the Thread on its neck
+        feed(thread, 120, state(DEMON, 120, State.STAGGER, Long.MAX_VALUE));
+        f.fill(thread, world(), SELF, Micros.ofTicks(121), K, m);
+        assertEquals(CueSheet.NECK, m.cue(0).cell);
+        assertFalse(m.cue(0).framed || m.cue(0).tethered);
+
+        ClientView clash = new ClientView(); // your clash's flash: kept on screen, midway already
+        feed(clash, 120, new Outbox.ClashStarted(5, DEMON, SELF, 120, Micros.ofTicks(121)));
+        f.fill(clash, world(), SELF, Micros.ofTicks(121), K, m);
+        assertEquals(CueSheet.CLASH, m.cue(0).cell);
+        assertTrue(m.cue(0).framed);
+        assertFalse(m.cue(0).tethered);
+
+        ClientView theirClash = new ClientView();
+        feed(theirClash, 120, new Outbox.ClashStarted(6, DEMON, ALLY, 120, Micros.ofTicks(121)));
+        f.fill(theirClash, world().at(ALLY, 9, 64, -6, 30), SELF, Micros.ofTicks(121), K, m);
+        assertFalse(m.cue(0).framed || m.cue(0).tethered, "a bystander's clash");
     }
 
     @Test

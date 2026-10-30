@@ -22,10 +22,12 @@ public record Feel(int blendBackTicks, int blendInTicks, int poseBlendTicks, Hud
     public static final Feel DEFAULT = new Feel(3, 3, 3, Hud.DEFAULT, Kfx.DEFAULT);
 
     /**
-     * The world cues' knobs (slice 5d-4a; D-144's craft call 12, D-145's A7 and A12), each bounded.
+     * The world cues' knobs (slice 5d-4a; D-144's craft call 12, D-145's A7 and A12, D-147), each bounded.
      *
      * @param cueSize how many blocks a 16-texel cue cell spans (0.05 to 4)
      * @param cueMinPx the smallest a cue is drawn, in px of a 1080-line screen (0 to 256), so it reads at 16 blocks
+     * @param cueMaxPx the largest a 16-texel billboard is drawn, in px of a 1080-line screen (0 to 1080), so up close
+     *     it stays the size it reads at 4 blocks; where it's under {@code cueMinPx}, the floor wins
      * @param ringFadedAlpha a grab's ring's strength outside its box (0 to 1)
      * @param flashMs how long a micro-clash's white flash shows (0 to 1000)
      * @param cueStepFps the cues' stepped cadence: the flare's one step, the shatter's and the shimmer's (1 to 60)
@@ -33,31 +35,47 @@ public record Feel(int blendBackTicks, int blendInTicks, int poseBlendTicks, Hud
      *     read by 5d-4b's trails, nothing in 5d-4a (the glint stands at the tip's start)
      * @param bystanderAlpha a cue neither on you nor yours: its strength (0 to 1)
      * @param bystanderScale ... and its sprite's size (0.1 to 1), never the reach or neck it marks
+     * @param cueTetherPx the farthest a strike's point cue of yours sits on screen from its attacker's eyes, in px of a
+     *     1080-line screen (0 to 2160), so at the fight's range it stays by its demon (D-147, B3)
+     * @param cueHudPx the band at the screen's bottom a point cue of yours keeps out of, in px of a 1080-line screen (0
+     *     to 540): the hotbar, the bars, the Breath crest and the chat's last lines; it keeps off the screen's edges too
      * @param crosshairCue whether the 2D crosshair diamond shows too (it always does if the cue pipeline failed)
      */
     public record Kfx(
             float cueSize,
             int cueMinPx,
+            int cueMaxPx,
             float ringFadedAlpha,
             int flashMs,
             int cueStepFps,
             float arcBase,
             float bystanderAlpha,
             float bystanderScale,
+            int cueTetherPx,
+            int cueHudPx,
             boolean crosshairCue) {
         public static final float MIN_CUE_SIZE = 0.05f;
         public static final float MAX_CUE_SIZE = 4;
         public static final int MAX_CUE_MIN_PX = 256;
+        public static final int MAX_CUE_MAX_PX = 1080;
         public static final int MAX_FLASH_MS = 1000;
         public static final int MAX_CUE_STEP_FPS = 60;
         public static final float MIN_BYSTANDER_SCALE = 0.1f;
+        public static final int MAX_CUE_TETHER_PX = 2160;
+        public static final int MAX_CUE_HUD_PX = 540;
 
-        public static final Kfx DEFAULT = new Kfx(0.5f, 24, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, false);
+        public static final Kfx DEFAULT = new Kfx(0.5f, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, 360, 270, false);
 
         public Kfx {
             if (!(cueSize >= MIN_CUE_SIZE && cueSize <= MAX_CUE_SIZE)
                     || cueMinPx < 0
                     || cueMinPx > MAX_CUE_MIN_PX
+                    || cueMaxPx < 0
+                    || cueMaxPx > MAX_CUE_MAX_PX
+                    || cueTetherPx < 0
+                    || cueTetherPx > MAX_CUE_TETHER_PX
+                    || cueHudPx < 0
+                    || cueHudPx > MAX_CUE_HUD_PX
                     || !unit(ringFadedAlpha)
                     || flashMs < 0
                     || flashMs > MAX_FLASH_MS

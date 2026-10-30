@@ -15,8 +15,12 @@ import org.joml.Vector3f;
  * <ul>
  *   <li><b>A billboard</b> (the glint, its flare and shatter, the burst, the clash flash) faces the camera with its
  *       cell's inset UVs at its corners, so the sprite's outline is drawn whole. A 16-texel cell is {@code cue_size}
- *       across (the sheet's 32 texels a block: the clash's 32 is twice that), and never less on screen than
- *       {@code cue_min_px} of a 1080-line screen's height (the same share of any other's), so it reads at 16 blocks.
+ *       across (the sheet's 32 texels a block: the clash's 32 is twice that), never less on screen than
+ *       {@code cue_min_px} of a 1080-line screen's height (the same share of any other's), so it reads at 16 blocks,
+ *       and never more than {@code cue_max_px}, so up close it keeps the size it reads at 4 blocks (D-147). One of
+ *       yours is drawn whole on screen and above the HUD's band ({@code cue_hud_px}), and a strike's no farther on
+ *       screen from its attacker's eyes than {@code cue_tether_px} (D-147, B3: at the fight's range the arc's start
+ *       lies past the screen's side or under the chat and the Breath crest).
  *   <li><b>The ring</b>: its outer edge a circle round its attacker at its box's centre height, grown from the body to
  *       the box's forward reach; full strength where it runs inside the box and {@code ring_faded_alpha} outside, split
  *       exactly at the box's edge, since one quad's alpha blends across it and would spill full strength past the
@@ -42,6 +46,8 @@ public final class CueQuads {
     private static final double TAU = 2 * Math.PI;
     private static final double EDGE_ON = 1e-6; // a ring's plane or a neck's axis seen no wider than this: edge-on
     private static final double SAME_ANGLE = 1e-12;
+    // vanilla's near plane (Camera.PROJECTION_Z_NEAR): nearer, or behind you, a point has no place on screen
+    private static final double NEAR = 0.05;
 
     private final Vector3f axis = new Vector3f();
     private double camX;
@@ -57,11 +63,19 @@ public final class CueQuads {
     private double fx;
     private double fy;
     private double fz;
+    private float xScale = 1;
     private float yScale = 1;
     // the knobs (feel's kfx), set before the first write
     private float cueSize;
     private float minShare;
+    private float maxShare;
     private float ringFaded;
+    private float tetherShare;
+    private float hudShare;
+    // the attacker's eyes of the cue being written: their place on the tangent plane, and their depth
+    private double eyeX;
+    private double eyeY;
+    private double eyeDepth;
     // near to far
     private final int[] order = new int[KfxMark.CUES];
     private final double[] distance = new double[KfxMark.CUES];
@@ -82,9 +96,10 @@ public final class CueQuads {
 
     /**
      * The frame's camera: where it is, how it's turned ({@code CameraRenderState.orientation}) and its projection's
-     * vertical scale, 1 / tan(fov / 2) ({@code projectionMatrix.m11()}).
+     * horizontal and vertical scales, 1 / tan of half the field of view across and up ({@code projectionMatrix.m00()}
+     * and {@code m11()}).
      */
-    public void camera(double x, double y, double z, Quaternionfc orientation, float yScale) {
+    public void camera(double x, double y, double z, Quaternionfc orientation, float xScale, float yScale) {
         camX = x;
         camY = y;
         camZ = z;
@@ -100,17 +115,29 @@ public final class CueQuads {
         fx = axis.x;
         fy = axis.y;
         fz = axis.z;
+        this.xScale = xScale;
         this.yScale = yScale;
     }
 
     /**
-     * The knobs: a 16-texel cell's size in blocks ({@code cue_size}), the smallest it's drawn in px of a 1080-line screen
-     * ({@code cue_min_px}), and the ring's strength outside its box ({@code ring_faded_alpha}).
+     * The knobs: a 16-texel cell's size in blocks ({@code cue_size}), the smallest and the largest a billboard's is drawn
+     * in px of a 1080-line screen ({@code cue_min_px}, {@code cue_max_px}; the floor wins where they cross), and the
+     * ring's strength outside its box ({@code ring_faded_alpha}).
      */
-    public void sizes(float cueSize, float minPx, float ringFaded) {
+    public void sizes(float cueSize, float minPx, float maxPx, float ringFaded) {
         this.cueSize = cueSize;
         this.minShare = minPx / REFERENCE_LINES;
+        this.maxShare = maxPx / REFERENCE_LINES;
         this.ringFaded = ringFaded;
+    }
+
+    /**
+     * Where a point cue of yours may sit (D-147), in px of a 1080-line screen: no farther from its attacker's eyes than
+     * {@code cue_tether_px}, and out of the band {@code cue_hud_px} tall at the screen's bottom.
+     */
+    public void screen(float tetherPx, float hudPx) {
+        this.tetherShare = tetherPx / REFERENCE_LINES;
+        this.hudShare = hudPx / REFERENCE_LINES;
     }
 
     /**
@@ -163,14 +190,87 @@ public final class CueQuads {
         return strength != 0 ? strength < 0 : da > db;
     }
 
+    /**
+     * A billboard; one of yours (D-147) is placed on the view's tangent plane at its own depth (across and up over
+     * depth): pulled in along its line to its attacker's eyes until within {@code cue_tether_px} of them, then moved the
+     * least that puts it whole on screen and above the HUD's band. Behind the camera's plane, a tethered one sits at its
+     * tether toward where it is, at its eyes' depth.
+     */
     private void billboard(KfxMark.Cue c, VertexConsumer out) {
         double cx = c.x - camX;
         double cy = c.y - camY;
         double cz = c.z - camZ;
-        double texel = c.scale * Math.max(cueSize, floor(depth(cx, cy, cz))) / TEXELS;
+        double depth = depth(cx, cy, cz);
+        boolean tether = c.framed && c.tethered && eyes(c);
+        double at = depth > NEAR || !tether ? depth : eyeDepth; // the depth it's drawn at
+        double texel = c.scale * size(at) / TEXELS;
         double hw = texel * c.cell.w() / 2;
         double hh = texel * c.cell.h() / 2;
+        if (c.framed && (tether || !c.tethered) && at > NEAR) { // a strike's demon behind you: where it stands
+
+            double across = cx * rx + cy * ry + cz * rz;
+            double up = cx * ux + cy * uy + cz * uz;
+            double reach = 2 * tetherShare / yScale; // on the tangent plane
+            double sx;
+            double sy;
+            if (depth > NEAR) {
+                sx = across / depth;
+                sy = up / depth;
+                if (tether) {
+                    double dx = sx - eyeX;
+                    double dy = sy - eyeY;
+                    double off = Math.hypot(dx, dy);
+                    if (off > reach) {
+                        sx = eyeX + dx * reach / off;
+                        sy = eyeY + dy * reach / off;
+                    }
+                }
+            } else { // behind the camera's plane, tethered: at its tether, toward where it is
+                double n = Math.hypot(across, up);
+                sx = eyeX + (n > 0 ? across / n * reach : 0);
+                sy = eyeY + (n > 0 ? up / n * reach : 0);
+            }
+            double side = 1 / xScale;
+            double top = 1 / yScale;
+            sx = within(sx, hw / at - side, side - hw / at);
+            sy = within(sy, (2 * hudShare - 1) * top + hh / at, top - hh / at);
+            cx = (fx + rx * sx + ux * sy) * at;
+            cy = (fy + ry * sx + uy * sy) * at;
+            cz = (fz + rz * sx + uz * sy) * at;
+        }
         quad(out, cx, cy, cz, rx * hw, ry * hw, rz * hw, ux * hh, uy * hh, uz * hh, c.cell, c.frame, colour(c.alpha));
+    }
+
+    /** Whether {@code c}'s attacker's eyes lie ahead of the camera; their place and depth into the eye fields if so. */
+    private boolean eyes(KfxMark.Cue c) {
+        double ex = c.tetherX - camX;
+        double ey = c.tetherY - camY;
+        double ez = c.tetherZ - camZ;
+        eyeDepth = depth(ex, ey, ez);
+        if (!(eyeDepth > NEAR)) {
+            return false;
+        }
+        eyeX = (ex * rx + ey * ry + ez * rz) / eyeDepth;
+        eyeY = (ex * ux + ey * uy + ez * uz) / eyeDepth;
+        // off the screen, only their direction counts: onto its edge along the line from its centre, so the place
+        // doesn't climb as their depth nears the camera's plane (the code review: a jump of 760 px in a degree)
+        double k = Math.min(1, Math.min(1 / xScale / Math.abs(eyeX), 1 / yScale / Math.abs(eyeY)));
+        eyeX *= k;
+        eyeY *= k;
+        return true;
+    }
+
+    /** {@code v} kept from {@code lo} to {@code hi}; their midpoint when the sprite is too large to fit between. */
+    private static double within(double v, double lo, double hi) {
+        return lo <= hi ? Math.clamp(v, lo, hi) : (lo + hi) / 2;
+    }
+
+    /**
+     * A 16-texel billboard cell's size in blocks at {@code depth}: {@code cue_size}, no larger than {@code cue_max_px}
+     * and no smaller than {@code cue_min_px} on a 1080-line screen; behind the camera, {@code cue_size}.
+     */
+    private double size(double depth) {
+        return depth > 0 ? Math.max(floor(depth), Math.min(cueSize, 2 * maxShare * depth / yScale)) : cueSize;
     }
 
     private void thread(KfxMark.Cue c, VertexConsumer out) {
