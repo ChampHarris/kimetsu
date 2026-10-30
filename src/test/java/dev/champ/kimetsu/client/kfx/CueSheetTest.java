@@ -18,7 +18,8 @@ import org.junit.jupiter.api.Test;
  * The cue sheet's UV table (D-145's A3): each cell's UVs land half a texel inside it, so nearest sampling never reads
  * a neighbour; a strip's frames sit side by side and its frame count comes from the table; and the sheet on disk keeps
  * every cell's edge clear (a band's only across it), so the inset never cuts an outline; and it holds only the reserved
- * colours of {@code cue-reserved.gpl}, every coloured texel outlined within its cell (the art bible's §6).
+ * colours of {@code cue-reserved.gpl}, every coloured texel outlined within its cell (the art bible's §6). The grab's
+ * point (D-148) is a hollow ring 12 texels across, cue purple and its outline only.
  */
 class CueSheetTest {
     private static final double EPS = 1e-7;
@@ -41,6 +42,65 @@ class CueSheetTest {
         assertEquals(4, CueSheet.NECK.frames(), "the Thread's shimmer steps");
         assertEquals(1, CueSheet.GLINT.frames());
         assertEquals(1, CueSheet.CLASH.frames());
+        assertEquals(1, CueSheet.HOLLOW.frames(), "the grab's point grows, it doesn't step (D-148)");
+    }
+
+    @Test
+    void theGrabsPointIsAHollowRingTwelveTexelsAcross_cuePurpleAndOutlineOnly_itsCentreClear() throws IOException {
+        CueSheet c = CueSheet.HOLLOW;
+        assertEquals(16, c.w(), "a 16-texel billboard cell, sized as a glint's");
+        assertEquals(16, c.h());
+        assertTrue(!c.band(), "a billboard, not a band");
+        BufferedImage img = ImageIO.read(Path.of("src/main/resources/assets/kimetsu/textures/cue/cues.png")
+                .toFile());
+        int purple = 176 << 16 | 76 << 8 | 255;
+        int outline = 10 << 16 | 10 << 8 | 12;
+        int x0 = Integer.MAX_VALUE;
+        int x1 = Integer.MIN_VALUE;
+        int y0 = Integer.MAX_VALUE;
+        int y1 = Integer.MIN_VALUE;
+        for (int y = 0; y < c.h(); y++) {
+            for (int x = 0; x < c.w(); x++) {
+                int argb = img.getRGB(c.x() + x, c.y() + y);
+                if (argb >>> 24 == 0) {
+                    continue;
+                }
+                int rgb = argb & 0xFFFFFF;
+                assertTrue(rgb == purple || rgb == outline, "cue purple and its outline only, at " + x + "," + y);
+                if (rgb == purple) {
+                    x0 = Math.min(x0, x);
+                    x1 = Math.max(x1, x);
+                    y0 = Math.min(y0, y);
+                    y1 = Math.max(y1, y);
+                }
+            }
+        }
+        assertEquals(12, x1 - x0 + 1, "12 texels across (the art review, D-147 (e))");
+        assertEquals(12, y1 - y0 + 1, "and 12 down");
+        assertEquals(c.w() - 1, x0 + x1, "centred across");
+        assertEquals(c.h() - 1, y0 + y1, "centred down");
+        for (int y = 7; y <= 8; y++) { // hollow: the cell's centre clear
+            for (int x = 7; x <= 8; x++) {
+                assertEquals(0, img.getRGB(c.x() + x, c.y() + y) >>> 24, "its centre is clear at " + x + "," + y);
+            }
+        }
+        assertEquals(2, runs(img, c, purple, true), "two runs of purple across its middle row: a ring, not a disc");
+        assertEquals(2, runs(img, c, purple, false), "and down its middle column");
+    }
+
+    /** How many separate runs of purple lie along row 7 ({@code across}) or column 7 of cell {@code c}. */
+    private static int runs(BufferedImage img, CueSheet c, int purple, boolean across) {
+        int runs = 0;
+        boolean was = false;
+        for (int i = 0; i < c.w(); i++) {
+            int argb = across ? img.getRGB(c.x() + i, c.y() + 7) : img.getRGB(c.x() + 7, c.y() + i);
+            boolean is = argb >>> 24 == 255 && (argb & 0xFFFFFF) == purple;
+            if (is && !was) {
+                runs++;
+            }
+            was = is;
+        }
+        return runs;
     }
 
     @Test

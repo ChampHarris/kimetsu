@@ -20,10 +20,11 @@
     "bystander_scale": 0.75,
     "cue_tether_px": 360,
     "cue_hud_px": 270,
+    "grab_point_from": 0.5,
     "crosshair_cue": false
   },
   "meta": {
     "status": "PROPOSED",
-    "source": "docs/design/specs/m1-combat-core.md#feel--presentation (spec:534's 3-tick blend back); D-138; blend_in_ticks D-139; hud: Champ's fade (D-123), D-141; kfx: D-144's craft call 12, D-145's A7 and A12, D-146; cue_max_px, cue_tether_px and cue_hud_px D-147"
+    "source": "docs/design/specs/m1-combat-core.md#feel--presentation (spec:534's 3-tick blend back); D-138; blend_in_ticks D-139; hud: Champ's fade (D-123), D-141; kfx: D-144's craft call 12, D-145's A7 and A12, D-146; cue_max_px, cue_tether_px and cue_hud_px D-147; grab_point_from D-148"
   }
 }

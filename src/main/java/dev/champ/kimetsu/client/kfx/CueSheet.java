@@ -19,6 +19,8 @@ public enum CueSheet {
     RING(112, 0, 16, 16, 1, true),
     /** The gold Thread line's band, its shimmer stepping along it. */
     NECK(0, 16, 16, 16, 4, true),
+    /** The purple hollow ring: a grab's point, at its box's near face beside its ring (D-148). */
+    HOLLOW(64, 16, 16, 16, 1, false),
     /** The micro-clash's white eight-point flash. */
     CLASH(0, 32, 32, 32, 1, false);
 

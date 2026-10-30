@@ -54,6 +54,9 @@ public final class FeelLoader extends SimpleJsonResourceReloadListener<Feel> {
                     Codec.intRange(0, Feel.Kfx.MAX_CUE_HUD_PX)
                             .fieldOf("cue_hud_px")
                             .forGetter(Feel.Kfx::cueHudPx),
+                    Codec.floatRange(Feel.Kfx.MIN_GRAB_POINT_FROM, 1)
+                            .fieldOf("grab_point_from")
+                            .forGetter(Feel.Kfx::grabPointFrom),
                     Codec.BOOL.fieldOf("crosshair_cue").forGetter(Feel.Kfx::crosshairCue))
             .apply(i, Feel.Kfx::new));
     static final Codec<Feel> CODEC = RecordCodecBuilder.create(i -> i.group(

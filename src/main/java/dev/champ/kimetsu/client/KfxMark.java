@@ -95,7 +95,13 @@ public final class KfxMark {
         /** Its sprite's size (1, or {@code bystander_scale}); never the reach or the neck it marks. */
         public float scale = 1;
 
-        /** A point cue of yours (D-147): drawn whole on screen, above the HUD's band. */
+        /**
+         * A billboard's growth: it's drawn at this share of its size, about the place its whole size is kept at (the
+         * grab's point grows over its lead, D-148).
+         */
+        public float grow = 1;
+
+        /** A point cue of yours (D-147; the grab's point, D-148): drawn whole on screen, above the HUD's band. */
         public boolean framed;
 
         /** ... and a strike's: no farther on screen from its attacker's eyes, here, than {@code cue_tether_px}. */
@@ -120,6 +126,7 @@ public final class KfxMark {
             progress = 0;
             alpha = 1;
             scale = 1;
+            grow = 1;
             framed = false;
             tethered = false;
             tetherX = 0;

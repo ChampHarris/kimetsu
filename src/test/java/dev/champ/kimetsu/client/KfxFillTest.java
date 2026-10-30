@@ -25,7 +25,9 @@ import org.junit.jupiter.api.Test;
  * <ul>
  *   <li>a white or red strike's sprite stands at its arc's start in its own box (the attacker's right), on its
  *       attacker's drawn body; a grab's ring stands on its attacker's axis at its box's centre height, its box and
- *       progress handed on; the white glint flares for one step from half the target's beat before the impact, and a
+ *       progress handed on, and beside it its point, a hollow ring at its box's near face's centre, grown from
+ *       {@code grab_point_from} to its whole size over its lead (D-148); the white glint flares for one step from half
+ *       the target's beat before the impact, and a
  *       feint's shatters from the later of its cancel tick and the first frame that knew of the cancel (A6); any other
  *       cancel ends the cue;
  *   <li>a demon's Thread lies on its neck box, the kneeling one while COLLAPSED, from its opening tick, its shimmer
@@ -33,7 +35,9 @@ import org.junit.jupiter.api.Test;
  *   <li>a micro-clash's flash is drawn once, midway between its two fighters at chest height, and keeps the first frame
  *       that showed it;
  *   <li>a cue on you or one you're involved in draws at full strength; another only within the engage range, at
- *       {@code bystander_alpha} and {@code bystander_scale}; the 16 slots fill with yours first, then the nearest;
+ *       {@code bystander_alpha} and {@code bystander_scale}; the 16 slots fill with yours first, then the nearest; a
+ *       point cue of yours (a strike's sprite, the grab's point, your clash's flash) is kept on screen, never a ring
+ *       or the Thread;
  *   <li>nothing is drawn for an attacker the client lacks, and nothing is allocated once warm.
  * </ul>
  */
@@ -42,7 +46,8 @@ class KfxFillTest {
     private static final int ALLY = 2;
     private static final int DEMON = 10;
     private static final int FAR_DEMON = 11;
-    private static final Feel.Kfx K = new Feel.Kfx(0.5f, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, 360, 270, false);
+    private static final Feel.Kfx K =
+            new Feel.Kfx(0.5f, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, 360, 270, 0.5f, false);
     private static final long PERIOD = Micros.ofTicks(13); // Water's beat, 650 ms
     private static final long STEP = 1_000_000 / 12; // a 12 fps cue step, in µs
     private static final double ENGAGE = 32; // combat_rules' engage_blocks
@@ -168,6 +173,7 @@ class KfxFillTest {
         assertEquals(CueSheet.BURST, c.cell);
         Sweep.Box box = box(Fixtures.SWEEP_ID); // the low sweep: wide and flat, so a horizontal arc
         assertAt(world(DX, DY, DZ, DYAW, box.cx() + box.hx(), box.cy(), box.cz() - box.hz()), c);
+        assertEquals(1, m.cueCount(), "no hollow point: only a grab has one (D-148)");
     }
 
     @Test
@@ -176,8 +182,7 @@ class KfxFillTest {
         feed(v, 100, strike(1, DEMON, SELF, Fixtures.GRAB_ID, 100, 112));
         KfxMark m = new KfxMark();
         fill().fill(v, world(), SELF, Micros.ofTicks(106), K, m);
-        KfxMark.Cue c = m.cue(0);
-        assertEquals(CueSheet.RING, c.cell);
+        KfxMark.Cue c = only(m, CueSheet.RING); // beside its point (D-148)
         Sweep.Box box = box(Fixtures.GRAB_ID);
         assertAt(new double[] {DX, DY + box.cy(), DZ}, c);
         assertEquals(DYAW, c.yaw);
@@ -187,6 +192,63 @@ class KfxFillTest {
         assertEquals(box.hz(), c.boxHz);
         assertEquals(Fixtures.DEMON_HALF_WIDTH, c.body, "it grows from the body");
         assertEquals(0.5f, c.progress, 1e-6, "half way from its cue to its impact");
+        assertEquals(1f, c.grow, "a ring grows by its progress, never by grow");
+    }
+
+    @Test
+    void aGrabsPoint_aHollowRingAtItsBoxsNearFaceCentre_growsFromGrabPointFromToItsWholeSizeAtItsImpact() {
+        ClientView v = new ClientView();
+        feed(v, 100, strike(1, DEMON, SELF, Fixtures.GRAB_ID, 100, 112));
+        DrawnFrame drawn = new DrawnFrame().entity(DX, DY, DZ, DYAW, 0).place(0.5f, DX + 2, DY, DZ + 2, DYAW + 60);
+        World w =
+                new World().at(DEMON, drawn.x, drawn.y, drawn.z, drawn.bodyYaw).at(SELF, 12, 64, 0, 200);
+        KfxMark m = new KfxMark();
+        KfxFill f = fill();
+        Sweep.Box box = box(Fixtures.GRAB_ID);
+
+        assertFalse(f.fill(v, w, SELF, Micros.ofTicks(100) - 1, K, m), "nothing before its cue");
+        assertTrue(f.fill(v, w, SELF, Micros.ofTicks(100), K, m));
+        assertEquals(2, m.cueCount(), "its ring, and beside it its point (D-147 (e))");
+        KfxMark.Cue p = only(m, CueSheet.HOLLOW);
+        // its near face's centre, where its reach starts, on its attacker's drawn body
+        assertAt(world(drawn, box.cx(), box.cy(), box.cz() - box.hz()), p);
+        assertEquals(0, p.frame);
+        assertEquals(0.5f, p.grow, 1e-6, "grab_point_from at its cue");
+        assertEquals(1f, p.alpha, "it's on you");
+        assertEquals(1f, p.scale);
+        assertTrue(p.framed, "kept whole on screen, above the HUD's band (D-147)");
+        assertTrue(p.tethered, "near its attacker's eyes");
+        assertEquals(drawn.x, p.tetherX, EPS);
+        assertEquals(drawn.y + Fixtures.DEMON_EYE, p.tetherY, EPS, "m1_demon.json's eye height on its drawn body");
+        assertEquals(drawn.z, p.tetherZ, EPS);
+
+        f.fill(v, w, SELF, Micros.ofTicks(106), K, m);
+        assertEquals(0.75f, only(m, CueSheet.HOLLOW).grow, 1e-6, "half way: three quarters of its size");
+        f.fill(v, w, SELF, Micros.ofTicks(112) - 1, K, m);
+        assertEquals(1f, only(m, CueSheet.HOLLOW).grow, 1e-6, "its whole size as its impact lands");
+        assertFalse(f.fill(v, w, SELF, Micros.ofTicks(112), K, m), "gone with its ring: the window is [cue, impact)");
+
+        Feel.Kfx whole = new Feel.Kfx(0.5f, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, 360, 270, 1f, false);
+        f.fill(v, w, SELF, Micros.ofTicks(100), whole, m);
+        assertEquals(1f, only(m, CueSheet.HOLLOW).grow, 1e-6, "grab_point_from 1: no growth");
+
+        feed(v, 103, new Outbox.AttackCancelled(1, 105, "broken"));
+        assertTrue(f.fill(v, w, SELF, Micros.ofTicks(105) - 1, K, m), "until its cancel's tick");
+        assertFalse(f.fill(v, w, SELF, Micros.ofTicks(105), K, m), "a cancel ends the ring and the point at once");
+    }
+
+    @Test
+    void aBystandersGrab_drawsItsPointDimmed_whereItStands() {
+        ClientView v = new ClientView();
+        feed(v, 100, strike(1, DEMON, ALLY, Fixtures.GRAB_ID, 100, 112));
+        KfxMark m = new KfxMark();
+        fill().fill(v, world().at(ALLY, 9, 64, -6, 30), SELF, Micros.ofTicks(103), K, m);
+        assertEquals(2, m.cueCount(), "a grab looks the same whoever it's on: its ring and its point");
+        KfxMark.Cue p = only(m, CueSheet.HOLLOW);
+        assertEquals(0.6f, p.alpha, "bystander_alpha");
+        assertEquals(0.75f, p.scale, "bystander_scale");
+        assertEquals(0.625f, p.grow, 1e-6, "it grows all the same: a quarter of its lead in");
+        assertFalse(p.framed || p.tethered, "a bystander's stands where it is");
     }
 
     // ------------------------------------------------------------------------------------------------ the Thread
@@ -331,11 +393,11 @@ class KfxFillTest {
         assertEquals(CueSheet.BURST, m.cue(0).cell);
         assertTrue(m.cue(0).framed && m.cue(0).tethered);
 
-        ClientView grab = new ClientView(); // a ring marks reach: never moved
+        ClientView grab = new ClientView(); // a ring marks reach: never moved; the grab's point is (D-148)
         feed(grab, 100, strike(4, DEMON, SELF, Fixtures.GRAB_ID, 100, 112));
         f.fill(grab, world(), SELF, Micros.ofTicks(106), K, m);
-        assertEquals(CueSheet.RING, m.cue(0).cell);
-        assertFalse(m.cue(0).framed || m.cue(0).tethered);
+        assertFalse(only(m, CueSheet.RING).framed || only(m, CueSheet.RING).tethered);
+        assertTrue(only(m, CueSheet.HOLLOW).framed && only(m, CueSheet.HOLLOW).tethered);
 
         ClientView thread = new ClientView(); // nor the Thread on its neck
         feed(thread, 120, state(DEMON, 120, State.STAGGER, Long.MAX_VALUE));
@@ -487,6 +549,21 @@ class KfxFillTest {
         assertEquals(at[0], c.x, EPS, "x");
         assertEquals(at[1], c.y, EPS, "y");
         assertEquals(at[2], c.z, EPS, "z");
+    }
+
+    /** The frame's one cue drawn with {@code cell}. */
+    private static KfxMark.Cue only(KfxMark m, CueSheet cell) {
+        KfxMark.Cue found = null;
+        for (int i = 0; i < m.cueCount(); i++) {
+            if (m.cue(i).cell == cell) {
+                assertTrue(found == null, "one " + cell);
+                found = m.cue(i);
+            }
+        }
+        if (found == null) {
+            throw new AssertionError("no " + cell + " among " + m.cueCount() + " cues");
+        }
+        return found;
     }
 
     /** The client's bodies: each at its drawn frame; ids from {@link #DEMON} up are its combatants. */

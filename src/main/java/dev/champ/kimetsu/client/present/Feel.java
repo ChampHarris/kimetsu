@@ -22,10 +22,11 @@ public record Feel(int blendBackTicks, int blendInTicks, int poseBlendTicks, Hud
     public static final Feel DEFAULT = new Feel(3, 3, 3, Hud.DEFAULT, Kfx.DEFAULT);
 
     /**
-     * The world cues' knobs (slice 5d-4a; D-144's craft call 12, D-145's A7 and A12, D-147), each bounded.
+     * The world cues' knobs (slice 5d-4a; D-144's craft call 12, D-145's A7 and A12, D-147, D-148), each bounded.
      *
      * @param cueSize how many blocks a 16-texel cue cell spans (0.05 to 4)
-     * @param cueMinPx the smallest a cue is drawn, in px of a 1080-line screen (0 to 256), so it reads at 16 blocks
+     * @param cueMinPx the smallest a cue is drawn, in px of a 1080-line screen (0 to 256), so it reads at 16 blocks;
+     *     times a bystander's scale and the grab's point's growth
      * @param cueMaxPx the largest a 16-texel billboard is drawn, in px of a 1080-line screen (0 to 1080), so up close
      *     it stays the size it reads at 4 blocks; where it's under {@code cueMinPx}, the floor wins
      * @param ringFadedAlpha a grab's ring's strength outside its box (0 to 1)
@@ -39,6 +40,8 @@ public record Feel(int blendBackTicks, int blendInTicks, int poseBlendTicks, Hud
      *     1080-line screen (0 to 2160), so at the fight's range it stays by its demon (D-147, B3)
      * @param cueHudPx the band at the screen's bottom a point cue of yours keeps out of, in px of a 1080-line screen (0
      *     to 540): the hotbar, the bars, the Breath crest and the chat's last lines; it keeps off the screen's edges too
+     * @param grabPointFrom the grab's hollow point's size at its cue, a share of its size at its impact (0.1 to 1: 1,
+     *     no growth); it grows evenly over its lead (D-148)
      * @param crosshairCue whether the 2D crosshair diamond shows too (it always does if the cue pipeline failed)
      */
     public record Kfx(
@@ -53,6 +56,7 @@ public record Feel(int blendBackTicks, int blendInTicks, int poseBlendTicks, Hud
             float bystanderScale,
             int cueTetherPx,
             int cueHudPx,
+            float grabPointFrom,
             boolean crosshairCue) {
         public static final float MIN_CUE_SIZE = 0.05f;
         public static final float MAX_CUE_SIZE = 4;
@@ -63,8 +67,10 @@ public record Feel(int blendBackTicks, int blendInTicks, int poseBlendTicks, Hud
         public static final float MIN_BYSTANDER_SCALE = 0.1f;
         public static final int MAX_CUE_TETHER_PX = 2160;
         public static final int MAX_CUE_HUD_PX = 540;
+        public static final float MIN_GRAB_POINT_FROM = 0.1f;
 
-        public static final Kfx DEFAULT = new Kfx(0.5f, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, 360, 270, false);
+        public static final Kfx DEFAULT =
+                new Kfx(0.5f, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, 360, 270, 0.5f, false);
 
         public Kfx {
             if (!(cueSize >= MIN_CUE_SIZE && cueSize <= MAX_CUE_SIZE)
@@ -83,7 +89,8 @@ public record Feel(int blendBackTicks, int blendInTicks, int poseBlendTicks, Hud
                     || cueStepFps > MAX_CUE_STEP_FPS
                     || !unit(arcBase)
                     || !unit(bystanderAlpha)
-                    || !(bystanderScale >= MIN_BYSTANDER_SCALE && bystanderScale <= 1)) {
+                    || !(bystanderScale >= MIN_BYSTANDER_SCALE && bystanderScale <= 1)
+                    || !(grabPointFrom >= MIN_GRAB_POINT_FROM && grabPointFrom <= 1)) {
                 throw new IllegalArgumentException("feel: a kfx knob is out of its bounds");
             }
         }

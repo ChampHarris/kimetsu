@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.champ.kimetsu.client.KfxMark;
+import dev.champ.kimetsu.client.present.HudLayout;
+import dev.champ.kimetsu.client.present.PulseRing;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 import org.joml.Quaternionf;
@@ -25,6 +27,9 @@ import org.junit.jupiter.api.Test;
  *       only as far as that takes, and a strike's no farther on screen from its attacker's eyes than
  *       {@code cue_tether_px}, along its own line and at its own depth, so at the fight's range the swipe's glint reads
  *       on its side of the demon, clear of the chat and the Breath crest;
+ *   <li>a growing billboard (the grab's hollow point, D-148) is drawn at its {@code grow} share of its size about the
+ *       centre its whole size is framed at, so it grows in place; at the fight's range the grab's sits on its demon's
+ *       body above the HUD's band, clear of the Pulse ring at the crosshair;
  *   <li>the purple ring's outer edge is a circle round the attacker at its box's centre height, grown from its body to
  *       its box's forward reach, full strength only inside the box and {@code ring_faded_alpha} outside, split exactly at
  *       the box's edge (a quad's alpha would blend full strength past the reach); its band faces the camera and grows
@@ -65,6 +70,8 @@ class CueQuadsTest {
     private static final double GRAB_HZ = 0.95;
     private static final double REACH = GRAB_Z + GRAB_HZ;
     private static final double NECK_HX = 0.18; // m1_demon.json's neck box
+    // the grab's point (D-148): its ring 12 texels of purple across, a texel of outline each side, of its 16
+    private static final double HOLLOW_EDGE = 14.0 / 16;
     private static final int FULL = 0xFFFFFFFF;
     private static final int FADED_WHITE = 0x59FFFFFF; // 0.35 of 255, rounded
 
@@ -185,6 +192,84 @@ class CueQuadsTest {
                     assertEquals(MAX_PX, px(r, 0, cam), 1e-3, at + ": a glint's size at 4 blocks, no larger");
                 }
             }
+        }
+    }
+
+    @Test
+    void e_atTheFightsRangeTheGrabsPointIsWholeOnScreen_aboveTheHudsBand_underItsDemonsEyes_clearOfThePulseRing() {
+        for (double origin : new double[] {0.5, 29_999_990.5}) {
+            for (double d : new double[] {1.0, 1.1, 1.5, 2.0}) { // D-147 (e): there the ring lies wholly under the HUD
+                for (double aim : new double[] {DEMON_EYE, DEMON_CHEST}) {
+                    for (float grow : new float[] {0.5f, 1f}) { // at its cue (grab_point_from) and at its impact
+                        CueQuads q = quads();
+                        float pitch = (float) Math.toDegrees(Math.atan2(PLAYER_EYE - aim, d));
+                        Cam cam = new Cam(q, origin, 64 + PLAYER_EYE, 0.5, 0, pitch); // facing +z
+                        KfxMark m = new KfxMark();
+                        KfxMark.Cue g = m.add(); // the demon d ahead, facing back
+                        g.cell = CueSheet.HOLLOW;
+                        g.grow = grow;
+                        g.x = origin; // its grab box's near face's centre: on its axis, at the box's centre height
+                        g.y = 64 + GRAB_CY;
+                        g.z = 0.5 + d - (GRAB_Z - GRAB_HZ);
+                        g.framed = true;
+                        g.tethered = true;
+                        g.tetherX = origin;
+                        g.tetherY = 64 + DEMON_EYE;
+                        g.tetherZ = 0.5 + d;
+                        Recorder r = new Recorder();
+                        q.write(m, r);
+                        String at = d + " blocks, aimed at " + aim + ", grown to " + grow + ", " + origin + " out";
+                        assertEquals(4, r.n, at);
+                        assertWholeOnScreen(r, 0, cam, at);
+                        double[] drawn = cam.tan(centre(r, 0));
+                        double[] eyes = cam.tan(g.tetherX - cam.x, g.tetherY - cam.y, g.tetherZ - cam.z);
+                        assertTrue(pxBetween(drawn, eyes) <= TETHER_PX + 1e-3, at + ": within its tether of the eyes");
+                        assertTrue(drawn[1] < eyes[1], at + ": under its eyes, on its body");
+                        assertEquals(grow * MAX_PX, px(r, 0, cam), 1e-3, at + ": its share of a glint's 4-block size");
+                        double gap = pulseGap(drawn, HOLLOW_EDGE * px(r, 0, cam) / 2);
+                        assertTrue(gap > 0, at + ": clear of the Pulse ring, the crosshair and the pips, by " + gap);
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    void aGrowingBillboard_isDrawnAtItsShareOfItsSize_aboutTheCentreItsWholeSizeIsFramedAt() {
+        CueQuads q = quads();
+        Cam cam = new Cam(q, 0.5, 70.0, 0.5, 0, 0);
+        KfxMark m = new KfxMark();
+        KfxMark.Cue c = m.add();
+        c.cell = CueSheet.HOLLOW;
+        c.grow = 0.5f;
+        cam.place(c, 6, 0.4, -0.2); // its own size 6 ahead, past the ceiling's reach
+        Recorder r = new Recorder();
+        q.write(m, r);
+        assertBillboard(r, 0, cam, c, 0.5 * CUE_SIZE / 2, CueSheet.HOLLOW, 0);
+
+        double band = (2 * HUD_PX / CueQuads.REFERENCE_LINES - 1) / Y_SCALE;
+        double half = CUE_SIZE / 2 / 6; // its whole size's half on the tangent plane, 6 ahead
+        for (float grow : new float[] {0.5f, 0.75f, 1f}) { // in the band: lifted by its whole size, so one centre
+            m.clear();
+            KfxMark.Cue low = yours(m, cam, 6, 0.3, -0.6);
+            low.cell = CueSheet.HOLLOW;
+            low.grow = grow;
+            r.clear();
+            q.write(m, r);
+            assertAt(r, 0, cam, 6, 0.3, band + half, "grown to " + grow + ": the same centre");
+            assertEquals(grow * CUE_SIZE, height(r, 0, cam), EPS, "drawn at " + grow + " of its size");
+            assertEquals(grow * CUE_SIZE, width(r, 0, cam), EPS, "square at " + grow);
+        }
+
+        for (double[] dp : new double[][] {{1, MAX_PX}, {40, MIN_PX}}) { // its share of the ceiling and the floor
+            m.clear();
+            KfxMark.Cue g = m.add();
+            g.cell = CueSheet.HOLLOW;
+            g.grow = 0.5f;
+            cam.place(g, dp[0], 0, 0);
+            r.clear();
+            q.write(m, r);
+            assertEquals(0.5 * dp[1], px(r, 0, cam), 1e-3, "half its size " + dp[0] + " ahead");
         }
     }
 
@@ -808,6 +893,30 @@ class CueQuadsTest {
     /** One tangent-plane unit in px of a 1080-line screen. */
     private static double unit() {
         return Y_SCALE * CueQuads.REFERENCE_LINES / 2.0;
+    }
+
+    /**
+     * How far, in px of a 1080-line screen, a round point at tangent place {@code t}, {@code r} px round, keeps from the
+     * Pulse ring's HUD round the crosshair (D-143's places at {@code hud_scale} 1): the crosshair, the closing ring at
+     * its widest and the Rhythm pips, at the largest share of the screen they take (vanilla's GUI scale fits 240
+     * lines). Negative where it overlaps one.
+     */
+    private static double pulseGap(double[] t, double r) {
+        double gui = CueQuads.REFERENCE_LINES / 240.0; // px of 1080 in a GUI px, at most
+        double x = t[0] * unit() / gui; // GUI px right of the crosshair's centre
+        double y = -t[1] * unit() / gui; // ... and below it
+        double radius = r / gui;
+        double gap = Math.hypot(x, y) - (PulseRing.OPEN_RADIUS + HudLayout.RING_EDGE) - radius;
+        gap = Math.min(gap, fromSquare(x, y, 0, 0, HudLayout.CROSSHAIR_CENTRE) - radius);
+        for (int i = 0; i < HudLayout.PIPS; i++) {
+            gap = Math.min(gap, fromSquare(x, y, HudLayout.pipX(i), HudLayout.pipY(i), HudLayout.PIP_EDGE) - radius);
+        }
+        return gap * gui;
+    }
+
+    /** How far ({@code x, y}) lies from the square of half side {@code h} centred on ({@code cx, cy}). */
+    private static double fromSquare(double x, double y, double cx, double cy, double h) {
+        return Math.hypot(Math.max(0, Math.abs(x - cx) - h), Math.max(0, Math.abs(y - cy) - h));
     }
 
     /** A cue of yours on {@code m}, {@code depth} ahead at tangent place ({@code sx, sy}), framed. */

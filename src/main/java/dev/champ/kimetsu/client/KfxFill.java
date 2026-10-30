@@ -25,10 +25,12 @@ import org.jspecify.annotations.Nullable;
  * <ul>
  *   <li><b>A strike's cue</b> by its type: the white glint (its flare and a feint's shatter by {@link CueTimeline}) and
  *       the red burst stand at its arc's start in its own box ({@link ArcInBox}'s default, from the attacker's right),
- *       the purple ring on its attacker's axis at its box's centre height; each on its attacker's drawn body
- *       ({@link DrawnFrame}, D-145's A5), so before its lock it stands on the entity's own pose and after it follows
- *       the body onto its path. A feint's shatter starts at the later of its cancel tick and the first frame that knew
- *       of the cancel, which the view keeps (A6).
+ *       the purple ring on its attacker's axis at its box's centre height, and beside it the grab's point, a hollow
+ *       ring at its box's near face's centre, grown from {@code grab_point_from} to its whole size over its lead
+ *       (D-148: at the fight's range the ring lies under the HUD, and the arc's start, its face, on the crosshair);
+ *       each on its attacker's drawn body ({@link DrawnFrame}, D-145's A5), so before its lock it stands on the
+ *       entity's own pose and after it follows the body onto its path. A feint's shatter starts at the later of its
+ *       cancel tick and the first frame that knew of the cancel, which the view keeps (A6).
  *   <li><b>A demon's Thread</b> on its neck box, the kneeling one while COLLAPSED, from its opening tick (A8), its
  *       shimmer stepping. It's an opening any Slayer within the engage range may take, so it draws at full strength
  *       there (D-146's call (m)) and not beyond.
@@ -38,11 +40,11 @@ import org.jspecify.annotations.Nullable;
  *
  * A cue on its player, or one it's involved in (its clash), draws at full strength wherever it is; another only within
  * the engage range, at {@code bystander_alpha} and {@code bystander_scale} (A7). The 16 slots take the full-strength
- * ones first, then the nearest to the player. A point cue of the player's own (a strike's sprite, its clash's flash) is
- * kept whole on screen above the HUD's band, and a strike's within {@code cue_tether_px} of its attacker's eyes on
- * screen (D-147, B3: at the fight's range the arc's start lies off the screen's side); a ring and the Thread mark reach
- * and the neck, so they stay where they are. Main thread; mutable and reused; allocates nothing once warm (A10: the
- * view's strikes come from its kept array, never its maps).
+ * ones first, then the nearest to the player. A point cue of the player's own (a strike's sprite, a grab's point, its
+ * clash's flash) is kept whole on screen above the HUD's band, and a strike's within {@code cue_tether_px} of its
+ * attacker's eyes on screen (D-147, B3: at the fight's range the arc's start lies off the screen's side); a ring and
+ * the Thread mark reach and the neck, so they stay where they are. Main thread; mutable and reused; allocates nothing
+ * once warm (A10: the view's strikes come from its kept array, never its maps).
  */
 final class KfxFill {
     /** How far up a body its chest is: where the clash flash stands, midway between its two fighters. */
@@ -51,6 +53,7 @@ final class KfxFill {
     private static final int STRIKE = 0;
     private static final int THREAD = 1;
     private static final int CLASH = 2;
+    private static final int POINT = 3; // a strike's second cue: a grab's hollow point (D-148)
 
     /** The bodies the client draws this frame. */
     interface Bodies {
@@ -146,6 +149,7 @@ final class KfxFill {
         }
         for (int i = 0; i < view.listedCount(); i++) {
             consider(view, STRIKE, i, me);
+            consider(view, POINT, i, me);
         }
         for (int i = 0; i < bodies.combatants(); i++) {
             consider(view, THREAD, bodies.combatant(i), me);
@@ -202,13 +206,15 @@ final class KfxFill {
     /** Writes the cue of {@code kind} for {@code item} into {@code c}; false if it doesn't show. */
     private boolean cue(ClientView view, int kind, int item, KfxMark.Cue c) {
         return switch (kind) {
-            case STRIKE -> strike(view, view.listed(item), c);
+            case STRIKE -> strike(view, view.listed(item), false, c);
+            case POINT -> strike(view, view.listed(item), true, c);
             case THREAD -> thread(view, item, c);
             default -> clash(view.clash(item), c);
         };
     }
 
-    private boolean strike(ClientView view, Outbox.AttackStarted s, KfxMark.Cue c) {
+    /** Writes strike {@code s}'s cue into {@code c}, or with {@code point} its second, a grab's hollow point. */
+    private boolean strike(ClientView view, Outbox.AttackStarted s, boolean point, KfxMark.Cue c) {
         FrameData f = frames.get(s.attack());
         Sweep sweep = f != null ? f.sweep() : null;
         DemonProfile d = demon;
@@ -221,9 +227,14 @@ final class KfxFill {
         long cancel = cancelTick == Long.MIN_VALUE ? CueTimeline.NONE : Micros.ofTicks(cancelTick);
         @Nullable
         CueSheet cell = switch (f.cue().type()) {
-            case WHITE -> glint(view, s.strike(), cue, impact, cancel);
-            case RED -> CueTimeline.shows(t, cue, impact, cancel) ? CueSheet.BURST : null;
-            case PURPLE -> CueTimeline.shows(t, cue, impact, cancel) ? CueSheet.RING : null;
+            case WHITE -> point ? null : glint(view, s.strike(), cue, impact, cancel);
+            case RED -> !point && CueTimeline.shows(t, cue, impact, cancel) ? CueSheet.BURST : null;
+            case PURPLE -> {
+                if (!CueTimeline.shows(t, cue, impact, cancel)) {
+                    yield null;
+                }
+                yield point ? CueSheet.HOLLOW : CueSheet.RING;
+            }
             case NONE -> null;
         };
         if (cell == null) {
@@ -247,6 +258,10 @@ final class KfxFill {
             c.boxHz = box.hz();
             c.body = d.body().halfWidth();
             c.progress = CueTimeline.progress(t, cue, impact);
+        } else if (cell == CueSheet.HOLLOW) { // its box's near face's centre: where its reach starts
+            at(a, box.cx(), box.cy(), box.cz() - box.hz(), c);
+            float from = kfx.grabPointFrom();
+            c.grow = from + (1 - from) * CueTimeline.progress(t, cue, impact);
         } else {
             arc.set(box, ArcInBox.defaultRoll(box), 0, 180, kfx.arcBase()).anchor(local);
             at(a, local.x(), local.y(), local.z(), c);

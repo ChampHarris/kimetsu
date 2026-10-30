@@ -11,7 +11,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * One frame's kfx (D-144's craft call 11): at most 16 cues (D-145's A7), each slot reused frame to frame and handed out
- * reset, so a cue never inherits the last frame's bystander dimming, strip frame, ring or tether (D-147).
+ * reset, so a cue never inherits the last frame's bystander dimming, strip frame, ring, tether (D-147) or growth
+ * (D-148).
  */
 class KfxMarkTest {
     @Test
@@ -45,6 +46,7 @@ class KfxMarkTest {
         c.progress = 0.5f;
         c.alpha = 0.6f;
         c.scale = 0.75f;
+        c.grow = 0.5f;
         c.framed = true;
         c.tethered = true;
         c.tetherX = 4;
@@ -68,6 +70,7 @@ class KfxMarkTest {
         assertEquals(0, again.progress);
         assertEquals(1, again.alpha, "full strength until the fill dims it");
         assertEquals(1, again.scale);
+        assertEquals(1, again.grow, "its whole size until the fill grows it (D-148)");
         assertFalse(again.framed, "drawn where it stands until the fill keeps it on screen (D-147)");
         assertFalse(again.tethered);
         assertEquals(0, again.tetherX);

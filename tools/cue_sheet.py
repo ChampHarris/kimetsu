@@ -9,12 +9,13 @@ texel clear of its edge, so the UV table's half-texel inset (client.kfx.CueSheet
     (96,0)  burst        16x16  jagged splat with eight uneven spikes (red): dodge
     (112,0) ring         16x16  the ring's band across v (purple): a grab; its rows hug the cell's top, the reach
     (0,16)  neck         4 x 16x16 strip: the Thread's thin line across v, its shimmer stepping along u (gold)
+    (64,16) hollow       16x16  a hollow ring 12 texels across (purple): a grab's point beside its ring (D-148)
     (0,32)  clash        32x32  eight-point burst (white): the micro-clash's flash
 
-Each shape reads without colour: a plus, a plus with sparkle, a splat, a ring, a line, an eight-rayed star. Cues are
-screen-sized billboards at 32 texels a block, not world materials (D-145's A12, art bible section 6). A band's quad is
-cue_size thick, so its painted rows set how thick it reads: 6 of 16 (the ring, 0.19 blocks at cue_size 0.5; the
-Thread, 6/16 of the neck's length).
+Each shape reads without colour: a plus, a plus with sparkle, a splat, a ring, a line, an O, an eight-rayed star.
+Cues are screen-sized billboards at 32 texels a block, not world materials (D-145's A12, art bible section 6). A
+band's quad is cue_size thick, so its painted rows set how thick it reads: 6 of 16 (the ring, 0.19 blocks at cue_size
+0.5; the Thread, 6/16 of the neck's length).
 
     python tools/cue_sheet.py                  # write the sheet
     python tools/cue_sheet.py --placeholder    # outlined squares in each cell (build step 1's smoke)
@@ -129,6 +130,11 @@ def split() -> set[tuple[int, int]]:
     return {(x - 1, y - 1) for x, y in s if x + y < 15} | {(x + 1, y + 1) for x, y in s if x + y > 15}
 
 
+def hollow(outer: float = 6.0, inner: float = 4.0) -> set[tuple[int, int]]:
+    """A ring about the cell's centre: texels whose centres lie inner to outer from it (12 across, 2 thick, an O)."""
+    return {(x, y) for y in range(16) for x in range(16) if inner <= math.hypot(x + 0.5 - 8, y + 0.5 - 8) <= outer}
+
+
 def clash(size: int) -> set[tuple[int, int]]:
     """Eight rays: the four along the axes longer than the diagonals."""
     c = size / 2
@@ -166,6 +172,7 @@ def draw(placeholder: bool) -> Image.Image:
             paint(img, i * 16, 0, square, colour)
         for i in range(4):
             paint(img, i * 16, 16, square, GOLD)
+        paint(img, 64, 16, square, PURPLE)
         paint(img, 0, 32, {(x, y) for x in range(4, 28) for y in range(4, 28)}, WHITE, 32)
         return img
     paint(img, 0, 0, star(5.5, 2.0), WHITE)
@@ -181,6 +188,7 @@ def draw(placeholder: bool) -> Image.Image:
     paint_band(img, 112, 0, 2, 5, PURPLE)  # outline rows 1 and 6: the outer edge, the reach, at the top
     for f in range(4):  # outline rows 5 and 10: centred on the neck
         paint_band(img, 16 * f, 16, 6, 9, lambda x, f=f: SHIMMER if (x - 4 * f) % 16 in (0, 1) else GOLD)
+    paint(img, 64, 16, hollow(), PURPLE)  # outlined in and out, its centre clear
     paint(img, 0, 32, clash(32), WHITE, 32)
     return img
 

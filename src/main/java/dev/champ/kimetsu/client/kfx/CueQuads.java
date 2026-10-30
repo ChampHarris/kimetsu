@@ -13,14 +13,16 @@ import org.joml.Vector3f;
  * full pieces, then their faded ones, each near to far, so a faded piece never stacks on another or dims a full one.
  *
  * <ul>
- *   <li><b>A billboard</b> (the glint, its flare and shatter, the burst, the clash flash) faces the camera with its
- *       cell's inset UVs at its corners, so the sprite's outline is drawn whole. A 16-texel cell is {@code cue_size}
- *       across (the sheet's 32 texels a block: the clash's 32 is twice that), never less on screen than
- *       {@code cue_min_px} of a 1080-line screen's height (the same share of any other's), so it reads at 16 blocks,
- *       and never more than {@code cue_max_px}, so up close it keeps the size it reads at 4 blocks (D-147). One of
- *       yours is drawn whole on screen and above the HUD's band ({@code cue_hud_px}), and a strike's no farther on
- *       screen from its attacker's eyes than {@code cue_tether_px} (D-147, B3: at the fight's range the arc's start
- *       lies past the screen's side or under the chat and the Breath crest).
+ *   <li><b>A billboard</b> (the glint, its flare and shatter, the burst, the grab's hollow point, the clash flash)
+ *       faces the camera with its cell's inset UVs at its corners, so the sprite's outline is drawn whole. A 16-texel
+ *       cell is {@code cue_size} across (the sheet's 32 texels a block: the clash's 32 is twice that), never less on
+ *       screen than {@code cue_min_px} of a 1080-line screen's height (the same share of any other's), so it reads at
+ *       16 blocks, and never more than {@code cue_max_px}, so up close it keeps the size it reads at 4 blocks (D-147);
+ *       both times its scale and its growth.
+ *       One of yours is drawn whole on screen and above the HUD's band ({@code cue_hud_px}), and a strike's no farther
+ *       on screen from its attacker's eyes than {@code cue_tether_px} (D-147, B3: at the fight's range the arc's start
+ *       lies past the screen's side or under the chat and the Breath crest). The grab's point grows over its lead
+ *       about the place its whole size is kept at (D-148).
  *   <li><b>The ring</b>: its outer edge a circle round its attacker at its box's centre height, grown from the body to
  *       the box's forward reach; full strength where it runs inside the box and {@code ring_faded_alpha} outside, split
  *       exactly at the box's edge, since one quad's alpha blends across it and would spill full strength past the
@@ -194,7 +196,8 @@ public final class CueQuads {
      * A billboard; one of yours (D-147) is placed on the view's tangent plane at its own depth (across and up over
      * depth): pulled in along its line to its attacker's eyes until within {@code cue_tether_px} of them, then moved the
      * least that puts it whole on screen and above the HUD's band. Behind the camera's plane, a tethered one sits at its
-     * tether toward where it is, at its eyes' depth.
+     * tether toward where it is, at its eyes' depth. It's drawn at its {@code grow} share of its size about the place
+     * its whole size is kept at, so a growing one (the grab's point, D-148) grows in place.
      */
     private void billboard(KfxMark.Cue c, VertexConsumer out) {
         double cx = c.x - camX;
@@ -204,7 +207,7 @@ public final class CueQuads {
         boolean tether = c.framed && c.tethered && eyes(c);
         double at = depth > NEAR || !tether ? depth : eyeDepth; // the depth it's drawn at
         double texel = c.scale * size(at) / TEXELS;
-        double hw = texel * c.cell.w() / 2;
+        double hw = texel * c.cell.w() / 2; // its whole size's half: what the frame keeps on screen
         double hh = texel * c.cell.h() / 2;
         if (c.framed && (tether || !c.tethered) && at > NEAR) { // a strike's demon behind you: where it stands
 
@@ -238,7 +241,9 @@ public final class CueQuads {
             cy = (fy + ry * sx + uy * sy) * at;
             cz = (fz + rz * sx + uz * sy) * at;
         }
-        quad(out, cx, cy, cz, rx * hw, ry * hw, rz * hw, ux * hh, uy * hh, uz * hh, c.cell, c.frame, colour(c.alpha));
+        double w = hw * c.grow; // grown about that place
+        double h = hh * c.grow;
+        quad(out, cx, cy, cz, rx * w, ry * w, rz * w, ux * h, uy * h, uz * h, c.cell, c.frame, colour(c.alpha));
     }
 
     /** Whether {@code c}'s attacker's eyes lie ahead of the camera; their place and depth into the eye fields if so. */

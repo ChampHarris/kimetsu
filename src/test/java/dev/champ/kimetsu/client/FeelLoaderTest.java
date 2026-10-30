@@ -21,7 +21,7 @@ import org.junit.jupiter.api.Test;
 class FeelLoaderTest {
     private static final String HUD =
             "\"hud\": {\"fade_after_ms\": 3000, \"fade_in_ms\": 0, \"fade_out_ms\": 500, \"tint_fade_ms\": 200}";
-    private static final String KFX = kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, "false");
+    private static final String KFX = kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, 0.5, "false");
 
     private static JsonElement json(String s) {
         return JsonParser.parseString(s);
@@ -49,12 +49,13 @@ class FeelLoaderTest {
             double scale,
             int tetherPx,
             int hudPx,
+            double grabFrom,
             String crosshair) {
         return "\"kfx\": {\"cue_size\": " + size + ", \"cue_min_px\": " + minPx + ", \"cue_max_px\": " + maxPx
                 + ", \"ring_faded_alpha\": " + faded + ", \"flash_ms\": " + flashMs + ", \"cue_step_fps\": " + stepFps
                 + ", \"arc_base\": " + arcBase + ", \"bystander_alpha\": " + alpha + ", \"bystander_scale\": " + scale
-                + ", \"cue_tether_px\": " + tetherPx + ", \"cue_hud_px\": " + hudPx + ", \"crosshair_cue\": "
-                + crosshair + "}";
+                + ", \"cue_tether_px\": " + tetherPx + ", \"cue_hud_px\": " + hudPx + ", \"grab_point_from\": "
+                + grabFrom + ", \"crosshair_cue\": " + crosshair + "}";
     }
 
     @Test
@@ -67,10 +68,10 @@ class FeelLoaderTest {
         assertEquals(3, f.blendInTicks(), "D-139");
         assertEquals(new Feel.Hud(3000, 0, 500, 200), f.hud(), "D-141: Champ's 3 s, then half a second");
         assertEquals(
-                new Feel.Kfx(0.5f, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, 360, 270, false),
+                new Feel.Kfx(0.5f, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, 360, 270, 0.5f, false),
                 f.kfx(),
                 "D-144's craft call 12 and D-145's A7 and A12: the plan's numbers, the diamond off; D-147's ceiling,"
-                        + " tether and band");
+                        + " tether and band; D-148's grab point, from half its size");
     }
 
     @Test
@@ -143,29 +144,32 @@ class FeelLoaderTest {
     @Test
     void aKfxKeyOutOfBoundsOrMissingDoesntDecode() {
         for (String bad : new String[] {
-            withKfx(kfx(0.04, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, "false")), // cue_size
-            withKfx(kfx(4.01, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, "false")),
-            withKfx(kfx(0.5, -1, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, "false")), // cue_min_px
-            withKfx(kfx(0.5, 257, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, "false")),
-            withKfx(kfx(0.5, 24, -1, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, "false")), // cue_max_px
-            withKfx(kfx(0.5, 24, 1081, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, "false")),
-            withKfx(kfx(0.5, 24, 96, -0.01, 100, 12, 0.45, 0.6, 0.75, 360, 270, "false")), // ring_faded_alpha
-            withKfx(kfx(0.5, 24, 96, 1.01, 100, 12, 0.45, 0.6, 0.75, 360, 270, "false")),
-            withKfx(kfx(0.5, 24, 96, 0.35, -1, 12, 0.45, 0.6, 0.75, 360, 270, "false")), // flash_ms
-            withKfx(kfx(0.5, 24, 96, 0.35, 1001, 12, 0.45, 0.6, 0.75, 360, 270, "false")),
-            withKfx(kfx(0.5, 24, 96, 0.35, 100, 0, 0.45, 0.6, 0.75, 360, 270, "false")), // cue_step_fps: no step of 0
-            withKfx(kfx(0.5, 24, 96, 0.35, 100, 61, 0.45, 0.6, 0.75, 360, 270, "false")),
-            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, -0.01, 0.6, 0.75, 360, 270, "false")), // arc_base
-            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 1.01, 0.6, 0.75, 360, 270, "false")),
-            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, -0.01, 0.75, 360, 270, "false")), // bystander_alpha
-            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 1.01, 0.75, 360, 270, "false")),
-            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.09, 360, 270, "false")), // bystander_scale
-            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 1.01, 360, 270, "false")),
-            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, -1, 270, "false")), // cue_tether_px
-            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 2161, 270, "false")),
-            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, -1, "false")), // cue_hud_px
-            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 541, "false")),
-            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, "\"no\"")), // crosshair_cue
+            withKfx(kfx(0.04, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, 0.5, "false")), // cue_size
+            withKfx(kfx(4.01, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, 0.5, "false")),
+            withKfx(kfx(0.5, -1, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, 0.5, "false")), // cue_min_px
+            withKfx(kfx(0.5, 257, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, 0.5, "false")),
+            withKfx(kfx(0.5, 24, -1, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, 0.5, "false")), // cue_max_px
+            withKfx(kfx(0.5, 24, 1081, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, 0.5, "false")),
+            withKfx(kfx(0.5, 24, 96, -0.01, 100, 12, 0.45, 0.6, 0.75, 360, 270, 0.5, "false")), // ring_faded_alpha
+            withKfx(kfx(0.5, 24, 96, 1.01, 100, 12, 0.45, 0.6, 0.75, 360, 270, 0.5, "false")),
+            withKfx(kfx(0.5, 24, 96, 0.35, -1, 12, 0.45, 0.6, 0.75, 360, 270, 0.5, "false")), // flash_ms
+            withKfx(kfx(0.5, 24, 96, 0.35, 1001, 12, 0.45, 0.6, 0.75, 360, 270, 0.5, "false")),
+            withKfx(kfx(
+                    0.5, 24, 96, 0.35, 100, 0, 0.45, 0.6, 0.75, 360, 270, 0.5, "false")), // cue_step_fps: no step of 0
+            withKfx(kfx(0.5, 24, 96, 0.35, 100, 61, 0.45, 0.6, 0.75, 360, 270, 0.5, "false")),
+            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, -0.01, 0.6, 0.75, 360, 270, 0.5, "false")), // arc_base
+            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 1.01, 0.6, 0.75, 360, 270, 0.5, "false")),
+            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, -0.01, 0.75, 360, 270, 0.5, "false")), // bystander_alpha
+            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 1.01, 0.75, 360, 270, 0.5, "false")),
+            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.09, 360, 270, 0.5, "false")), // bystander_scale
+            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 1.01, 360, 270, 0.5, "false")),
+            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, -1, 270, 0.5, "false")), // cue_tether_px
+            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 2161, 270, 0.5, "false")),
+            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, -1, 0.5, "false")), // cue_hud_px
+            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 541, 0.5, "false")),
+            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, 0.09, "false")), // grab_point_from
+            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, 1.01, "false")),
+            withKfx(kfx(0.5, 24, 96, 0.35, 100, 12, 0.45, 0.6, 0.75, 360, 270, 0.5, "\"no\"")), // crosshair_cue
             withKfx("\"kfx\": {\"cue_size\": 0.5}"),
             withKfx("\"kfx\": 1"),
             "{\"blend_back_ticks\": 3, \"blend_in_ticks\": 3, \"pose_blend_ticks\": 3, " + HUD + "}"
@@ -173,8 +177,8 @@ class FeelLoaderTest {
             assertTrue(
                     FeelLoader.CODEC.parse(JsonOps.INSTANCE, json(bad)).result().isEmpty(), bad);
         }
-        for (String missing : new String[] {"cue_max_px", "cue_tether_px", "cue_hud_px"}) {
-            String without = KFX.replaceFirst(", \"" + missing + "\": \\d+", "");
+        for (String missing : new String[] {"cue_max_px", "cue_tether_px", "cue_hud_px", "grab_point_from"}) {
+            String without = KFX.replaceFirst(", \"" + missing + "\": [\\d.]+", "");
             assertTrue(!without.equals(KFX), missing + " was in the row");
             assertTrue(
                     FeelLoader.CODEC
@@ -184,46 +188,80 @@ class FeelLoaderTest {
                     without);
         }
         assertEquals(
-                new Feel.Kfx(0.05f, 0, 0, 0f, 0, 1, 0f, 0f, 0.1f, 0, 0, true),
+                new Feel.Kfx(0.05f, 0, 0, 0f, 0, 1, 0f, 0f, 0.1f, 0, 0, 0.1f, true),
                 FeelLoader.CODEC
-                        .parse(JsonOps.INSTANCE, json(withKfx(kfx(0.05, 0, 0, 0, 0, 1, 0, 0, 0.1, 0, 0, "true"))))
+                        .parse(JsonOps.INSTANCE, json(withKfx(kfx(0.05, 0, 0, 0, 0, 1, 0, 0, 0.1, 0, 0, 0.1, "true"))))
                         .result()
                         .orElseThrow()
                         .kfx(),
                 "the low bounds decode");
         assertEquals(
-                new Feel.Kfx(4f, 256, 1080, 1f, 1000, 60, 1f, 1f, 1f, 2160, 540, false),
+                new Feel.Kfx(4f, 256, 1080, 1f, 1000, 60, 1f, 1f, 1f, 2160, 540, 1f, false),
                 FeelLoader.CODEC
                         .parse(
                                 JsonOps.INSTANCE,
-                                json(withKfx(kfx(4, 256, 1080, 1, 1000, 60, 1, 1, 1, 2160, 540, "false"))))
+                                json(withKfx(kfx(4, 256, 1080, 1, 1000, 60, 1, 1, 1, 2160, 540, 1, "false"))))
                         .result()
                         .orElseThrow()
                         .kfx(),
                 "the high bounds decode");
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new Feel.Kfx(0.5f, 24, 96, 0.35f, 100, 0, 0.45f, 0.6f, 0.75f, 360, 270, false));
+                () -> new Feel.Kfx(0.5f, 24, 96, 0.35f, 100, 0, 0.45f, 0.6f, 0.75f, 360, 270, 0.5f, false));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new Feel.Kfx(0.5f, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 1.5f, 360, 270, false));
+                () -> new Feel.Kfx(0.5f, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 1.5f, 360, 270, 0.5f, false));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new Feel.Kfx(Float.NaN, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, 360, 270, false));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new Feel.Kfx(
-                        0.5f, 24, Feel.Kfx.MAX_CUE_MAX_PX + 1, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, 360, 270, false));
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new Feel.Kfx(0.5f, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, -1, 270, false));
+                () -> new Feel.Kfx(Float.NaN, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, 360, 270, 0.5f, false));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new Feel.Kfx(
-                        0.5f, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, 360, Feel.Kfx.MAX_CUE_HUD_PX + 1, false));
+                        0.5f,
+                        24,
+                        Feel.Kfx.MAX_CUE_MAX_PX + 1,
+                        0.35f,
+                        100,
+                        12,
+                        0.45f,
+                        0.6f,
+                        0.75f,
+                        360,
+                        270,
+                        0.5f,
+                        false));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new Feel.Kfx(0.5f, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, -1, 270, 0.5f, false));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new Feel.Kfx(
+                        0.5f,
+                        24,
+                        96,
+                        0.35f,
+                        100,
+                        12,
+                        0.45f,
+                        0.6f,
+                        0.75f,
+                        360,
+                        Feel.Kfx.MAX_CUE_HUD_PX + 1,
+                        0.5f,
+                        false));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new Feel.Kfx(0.5f, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, 360, 270, 0.09f, false));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new Feel.Kfx(0.5f, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, 360, 270, 1.01f, false));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new Feel.Kfx(0.5f, 24, 96, 0.35f, 100, 12, 0.45f, 0.6f, 0.75f, 360, 270, Float.NaN, false));
         assertEquals(1080, Feel.Kfx.MAX_CUE_MAX_PX, "a 1080-line screen's height");
         assertEquals(2160, Feel.Kfx.MAX_CUE_TETHER_PX, "two: in effect never pulled");
         assertEquals(540, Feel.Kfx.MAX_CUE_HUD_PX, "half the screen");
+        assertEquals(0.1f, Feel.Kfx.MIN_GRAB_POINT_FROM, "a tenth: it shows from its cue");
     }
 
     @Test
