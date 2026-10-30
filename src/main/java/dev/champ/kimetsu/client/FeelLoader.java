@@ -22,6 +22,12 @@ public final class FeelLoader extends SimpleJsonResourceReloadListener<Feel> {
     private static final Logger LOGGER = LogUtils.getLogger();
     static final Identifier KEY = Identifier.fromNamespaceAndPath(Kimetsu.MOD_ID, "feel");
     static final Identifier DEFAULT = Identifier.fromNamespaceAndPath(Kimetsu.MOD_ID, "default");
+    static final Codec<Feel.Hud> HUD = RecordCodecBuilder.create(i -> i.group(
+                    Codec.intRange(0, Feel.Hud.MAX_MS).fieldOf("fade_after_ms").forGetter(Feel.Hud::fadeAfterMs),
+                    Codec.intRange(0, Feel.Hud.MAX_MS).fieldOf("fade_in_ms").forGetter(Feel.Hud::fadeInMs),
+                    Codec.intRange(0, Feel.Hud.MAX_MS).fieldOf("fade_out_ms").forGetter(Feel.Hud::fadeOutMs),
+                    Codec.intRange(0, Feel.Hud.MAX_MS).fieldOf("tint_fade_ms").forGetter(Feel.Hud::tintFadeMs))
+            .apply(i, Feel.Hud::new));
     static final Codec<Feel> CODEC = RecordCodecBuilder.create(i -> i.group(
                     Codec.intRange(0, Feel.MAX_BLEND_TICKS)
                             .fieldOf("blend_back_ticks")
@@ -31,7 +37,8 @@ public final class FeelLoader extends SimpleJsonResourceReloadListener<Feel> {
                             .forGetter(Feel::blendInTicks),
                     Codec.intRange(0, Feel.MAX_BLEND_TICKS)
                             .fieldOf("pose_blend_ticks")
-                            .forGetter(Feel::poseBlendTicks))
+                            .forGetter(Feel::poseBlendTicks),
+                    HUD.fieldOf("hud").forGetter(Feel::hud))
             .apply(i, Feel::new));
 
     private static volatile Feel feel = Feel.DEFAULT;

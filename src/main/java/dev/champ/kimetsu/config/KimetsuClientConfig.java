@@ -13,8 +13,8 @@ import net.neoforged.neoforge.common.TranslatableEnum;
  * read it, and only through {@link #client}: a dedicated server never loads it, where its spec's getters throw. It
  * holds slice 5d-2's options: {@code debug_overlay}, the assist level and the offsets are read ({@code ClientCombat}:
  * the last three go to the server as {@code ClientSettings}), lock-on smoothing ({@code ClientInput}'s ease) and the
- * guard mode ({@code ClientInput}, through {@code GuardToggle}). Reduced shake, flashing and motion, cue volume and HUD
- * scale come with their consumers (slices 5d-3 to 5d-5).
+ * guard mode ({@code ClientInput}, through {@code GuardToggle}); 5d-3b's HUD scale (the HUD's layers). Reduced shake,
+ * flashing and motion and cue volume come with their consumers (slices 5d-4 and 5d-5).
  */
 public final class KimetsuClientConfig {
     /** How the guard key works (Open Question 1, D-104). */
@@ -39,6 +39,7 @@ public final class KimetsuClientConfig {
      * @param audioOffsetMs the audio calibration offset (−500 to 500 ms)
      * @param visualOffsetMs the visual calibration offset (−500 to 500 ms)
      * @param debugOverlay whether the debug overlay starts on (its key toggles it)
+     * @param hudScale the combat HUD's size, each part about its own place (0.5–2.0)
      */
     public record Client(
             int assistLevel,
@@ -46,7 +47,8 @@ public final class KimetsuClientConfig {
             int lockOnSmoothing,
             int audioOffsetMs,
             int visualOffsetMs,
-            boolean debugOverlay) {}
+            boolean debugOverlay,
+            double hudScale) {}
 
     private static final int OFFSET_MS = 500; // the calibration offsets' range either way
 
@@ -57,6 +59,7 @@ public final class KimetsuClientConfig {
     private static final ModConfigSpec.BooleanValue DEBUG_OVERLAY;
     private static final ModConfigSpec.IntValue AUDIO_OFFSET_MS;
     private static final ModConfigSpec.IntValue VISUAL_OFFSET_MS;
+    private static final ModConfigSpec.DoubleValue HUD_SCALE;
 
     static {
         ModConfigSpec.Builder b = new ModConfigSpec.Builder();
@@ -79,6 +82,11 @@ public final class KimetsuClientConfig {
         DEBUG_OVERLAY = b.comment("Whether the combat debug overlay starts on (its key toggles it). On in dev runs.")
                 .translation(key("debug_overlay"))
                 .define("debug_overlay", !FMLEnvironment.isProduction());
+        HUD_SCALE = b.comment(
+                        "The combat HUD's size: the Pulse ring, Breath, the bars and the preview, each about its own"
+                                + " place (0.5 to 2.0). Vanilla's GUI scale applies first.")
+                .translation(key("hud_scale"))
+                .defineInRange("hud_scale", 1.0, 0.5, 2.0);
 
         b.comment("Timing calibration for your audio and display latency.").translation(key("calibration"));
         b.push("calibration");
@@ -131,7 +139,8 @@ public final class KimetsuClientConfig {
                 value(LOCK_ON_SMOOTHING, defaults),
                 value(AUDIO_OFFSET_MS, defaults),
                 value(VISUAL_OFFSET_MS, defaults),
-                value(DEBUG_OVERLAY, defaults));
+                value(DEBUG_OVERLAY, defaults),
+                value(HUD_SCALE, defaults));
     }
 
     private static <T> T value(ModConfigSpec.ConfigValue<T> v, boolean defaults) {

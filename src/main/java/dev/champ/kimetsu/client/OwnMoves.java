@@ -62,6 +62,7 @@ final class OwnMoves {
     // Breath refunds a share of, and the engine step it paid at, for a release that never went
     private long formCost = -1;
     private long formAt = NONE;
+    private boolean ownForm; // the attack running is a form its own release fired: its grey bar is its own to tell
     // the Light Chain's next hit (Rule 3.2): from tick chainFrom, for a press stamped by chainUntil
     private int chainNext;
     private long chainBeat = NONE;
@@ -208,6 +209,7 @@ final class OwnMoves {
         start(fired, tick);
         formCost = cost;
         formAt = at;
+        ownForm = true;
         spend(at, cost);
         resetChain();
         return true;
@@ -330,6 +332,58 @@ final class OwnMoves {
         return attack != null && tick >= attackStart && tick < attackEnd ? attack : null;
     }
 
+    /**
+     * What the HUD shows of its own moves at engine step {@code tick} (D-141's call 7), the snapshot showing
+     * {@code shown}, into {@code out}: the Breath it spent that the snapshot can't show yet; the grey segment, its own
+     * form's while that form runs (none once a Recovery Breath took it, refunded or lost, which a snapshot shows only a
+     * round trip later), else the snapshot's; and Winded, by its own off-beat Recovery Breath to the step it ends, or
+     * by a snapshot showing one its own moves don't account for.
+     */
+    void hud(long tick, NetMessage.@Nullable Snapshot shown, HudReadout out) {
+        long settled = shown != null ? shown.settledTick() : Long.MIN_VALUE;
+        long s = 0;
+        for (int i = 0; i < spends; i++) {
+            if (spentAt[i] > settled) {
+                s += spent[i];
+            }
+        }
+        out.spent = s;
+        out.grey = ownForm && attackAt(tick) != null ? Math.max(formCost, 0) : shown != null ? shown.grey() : 0;
+        out.winded = windedAt(tick, shown);
+    }
+
+    /**
+     * Whether an attack press acting in {@code tick} would fire the style's falling form, were the fall far enough
+     * ({@code Combatant.contextual}, Rule 5.5): from NEUTRAL as far as its own moves and the snapshot tell (no guard,
+     * attack, Step or radial of its own, nothing only the server knows holding it), not Winded, and with the Breath for
+     * the form, its Mushin finisher's at Mushin. The contextual preview's gate (5d-3b); allocates (the Mushin check),
+     * so it's asked once a client tick.
+     */
+    boolean canStartFalling(long tick, NetMessage.@Nullable Snapshot shown, Rules r) {
+        FrameData falling = r.moves().falling();
+        if (falling == null
+                || falling.contextual() == null
+                || blocked(tick)
+                || radial
+                || !stepAllowed(shown)
+                || windedAt(tick, shown)) {
+            return false;
+        }
+        FrameData fired = mushin(shown, false, r) ? r.moves().atMushin(falling) : falling;
+        return shown == null || breath(tick, shown) >= Fixed.of(fired.breathCost());
+    }
+
+    /** The HUD's numbers from its own moves ({@link #hud}), one reused instance. */
+    static final class HudReadout {
+        /** Breath spent that the snapshot can't show yet, in {@code Fixed}'s units (below 0: given back). */
+        long spent;
+
+        /** The grey segment, in {@code Fixed}'s units. */
+        long grey;
+
+        boolean winded;
+    }
+
     /** How many of its spends it holds: those the last snapshot it ticked with can't show yet (for its test). */
     int spendsHeld() {
         return spends;
@@ -436,6 +490,7 @@ final class OwnMoves {
             attackStart = tick - hit.windup() - hit.active();
             attackEnd = tick + stumble;
             formCost = -1;
+            ownForm = false;
         }
         chainHit = -1;
         resetChain();
@@ -463,6 +518,7 @@ final class OwnMoves {
         attackEnd = tick + f.total();
         chainHit = -1;
         formCost = -1;
+        ownForm = false;
     }
 
     /**
@@ -536,6 +592,7 @@ final class OwnMoves {
         attackEnd = NONE;
         chainHit = -1;
         formCost = -1;
+        ownForm = false;
     }
 
     private void resetChain() {
@@ -590,6 +647,11 @@ final class OwnMoves {
      */
     private boolean winded(NetMessage.Snapshot shown) {
         return shown.winded() && (windedUntil == NONE || shown.settledTick() >= windedUntil);
+    }
+
+    /** Winded at engine step {@code tick}: its own off-beat Recovery Breath's spell, or one only the snapshot shows. */
+    private boolean windedAt(long tick, NetMessage.@Nullable Snapshot shown) {
+        return (windedUntil != NONE && tick < windedUntil) || (shown != null && winded(shown));
     }
 
     /** {@code Combatant.tryForm}'s Mushin: every point of Rhythm after the release's own judgment. */

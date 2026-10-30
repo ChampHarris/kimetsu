@@ -2,8 +2,14 @@
   "blend_back_ticks": 3,
   "blend_in_ticks": 3,
   "pose_blend_ticks": 3,
+  "hud": {
+    "fade_after_ms": 3000,
+    "fade_in_ms": 0,
+    "fade_out_ms": 500,
+    "tint_fade_ms": 200
+  },
   "meta": {
     "status": "PROPOSED",
-    "source": "docs/design/specs/m1-combat-core.md#feel--presentation (spec:534's 3-tick blend back); D-138; blend_in_ticks D-139"
+    "source": "docs/design/specs/m1-combat-core.md#feel--presentation (spec:534's 3-tick blend back); D-138; blend_in_ticks D-139; hud: Champ's fade (D-123), D-141"
   }
 }

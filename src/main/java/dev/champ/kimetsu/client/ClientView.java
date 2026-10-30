@@ -1,5 +1,6 @@
 package dev.champ.kimetsu.client;
 
+import dev.champ.kimetsu.client.present.Notch;
 import dev.champ.kimetsu.client.present.StrikeSource;
 import dev.champ.kimetsu.client.present.StrikeSpan;
 import dev.champ.kimetsu.client.present.Track;
@@ -344,6 +345,17 @@ final class ClientView {
             }
         }
         return shown;
+    }
+
+    /**
+     * Whether the impact notch shows at scheduled time {@code micros} (spec:582, D-141's call 9): the strike whose cue
+     * shows ({@link #cueAt}: aimed at player {@code self} or involving it, not cancelled) is within a beat of
+     * {@code beatMicros} of its impact, at the assist level the server confirmed.
+     */
+    boolean notch(int self, long micros, long beatMicros) {
+        Outbox.AttackStarted s = cueAt(self, micros);
+        return s != null
+                && Notch.shows(micros, Micros.ofTicks(s.cueTick()), Micros.ofTicks(s.impactTick()), beatMicros, assist);
     }
 
     /**

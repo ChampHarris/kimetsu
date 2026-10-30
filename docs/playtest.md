@@ -16,6 +16,14 @@ Entry format:
 
 ## Waiting to be played
 
+### 2026-10-29 · The combat HUD (slice 5d-3b, D-141, D-142)
+- **Changed:** a Pulse ring at the crosshair: a closing ring meets the beat circle on every beat, five square pips light with your Rhythm (blue at Mushin), and at assist 1 or more a gap opens at the top of the closing ring while it closes on a strike that will land on you. Breath is a blue arc over Water's crest beside the hotbar's left, its grey Recovery segment after the fill. Your Posture shows as a thin bar under the crosshair once it drops. A locked target's name, HP (dark crimson) and Posture (its guard stake grey) show at the top. Winded edges the screen in grey ink. A Waterfall Basin icon shows right of the crosshair while falling far enough to fire it. The cue diamond now starts 40 px up and closes to 30, outside the pips. The radial's lit name is washi 2 instead of washi 1 (too near the cue white).
+- **Try it:** fight the demon (`/kimetsu demon`), lock it with middle click, chip its guard, fire a form and Recovery Breath on the beat, then off it (Winded); jump off a 3-block ledge. Set assist to 1 in Kimetsu Settings for the notch. Claude's sheets show every part working on OpenGL and Vulkan, at GUI scale 2 and 4 and HUD scale 0.5 to 2 (D-142); the feel is yours.
+- **Watch for:** the ring readable at a glance with sound off (the closing ring touching the beat circle is the beat); the HUD fading half a second, three seconds after your last combat press once you're out of a fight, and back at once on a press. Wrong: the ring or pips crowding the cue diamond, the grey segment lingering after a Recovery Breath, the HUD clutter between fights. Known: at HUD scale 2 chat covers the Breath arc's top while it shows; in third person the ring sits over your own head.
+- **Not taken:** the HUD hidden until the first exchange (the GDD read literally), and fading during quiet circling (the spec as written); Champ's rule keeps it while you're fighting (D-123).
+- **Knob:** `assets/kimetsu/feel/default.json` `hud`: `fade_after_ms` (3000), `fade_out_ms` (500), `fade_in_ms` (0), `tint_fade_ms` (200), each 0–10000, F3+T reloads; `hud_scale` in Kimetsu Settings (0.5–2.0); the layout's sizes are code constants in `client/render/CombatHudLayer.java`.
+- **Champ:**
+
 ### 2026-10-29 · The feint bite (combat-beat-locked-strikes, D-132)
 - **Changed:** tapping guard into a demon feint after it visibly broke costs you the deflect on the string's next strike (you can still block it with held guard or Step). Playable once the bite's build slice lands; until then a feint gives the plain 250 ms whiff lockout.
 - **Try it:** dev client, fight the M1 demon; set `strings.feint_chance` in `m1_demon.json` to 0.08, then 0.25, and fight a few strings at each, once reading the glint and once just tapping on every beat.

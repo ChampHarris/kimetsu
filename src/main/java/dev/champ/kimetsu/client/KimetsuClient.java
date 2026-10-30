@@ -1,11 +1,13 @@
 package dev.champ.kimetsu.client;
 
 import dev.champ.kimetsu.Kimetsu;
+import dev.champ.kimetsu.client.render.CombatHudLayer;
 import dev.champ.kimetsu.client.render.CueMarker;
 import dev.champ.kimetsu.client.render.DebugOverlay;
 import dev.champ.kimetsu.client.render.RadialLayer;
 import dev.champ.kimetsu.client.render.SpikeRenderer;
 import dev.champ.kimetsu.client.render.StandInRenderer;
+import dev.champ.kimetsu.client.render.WindedTintLayer;
 import dev.champ.kimetsu.config.KimetsuClientConfig;
 import dev.champ.kimetsu.entity.KimetsuEntities;
 import dev.champ.kimetsu.net.NetMessage;
@@ -84,9 +86,17 @@ public final class KimetsuClient {
         event.addListener(FeelLoader.KEY, new FeelLoader());
     }
 
+    /**
+     * The mod's GUI layers, chained on its own ids for a fixed order (gotcha: {@code registerAbove} inserts right after
+     * its anchor): the winded tint above vanilla's camera overlays; above the crosshair the combat HUD, then the radial,
+     * then the cue marker on top; the debug overlay above everything. The tint and the HUD share one mark (D-141).
+     */
     private static void onRegisterLayers(RegisterGuiLayersEvent event) {
-        event.registerAbove(VanillaGuiLayers.CROSSHAIR, layer("cue_marker"), new CueMarker());
-        event.registerAbove(VanillaGuiLayers.CROSSHAIR, layer("radial"), new RadialLayer());
+        HudMark hud = new HudMark();
+        event.registerAbove(VanillaGuiLayers.CAMERA_OVERLAYS, layer("winded_tint"), new WindedTintLayer(hud));
+        event.registerAbove(VanillaGuiLayers.CROSSHAIR, layer("combat_hud"), new CombatHudLayer(hud));
+        event.registerAbove(layer("combat_hud"), layer("radial"), new RadialLayer());
+        event.registerAbove(layer("radial"), layer("cue_marker"), new CueMarker());
         event.registerAboveAll(layer("debug_overlay"), new DebugOverlay());
     }
 

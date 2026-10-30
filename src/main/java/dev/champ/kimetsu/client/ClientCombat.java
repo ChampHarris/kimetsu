@@ -6,25 +6,38 @@ import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.logging.LogUtils;
+import dev.champ.kimetsu.client.present.ContextualPreview;
+import dev.champ.kimetsu.client.present.Feel;
 import dev.champ.kimetsu.client.present.FrameProbe;
+import dev.champ.kimetsu.client.present.HudFade;
 import dev.champ.kimetsu.client.present.Layer;
+import dev.champ.kimetsu.client.present.Meters;
 import dev.champ.kimetsu.client.present.MobPosture;
 import dev.champ.kimetsu.client.present.ModelTime;
 import dev.champ.kimetsu.client.present.Placement;
 import dev.champ.kimetsu.client.present.Poser;
 import dev.champ.kimetsu.client.present.PresentClock;
+import dev.champ.kimetsu.client.present.PulseRing;
+import dev.champ.kimetsu.client.present.Ramp;
+import dev.champ.kimetsu.client.present.SpanProbe;
 import dev.champ.kimetsu.client.present.StandInPose;
 import dev.champ.kimetsu.client.present.StrikeSource;
 import dev.champ.kimetsu.client.present.StrikeSpan;
 import dev.champ.kimetsu.client.present.Track;
+import dev.champ.kimetsu.client.render.HudQuads;
+import dev.champ.kimetsu.combat.LevelGround;
 import dev.champ.kimetsu.config.KimetsuClientConfig;
+import dev.champ.kimetsu.core.clock.BeatGrid;
 import dev.champ.kimetsu.core.clock.Micros;
 import dev.champ.kimetsu.core.clock.TickRecord;
 import dev.champ.kimetsu.core.data.ClockRules;
 import dev.champ.kimetsu.core.data.DemonProfile;
 import dev.champ.kimetsu.core.data.FrameData;
 import dev.champ.kimetsu.core.data.Moveset;
+import dev.champ.kimetsu.core.fight.FallHeight;
 import dev.champ.kimetsu.core.fight.Outbox;
+import dev.champ.kimetsu.core.fight.PlayerIntake;
+import dev.champ.kimetsu.core.hit.PoseRing;
 import dev.champ.kimetsu.core.machine.Effect;
 import dev.champ.kimetsu.core.machine.State;
 import dev.champ.kimetsu.core.meter.Fixed;
@@ -43,9 +56,11 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.StrictJsonParser;
 import net.minecraft.util.Util;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.client.event.CalculatePlayerTurnEvent;
@@ -71,6 +86,7 @@ import org.slf4j.Logger;
 public final class ClientCombat {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static @Nullable ClientCombat current;
+    private static long frames; // render frames ended: the HUD's mark is filled once in each
 
     private @Nullable CombatData data;
     private int generation = -1;
@@ -98,6 +114,21 @@ public final class ClientCombat {
     private long traced = Long.MIN_VALUE; // the scheduled time it last logged
     private long placeTraced = Long.MIN_VALUE; // the scheduled time the place trace last logged (/kimetsu_dev trace)
     private final FrameProbe probe = new FrameProbe(); // /kimetsu_dev frametime
+    // the HUD (5d-3b, D-141): what a client tick's end caches for it, and what its frames keep
+    private boolean fightingNow; // fighting() at the last tick's end (it scans the level): the fade's
+    private long lastFighting = HudFade.NONE; // the combat time of the last tick's end that was fighting
+    private final PoseRing poses = new PoseRing(4); // the local player's places at its pose frames' times
+    private @Nullable Player posed; // the player object they're of: a respawn makes a new one
+    private @Nullable Identifier preview; // the falling form's icon while it would fire, at the last tick's end
+    private int targetId = -1; // the locked target its name is of
+    private String targetName = "";
+    private final HudFade fade = new HudFade();
+    private final Ramp tint = new Ramp();
+    private final OwnMoves.HudReadout readout = new OwnMoves.HudReadout();
+    private @Nullable BeatGrid grid; // the style's Pulse (M1 has no tempo change)
+    private @Nullable Identifier crest; // the style's crest, and its falling form's icon, per data generation
+    private @Nullable Identifier fallingIcon;
+    private final SpanProbe hudProbe = new SpanProbe(); // /kimetsu_dev hudtime
 
     private ClientCombat() {}
 
@@ -265,6 +296,92 @@ public final class ClientCombat {
         out.selected = -1;
         ClientCombat c = current;
         return c != null && c.input.radialMark(out, c.present.now());
+    }
+
+    /**
+     * Fills {@code out} with the combat HUD as it's drawn now (spec:582, D-141): the ring, its notch and the cue-driven
+     * parts on the frame's scheduled time; the meters, the fade and the tint on its own time (your feedback, spec:572);
+     * the fighting flag, the preview and the target's name as the last client tick's end left them. False before the
+     * clock is set or the data has come. Filled once a frame: the layers share one mark, and the later one to draw
+     * reads what the first filled.
+     */
+    public static boolean hud(HudMark out) {
+        if (out.frame == frames) {
+            return out.shown;
+        }
+        out.frame = frames;
+        out.shown = fill(out);
+        return out.shown;
+    }
+
+    private static boolean fill(HudMark out) {
+        ClientCombat c = current;
+        CombatData d = c != null ? c.data : null;
+        BeatGrid g = c != null ? c.grid : null;
+        Player self = Minecraft.getInstance().player;
+        if (c == null || d == null || g == null || self == null) {
+            return false;
+        }
+        long scheduled = c.present.scheduled();
+        long now = c.present.now();
+        if (now == PresentClock.NOT_READY) {
+            return false;
+        }
+        Feel.Hud h = FeelLoader.feel().hud();
+        out.alpha = c.fade.alpha(now, c.fightingNow, c.lastFighting, c.input.lastCombatPress(), h);
+        out.ring = PulseRing.radius(scheduled, g);
+        out.notch = c.view.notch(self.getId(), scheduled, g.periodMicros());
+        c.input.hud(Micros.tickOf(now), c.readout);
+        NetMessage.Snapshot s = c.view.snapshot();
+        if (s != null) {
+            out.tier = s.rhythmTier();
+            out.breath.set(Meters.breath(s.breath(), now, c.readout.spent), (double) c.readout.grey, (double)
+                    s.breath().max());
+            double posture = Meters.at(s.posture(), now);
+            out.posture = posture < s.posture().max();
+            out.ownPosture.set(posture, 0, (double) s.posture().max());
+        } else { // a fresh fighter: full Breath, standing
+            out.tier = 0;
+            out.breath.set(1, 0, 1);
+            out.posture = false;
+        }
+        out.crest = c.crest;
+        long span = Micros.ofMillis(h.tintFadeMs());
+        out.tint = c.tint.toward(c.readout.winded ? 1f : 0f, now, span, span);
+        out.preview = c.preview;
+        c.target(self, now, d, out);
+        return true;
+    }
+
+    /** The locked target's panel (Rule 13.3): its name, its HP, and its Posture with the stake as grey (Rule 11.4). */
+    private void target(Player self, long now, CombatData d, HudMark out) {
+        LockOn l = input.lock();
+        Entity e = l.locked() ? hostile(self, l.target()) : null;
+        Outbox.MobState m = e != null ? view.mob(e.getId()) : null;
+        if (!(e instanceof LivingEntity living) || m == null || e.getId() != targetId) {
+            out.target = false;
+            return;
+        }
+        out.target = true;
+        out.targetName = targetName;
+        out.targetHp.set(living.getHealth(), 0, living.getMaxHealth()); // the engine's HP, mirrored (M1Demon)
+        DemonProfile profile = d.demons().get(CombatDataBuilder.M1_DEMON); // only M1Demon is a combatant
+        long max = profile != null ? Fixed.of(profile.posture().max()) : Long.MAX_VALUE;
+        out.targetPosture.set(MobPosture.atMicros(m, now, max), (double) m.stake(), (double) max);
+    }
+
+    /** A part of the HUD took {@code nanos} this frame ({@code /kimetsu_dev hudtime}; nothing while it isn't armed). */
+    public static void hudSpent(long nanos) {
+        ClientCombat c = current;
+        if (c != null) {
+            c.hudProbe.add(nanos);
+        }
+    }
+
+    /** Whether {@code /kimetsu_dev hudtime} is timing the HUD this frame. */
+    public static boolean hudTiming() {
+        ClientCombat c = current;
+        return c != null && c.hudProbe.armed();
     }
 
     /** The debug overlay's lines, as the last client tick built them (empty out of a world). */
@@ -574,6 +691,7 @@ public final class ClientCombat {
         ClientCombat c = current;
         if (c != null) {
             c.input.tickEnd(Util.getNanos());
+            c.tickHud(Util.getNanos());
             c.debug = c.input.overlay() ? buildDebugLines(c) : List.of();
             c.present.tickEnded();
         }
@@ -581,9 +699,18 @@ public final class ClientCombat {
 
     /** The frame was drawn: the next frame's first render-side read samples the clock again (D-123). */
     static void onFrameEnd(RenderFrameEvent.Post event) {
+        frames++;
         ClientCombat c = current;
         if (c != null) {
             c.probe.frameEnd(Util.getNanos());
+            if (c.hudProbe.armed()) {
+                c.hudProbe.add(HudQuads.takeBuilt());
+            }
+            SpanProbe.Summary h = c.hudProbe.frameEnd();
+            if (h != null) {
+                HudQuads.timing(false);
+                hudTimes(h);
+            }
             c.present.endFrame();
         }
     }
@@ -618,6 +745,75 @@ public final class ClientCombat {
                 s.renderMax() / 1e6);
         LOGGER.info("Kimetsu frame probe: {}", line);
         say("Kimetsu dev: " + line);
+    }
+
+    /** {@code /kimetsu_dev hudtime}'s result, in ms, to the log and the chat. */
+    private static void hudTimes(SpanProbe.Summary s) {
+        String line = String.format(
+                Locale.ROOT,
+                "%d frames; HUD p50 %.4f p95 %.4f p99 %.4f max %.4f ms",
+                s.frames(),
+                s.p50() / 1e6,
+                s.p95() / 1e6,
+                s.p99() / 1e6,
+                s.max() / 1e6);
+        LOGGER.info("Kimetsu HUD probe: {}", line);
+        say("Kimetsu dev: " + line);
+    }
+
+    /**
+     * The HUD's once-a-tick reads (D-141's calls 8 and 10), on the clock itself: whether its player is fighting
+     * ({@link #fighting} scans the level), the locked target's name, and the falling form's preview: the local player's
+     * place at this tick's pose frame time into its pose ring (what the server files), then the server's own fall
+     * reading ({@code FallHeight}) and the form's gate.
+     */
+    @SuppressWarnings("ReferenceEquality") // the very player object: a respawn makes a new one, with its own places
+    private void tickHud(long nanos) {
+        Player p = Minecraft.getInstance().player;
+        ClientClock k = clock;
+        CombatData d = data;
+        preview = null;
+        if (p == null || k == null || !k.ready() || d == null) {
+            fightingNow = false;
+            return;
+        }
+        fightingNow = fighting(p, nanos);
+        if (fightingNow) {
+            lastFighting = k.micros(nanos);
+        }
+        LockOn l = input.lock();
+        Entity e = l.locked() ? hostile(p, l.target()) : null;
+        int id = e != null ? e.getId() : -1;
+        if (id != targetId) {
+            targetId = id;
+            targetName = e != null ? e.getDisplayName().getString() : "";
+        }
+        long t = input.tickTime();
+        if (t == Long.MIN_VALUE) {
+            return;
+        }
+        if (p != posed || t < poses.newestTime()) {
+            poses.clear(); // a respawn, or a new timeline
+            posed = p;
+        }
+        poses.put(t, p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot());
+        Moveset m = moves();
+        FrameData f = m != null ? m.falling() : null;
+        FrameData.Contextual when = f != null ? f.contextual() : null;
+        SlayerProfile slayer = d.slayers().get(CombatDataBuilder.SLAYER);
+        if (when == null || slayer == null || fallingIcon == null) {
+            return;
+        }
+        double fall = FallHeight.of(
+                poses,
+                t,
+                new LevelGround(p.level()),
+                slayer.body().halfWidth(),
+                slayer.body().height(),
+                when.minFallBlocks());
+        if (ContextualPreview.shows(fall, when.minFallBlocks(), input.canStartFalling(Micros.tickOf(t) + 1))) {
+            preview = fallingIcon; // a press now acts in the next step
+        }
     }
 
     static void onTurn(CalculatePlayerTurnEvent event) {
@@ -675,6 +871,8 @@ public final class ClientCombat {
             c.combatants.clear();
             c.view.leftLevel();
             c.input.leftLevel();
+            c.poses.clear();
+            c.preview = null;
         }
     }
 
@@ -686,7 +884,9 @@ public final class ClientCombat {
      * next impact, {@code /kimetsu_dev trigger_delay <ms>}, the AzureLib spike's clips started late, and
      * {@code /kimetsu_dev frametime <frames>}, the next frames' times to the log (5d-3a); {@code /kimetsu_dev pose
      * <stance>}, the nearest combatant's stand-in shown in a stance from now (5d-3a Step 3's sheets); {@code
-     * /kimetsu_dev trace <ticks>}, where each stand-in is drawn, per frame, to the log (5d-3a's blend-back check).
+     * /kimetsu_dev trace <ticks>}, where each stand-in is drawn, per frame, to the log (5d-3a's blend-back check);
+     * {@code /kimetsu_dev hudtime <frames>}, the next frames' HUD costs to the log (5d-3b, spec:597's 0.1 ms); {@code
+     * /kimetsu_dev tap <attack|inhale> <offsetMs>}, a tap of that key at an exact offset from the next beat (5d-3b's sheets).
      */
     static void onClientCommands(RegisterClientCommandsEvent event) {
         if (FMLEnvironment.isProduction()) {
@@ -726,6 +926,9 @@ public final class ClientCombat {
                                                                 IntegerArgumentType.getInteger(ctx, "slot"),
                                                                 IntegerArgumentType.getInteger(ctx, "holdMs"),
                                                                 BoolArgumentType.getBool(ctx, "beat")))))))
+                        .then(Commands.literal("tap")
+                                .then(tapping("attack", PlayerIntake.Key.ATTACK))
+                                .then(tapping("inhale", PlayerIntake.Key.INHALE)))
                         .then(Commands.literal("hold")
                                 .then(Commands.argument("ms", IntegerArgumentType.integer(1, 250))
                                         .executes(ctx -> holdAtImpact(IntegerArgumentType.getInteger(ctx, "ms")))))
@@ -742,6 +945,17 @@ public final class ClientCombat {
                                             int ms = IntegerArgumentType.getInteger(ctx, "ms");
                                             c.spikeDelayMicros = Micros.ofMillis(ms);
                                             say("Kimetsu dev: the spike's clips start " + ms + " ms late");
+                                            return 1;
+                                        })))
+                        .then(Commands.literal("hudtime")
+                                .then(Commands.argument("frames", IntegerArgumentType.integer(10, 100_000))
+                                        .executes(ctx -> {
+                                            ClientCombat c = current;
+                                            if (c == null) {
+                                                return 0;
+                                            }
+                                            c.hudProbe.arm(IntegerArgumentType.getInteger(ctx, "frames"));
+                                            HudQuads.timing(true);
                                             return 1;
                                         })))
                         .then(Commands.literal("frametime")
@@ -881,6 +1095,19 @@ public final class ClientCombat {
         }
     }
 
+    private static LiteralArgumentBuilder<CommandSourceStack> tapping(String name, PlayerIntake.Key k) {
+        return Commands.literal(name)
+                .then(Commands.argument("offsetMs", IntegerArgumentType.integer(-1000, 5000))
+                        .executes(ctx -> {
+                            ClientCombat c = current;
+                            if (c == null) {
+                                return 0;
+                            }
+                            c.input.armTap(k, IntegerArgumentType.getInteger(ctx, "offsetMs"));
+                            return 1;
+                        }));
+    }
+
     private static int armRadial(int slot, int holdMs, boolean onBeat) {
         ClientCombat c = current;
         if (c == null) {
@@ -925,6 +1152,8 @@ public final class ClientCombat {
                     clock.onEpoch(e.epoch());
                 }
                 c.input.onEpoch();
+                c.lastFighting = HudFade.NONE; // on the old timeline
+                c.poses.clear();
             }
             case NetMessage.Tick t -> c.tickMessage(t);
             case NetMessage.ClockPong _, NetMessage.ServerEcho _ -> {} // answered on the network thread
@@ -953,6 +1182,7 @@ public final class ClientCombat {
         }
         data = fresh;
         generation = d.generation();
+        hudData(fresh);
         ClockRules rules = fresh.rules().clock();
         ClientClock old = clock;
         if (old == null || !old.rules().equals(rules)) {
@@ -964,6 +1194,27 @@ public final class ClientCombat {
             }
             early = null;
         }
+    }
+
+    /**
+     * The HUD's per-generation reads: the style's Pulse (anchored at 0, Rule 1.3), its crest ({@code hud/crest/<style>})
+     * and its falling form's icon ({@code hud/form/<form>}), GUI sprites named after their data.
+     */
+    private void hudData(CombatData d) {
+        SlayerProfile slayer = d.slayers().get(CombatDataBuilder.SLAYER);
+        if (slayer == null) {
+            return;
+        }
+        Moveset m = d.moveset(slayer);
+        grid = new BeatGrid(0, m.style().beatTicks());
+        crest = hudSprite("hud/crest/", m.style().id());
+        FrameData f = m.falling();
+        fallingIcon = f != null ? hudSprite("hud/form/", f.id()) : null;
+    }
+
+    private static Identifier hudSprite(String folder, String id) {
+        Identifier i = Identifier.parse(id);
+        return Identifier.fromNamespaceAndPath(i.getNamespace(), folder + i.getPath());
     }
 
     private static int beatTicks(CombatData d) {

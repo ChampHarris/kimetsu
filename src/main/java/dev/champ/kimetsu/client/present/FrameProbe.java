@@ -87,7 +87,7 @@ public final class FrameProbe {
     }
 
     /** The nearest-rank {@code p}th percentile of sorted {@code a}. */
-    private static long rank(long[] a, int p) {
+    static long rank(long[] a, int p) {
         return a[Math.max(0, (p * a.length + 99) / 100 - 1)];
     }
 }

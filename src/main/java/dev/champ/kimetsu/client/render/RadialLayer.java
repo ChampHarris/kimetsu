@@ -3,6 +3,7 @@ package dev.champ.kimetsu.client.render;
 import dev.champ.kimetsu.Kimetsu;
 import dev.champ.kimetsu.client.ClientCombat;
 import dev.champ.kimetsu.client.RadialMark;
+import dev.champ.kimetsu.client.present.HudPalette;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -25,9 +26,9 @@ public final class RadialLayer implements GuiLayer {
     private static final int SIZE = 16; // the sprites' own size, one texel a GUI pixel
     private static final int RADIUS = 28; // GUI px from the crosshair to a slot's centre
     private static final int GAP = 3; // between a slot and its label
-    // art/palettes/corps-ink.gpl: washi 1 for the lit form, washi 3 for the rest
-    private static final int LIT = 0xFFF3EEE2;
-    private static final int TEXT = 0xFFCFC4A8;
+    // corps-ink: washi 2 for the lit form (washi 1 is ΔE 10.2 from cue white; D-141), washi 3 for the rest
+    private static final int LIT = HudPalette.argb(HudPalette.WASHI_2, 1);
+    private static final int TEXT = HudPalette.argb(HudPalette.WASHI_3, 1);
 
     private final RadialMark mark = new RadialMark();
 

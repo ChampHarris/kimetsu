@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Test;
  * 12-tick windup that lunges 2 blocks, its cue at the windup's start.
  */
 class StandInPoseTest {
-    private static final Feel FEEL = new Feel(3, 3, 3);
+    private static final Feel FEEL = new Feel(3, 3, 3, Feel.Hud.DEFAULT);
     private static final FrameData LEAP = Fixtures.leap();
     private static final double EYE = 1.74;
 

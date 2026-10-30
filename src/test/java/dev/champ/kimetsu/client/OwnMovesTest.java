@@ -637,7 +637,96 @@ class OwnMovesTest {
                                 .epoch()
                                 .shows(State.NEUTRAL, 10, false, 0, 3) // the new timeline's step 3
                                 .step(20)
-                                .steps(20)));
+                                .steps(20)),
+
+                // ---- the HUD's readout (5d-3b, D-141's call 7): its grey segment, Winded and the spends it holds
+                row(
+                        "the grey segment is its own form's while the form runs, the snapshot's after",
+                        r -> r.showsGrey(State.NEUTRAL, 100, 0, false, 5)
+                                .aim(10)
+                                .release(FIRST, 10, true)
+                                .readout(12, 20, false)
+                                .spent(12, 20) // the snapshot, settled at 5, can't show it yet
+                                .showsGrey(State.ATTACK, 80, 20, false, 20)
+                                .spent(21, 0)
+                                .showsGrey(State.NEUTRAL, 80, 7, false, 30)
+                                .readout(35, 20, false) // its last tick
+                                .readout(36, 7, false)), // over: the server's word
+                row(
+                        "... gone at its own Recovery Breath, though the snapshot still shows it",
+                        r -> r.showsGrey(State.NEUTRAL, 100, 0, false, 5)
+                                .aim(10)
+                                .release(FIRST, 10, true)
+                                .showsGrey(State.ATTACK, 80, 20, false, 20)
+                                .breathe(26) // beat 2, in its recovery
+                                .release(null, 27, false) // + 6 + 20
+                                .readout(28, 0, false)
+                                .spent(28, -26)
+                                .showsGrey(State.NEUTRAL, 100, 0, false, 28) // shows it within the step
+                                .spent(28, 0)), // before the next step lets it go
+                row(
+                        "... and a chain hit has none of its own: the snapshot's",
+                        r -> r.showsGrey(State.NEUTRAL, 100, 4, false, 5)
+                                .attack(13)
+                                .readout(14, 4, false)),
+                row(
+                        "its own off-beat Recovery Breath winds it at once, until its own end",
+                        r -> r.shows(State.NEUTRAL, 100, false, 0, 5)
+                                .aim(10)
+                                .release(FIRST, 10, true)
+                                .breathe(22) // Winded from step 22 to 62
+                                .release(null, 23, false)
+                                .readout(23, 0, true)
+                                .shows(State.NEUTRAL, 100, true, 0, 30)
+                                .readout(61, 0, true)
+                                .readout(62, 0, false)), // the snapshot, settled inside the spell, still shows it
+                row(
+                        "a Winded the snapshot shows that its own moves don't account for is the server's",
+                        r -> r.shows(State.NEUTRAL, 100, true, 0, 5).readout(10, 0, true)),
+                row(
+                        "a fresh fighter shows nothing",
+                        r -> r.readout(10, 0, false).spent(10, 0)),
+
+                // ---- the falling form's gate, for its preview (5d-3b, D-141's call 10): Combatant.contextual's
+                row(
+                        "the falling form can start from NEUTRAL with its Breath",
+                        r -> r.shows(State.NEUTRAL, 100, false, 0, 5).canFall(10, true)),
+                row("... and for a fresh fighter", r -> r.canFall(10, true)),
+                row(
+                        "... at exactly its 25 Breath",
+                        r -> r.shows(State.NEUTRAL, 25, false, 0, 5).canFall(10, true)),
+                row(
+                        "not during its own attack, through its last tick",
+                        r -> r.attack(13).canFall(14, false).canFall(23, false).canFall(24, true)),
+                row(
+                        "not during its own Step",
+                        r -> r.step(10).steps(10).canFall(12, false).canFall(16, true)),
+                row(
+                        "not while it guards",
+                        r -> r.guard(10).canFall(11, false).unguard(12).canFall(12, true)),
+                row("not while the radial aims", r -> r.aim(10).canFall(11, false)),
+                row("not Winded", r -> r.shows(State.NEUTRAL, 100, true, 0, 5).canFall(10, false)),
+                row(
+                        "not Winded by its own off-beat Recovery Breath, which no snapshot shows yet",
+                        r -> r.shows(State.NEUTRAL, 100, false, 0, 5)
+                                .aim(10)
+                                .release(FIRST, 10, true)
+                                .breathe(22)
+                                .release(null, 23, false)
+                                .canFall(40, false)
+                                .canFall(62, true)),
+                row(
+                        "not short of its Breath",
+                        r -> r.shows(State.NEUTRAL, 24, false, 0, 5).canFall(10, false)),
+                row(
+                        "... counting its own spends the snapshot can't show yet",
+                        r -> r.shows(State.NEUTRAL, 30, false, 0, 5)
+                                .step(10)
+                                .steps(10)
+                                .canFall(17, false)),
+                row(
+                        "not while the snapshot shows a hit",
+                        r -> r.shows(State.HITSTUN, 100, false, 0, 5).canFall(10, false)));
     }
 
     @ParameterizedTest(name = "{0}")
@@ -760,6 +849,15 @@ class OwnMovesTest {
         }
 
         Run shows(State state, double breath, boolean winded, int rhythmPoints, long settled) {
+            return shows(state, breath, 0, winded, rhythmPoints, settled);
+        }
+
+        /** A snapshot with a grey segment of {@code grey} Breath. */
+        Run showsGrey(State state, double breath, double grey, boolean winded, long settled) {
+            return shows(state, breath, grey, winded, 0, settled);
+        }
+
+        private Run shows(State state, double breath, double grey, boolean winded, int rhythmPoints, long settled) {
             long max = Fixed.of(100);
             shown = new NetMessage.Snapshot(
                     settled,
@@ -767,7 +865,7 @@ class OwnMovesTest {
                     state,
                     "",
                     new Segment(Fixed.of(breath), 0, settled, max),
-                    0,
+                    Fixed.of(grey),
                     winded,
                     new Segment(max, 0, settled, max),
                     rhythmPoints,
@@ -800,6 +898,32 @@ class OwnMovesTest {
         Run holds(long tick, int spends) {
             startTo(tick);
             assertEquals(spends, own.spendsHeld(), "the spends held after tick " + tick);
+            return this;
+        }
+
+        /** The HUD's readout after {@code tick} starts: its grey segment and whether it's Winded. */
+        Run readout(long tick, double grey, boolean winded) {
+            startTo(tick);
+            OwnMoves.HudReadout h = new OwnMoves.HudReadout();
+            own.hud(tick, shown, h);
+            assertEquals(Fixed.of(grey), h.grey, "the grey segment at tick " + tick);
+            assertEquals(winded, h.winded, "Winded at tick " + tick);
+            return this;
+        }
+
+        /** The Breath its own moves spent that the snapshot can't show yet, after {@code tick} starts (below 0: back). */
+        Run spent(long tick, double breath) {
+            startTo(tick);
+            OwnMoves.HudReadout h = new OwnMoves.HudReadout();
+            own.hud(tick, shown, h);
+            assertEquals(Fixed.of(breath), h.spent, "spent after tick " + tick);
+            return this;
+        }
+
+        /** Whether an attack press would fire the falling form at {@code tick}, were the fall far enough. */
+        Run canFall(long tick, boolean can) {
+            startTo(tick);
+            assertEquals(can, own.canStartFalling(tick, shown, rules), "the falling form at tick " + tick);
             return this;
         }
 

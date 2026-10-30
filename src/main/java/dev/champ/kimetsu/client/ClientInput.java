@@ -1,6 +1,7 @@
 package dev.champ.kimetsu.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import dev.champ.kimetsu.client.present.HudFade;
 import dev.champ.kimetsu.client.present.PresentClock;
 import dev.champ.kimetsu.combat.LevelGround;
 import dev.champ.kimetsu.config.KimetsuClientConfig;
@@ -93,6 +94,7 @@ final class ClientInput {
     private boolean overlay;
     private final FocusRelease focus = new FocusRelease();
     private long breatheDownMicros = NONE; // the stamp of the last Breathe press taken
+    private long lastCombatPress = NONE; // the stamp of the last combat press but Jump and Sneak (the HUD's fade)
     private long deferredUp = NONE; // a Breathe release the lost focus restamped: it goes once its stamp has passed
 
     // the guard toggle (D-104's Open Question 1): in TOGGLE the held state's guard bit is the toggled guard
@@ -140,6 +142,10 @@ final class ClientInput {
     private boolean devOnBeat;
     private long devReleaseAt = NONE; // set once its press went
     private boolean devStroked;
+    private PlayerIntake.@Nullable Key tapKey; // and a tap of a key at an offset from the next beat (5d-3b)
+    private long tapOffsetMicros;
+    private long tapAt = NONE; // its press's time, once set
+    private boolean tapDown; // its press went
 
     ClientInput(ClientCombat combat, boolean overlay, boolean toggle) {
         this.combat = combat;
@@ -803,6 +809,9 @@ final class ClientInput {
             if (k == PlayerIntake.Key.BREATHE) {
                 breatheDownMicros = stampMicros;
             }
+            if (HudFade.counts(k)) {
+                lastCombatPress = Math.max(lastCombatPress, stampMicros); // a restamped press may come later
+            }
             pending.add(PlayerIntake.Delta.press(k, stampMicros));
             if (k == PlayerIntake.Key.GUARD) {
                 guards[guardHead] = stampMicros;
@@ -867,6 +876,7 @@ final class ClientInput {
         renderFrame++;
         devHook(nanos);
         devRadial(nanos);
+        devTap(nanos);
         flushDeferred(nanos);
         aim(nanos);
         lockFrame(nanos);
@@ -971,8 +981,10 @@ final class ClientInput {
     void onEpoch() {
         lastTickTime = Long.MIN_VALUE;
         lastPose = NONE;
+        lastCombatPress = NONE; // on the old timeline, which may run ahead of the new one
         presses.epoch();
         jumpAt = Long.MIN_VALUE; // the dev hook's, on the old timeline
+        tapAt = NONE; // and the tap's: unpressed, it's set again; pressed, its release goes at once
         radial.cancel(); // its press is on the old timeline: the release carries no slot
     }
 
@@ -1203,9 +1215,36 @@ final class ClientInput {
                 : mc.getDeltaTracker().getGameTimeDeltaPartialTick(true);
     }
 
-    /** The lock, for the overlay's line. */
+    /** The lock, for the overlay's line and the HUD's target panel. */
     LockOn lock() {
         return lock;
+    }
+
+    // ------------------------------------------------------------------------------------------------- the HUD
+
+    /** The combat-clock stamp of the last combat press but Jump and Sneak ({@code HudFade.NONE}: none on this timeline). */
+    long lastCombatPress() {
+        return lastCombatPress;
+    }
+
+    /**
+     * The combat time of the tick this client tick's pose frame carries ({@link #poseTick}, in µs), the local player's
+     * place then being what the server files: {@code Long.MIN_VALUE} while input is closed.
+     */
+    long tickTime() {
+        ClientClock clock = combat.clock();
+        return clock != null && clock.inputOpen() ? poseTick(clock) * Micros.PER_TICK : NONE;
+    }
+
+    /** What the HUD shows of its own moves at engine step {@code tick} ({@link OwnMoves#hud}). */
+    void hud(long tick, OwnMoves.HudReadout out) {
+        own.hud(tick, combat.view().snapshot(), out);
+    }
+
+    /** Whether an attack press acting in {@code tick} would fire the falling form, falling far enough. */
+    boolean canStartFalling(long tick) {
+        OwnMoves.Rules r = ownRules();
+        return r != null && own.canStartFalling(tick, combat.view().snapshot(), r);
     }
 
     // ------------------------------------------------------------------------------------------------- the overlay
@@ -1330,6 +1369,79 @@ final class ClientInput {
                     radial.lastLength())));
             devSlot = -1;
             devReleaseAt = NONE;
+        }
+    }
+
+    /**
+     * Arms a tap of {@code k} (5d-3b's sheets: Attack or Inhale) {@code offsetMs} from the next beat, or from the first
+     * beat after that it can still reach, pressed at that exact time and let go {@link #DEV_RELEASE_MICROS} after,
+     * through the capture's own path: MCTest can't land a key within {@code on_beat_ms} of a beat, so this stages the
+     * on-beat Chain hits, the Recovery Breath that takes the grey segment and the off-beat Inhale that leaves you Winded.
+     */
+    void armTap(PlayerIntake.Key k, int offsetMs) {
+        PlayerIntake.Key down = tapKey;
+        ClientClock clock = combat.clock();
+        if (tapDown && down != null && (held & down.bit()) != 0 && clock != null && clock.inputOpen()) {
+            long nanos = Util.getNanos();
+            delta(down, false, clock.micros(nanos), -1, 0); // the tap still down goes up first (code review)
+            send(nanos, InputHorizon.NO_TICK, 0);
+        }
+        tapKey = k;
+        tapOffsetMicros = offsetMs * 1000L;
+        tapAt = NONE;
+        tapDown = false;
+    }
+
+    private void devTap(long nanos) {
+        PlayerIntake.Key k = tapKey;
+        ClientClock clock = combat.clock();
+        Moveset moves = combat.moves();
+        Minecraft mc = Minecraft.getInstance();
+        LocalPlayer p = mc.player;
+        if (k == null || clock == null || !clock.inputOpen() || moves == null || p == null) {
+            return;
+        }
+        long now = clock.micros(nanos);
+        if (!tapDown) {
+            if (tapAt == NONE) {
+                long beat = Micros.ofTicks(moves.style().beatTicks());
+                long at = Math.ceilDiv(now, beat) * beat + tapOffsetMicros; // every Pulse is anchored at 0 (Rule 1.3)
+                if (at < now) {
+                    at += Math.ceilDiv(now - at, beat) * beat; // a negative offset from a beat too near
+                }
+                tapAt = at;
+                p.sendSystemMessage(Component.literal("Kimetsu dev: " + k + " tap at " + at + " µs"));
+            }
+            if (now < tapAt) {
+                return;
+            }
+            boolean screen = mc.gui.screen() != null || mc.gui.overlay() != null;
+            if (!NichirinItem.isBlade(p.getMainHandItem()) || screen || (held & k.bit()) != 0) {
+                p.sendSystemMessage(Component.literal(
+                        "Kimetsu dev: tap dropped (no blade in hand, a screen open, or " + k + " already down)"));
+                tapKey = null;
+                tapAt = NONE;
+                return;
+            }
+            delta(k, true, tapAt, -1, 0); // the exact time, through the capture's own path
+            send(nanos, InputHorizon.NO_TICK, 0); // no frame to correct for: it's exact
+            tapDown = true;
+        }
+        if ((held & k.bit()) == 0) { // a screen or the lost blade let go of it first
+            tapKey = null;
+            tapAt = NONE;
+            tapDown = false;
+            return;
+        }
+        long up = tapAt == NONE ? now : tapAt + DEV_RELEASE_MICROS; // NONE: an epoch came between
+        if (now >= up) {
+            delta(k, false, up, -1, 0);
+            send(nanos, InputHorizon.NO_TICK, 0);
+            p.sendSystemMessage(
+                    Component.literal("Kimetsu dev: " + k + " tapped at " + (tapAt == NONE ? up : tapAt) + " µs"));
+            tapKey = null;
+            tapAt = NONE;
+            tapDown = false;
         }
     }
 

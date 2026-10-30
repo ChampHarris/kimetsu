@@ -42,6 +42,8 @@
   "kimetsu.configuration.lock_on_smoothing.tooltip": "How strongly lock-on turns the camera toward its target, in percent. 0 keeps the lock without turning the camera.",
   "kimetsu.configuration.debug_overlay": "Debug Overlay at Start",
   "kimetsu.configuration.debug_overlay.tooltip": "Whether the combat debug overlay is on when you join a world. Its key still toggles it.",
+  "kimetsu.configuration.hud_scale": "HUD Scale",
+  "kimetsu.configuration.hud_scale.tooltip": "The combat HUD's size: the Pulse ring, Breath, the bars and the preview, each about its own place. Vanilla's GUI scale applies first.",
   "kimetsu.configuration.calibration": "Calibration",
   "kimetsu.configuration.calibration.button": "Edit",
   "kimetsu.configuration.calibration.tooltip": "Timing calibration for your audio and display latency.",

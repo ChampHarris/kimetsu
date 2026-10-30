@@ -369,6 +369,28 @@ class ClientViewTest {
         assertTrue(v.incoming(atSelf, SELF));
     }
 
+    /**
+     * The impact notch (5d-3b, D-141's call 9) reads the cue's own set at the server-confirmed assist level: an
+     * involved strike's shows, a cancelled one's goes, and none shows before the first {@code AssistChanged}.
+     */
+    @Test
+    void theNotchReadsTheCuesSet_atTheAssistTheServerConfirmed() {
+        ClientView v = new ClientView();
+        long beat = Micros.ofTicks(13);
+        feed(v, 100, swipe(7, ALLY), new Outbox.Involved(7, SELF, 100)); // cue 100, impact 110
+        assertFalse(v.notch(SELF, Micros.ofTicks(105), beat), "assist 0 until the server says otherwise");
+        feed(v, 101, new Outbox.PlayerEffect(SELF, 101, new Effect.AssistChanged(1)));
+        assertEquals(1, v.assist());
+        assertTrue(v.notch(SELF, Micros.ofTicks(105), beat), "an involved strike's");
+        assertTrue(v.notch(SELF, Micros.ofTicks(100), beat), "from its cue: its lead is under a beat");
+        assertFalse(v.notch(SELF, Micros.ofTicks(100) - 1, beat));
+        assertFalse(v.notch(SELF, Micros.ofTicks(110) + 1, beat), "past its impact");
+        feed(v, 102, new Outbox.PlayerEffect(ALLY, 102, new Effect.AssistChanged(0)));
+        assertEquals(1, v.assist(), "another player's level isn't this one's");
+        feed(v, 103, new Outbox.AttackCancelled(7, 103, "feint"));
+        assertFalse(v.notch(SELF, Micros.ofTicks(105), beat), "cancelled: gone with its cue");
+    }
+
     @Test
     void theCueShowingIsTheIncomingStrikeWithTheEarliestImpact_fromItsCueToItsImpact() {
         ClientView v = new ClientView();
